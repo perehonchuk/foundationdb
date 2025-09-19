@@ -46,7 +46,7 @@ ACTOR Future<Void> waitFailureClient(RequestStream<ReplyPromise<Void>> waitFailu
 		try {
 			state double start = now();
 			ErrorOr<Void> x =
-			    wait(waitFailure.getReplyUnlessFailedFor(ReplyPromise<Void>(), reactionTime, reactionSlope, taskID));
+			    wait(waitFailure.replyOnlyOnFailure(ReplyPromise<Void>(), reactionTime, reactionSlope, taskID));
 			if (!x.present()) {
 				if (trace) {
 					TraceEvent("WaitFailureClient")
@@ -93,7 +93,7 @@ ACTOR Future<Void> waitFailureTracker(RequestStream<ReplyPromise<Void>> waitFail
 			} else {
 				state double start = now();
 				ErrorOr<Void> x = wait(
-				    waitFailure.getReplyUnlessFailedFor(ReplyPromise<Void>(), reactionTime, reactionSlope, taskID));
+				    waitFailure.replyOnlyOnFailure(ReplyPromise<Void>(), reactionTime, reactionSlope, taskID));
 				if (x.present()) {
 					double w = start + SERVER_KNOBS->WAIT_FAILURE_DELAY_LIMIT - now();
 					if (w > 0)

@@ -857,7 +857,7 @@ public:
 		}
 	}
 
-	// stream.getReplyUnlessFailedFor( request, double sustainedFailureDuration, double sustainedFailureSlope )
+	// stream.replyOnlyOnFailure( request, double sustainedFailureDuration, double sustainedFailureSlope )
 	//   Reliable at least once delivery: Like getReply, delivers request at least once and returns one of the replies.
 	//   However, if
 	//     the failure detector considers the endpoint failed permanently or for the given amount of time, returns
@@ -867,7 +867,7 @@ public:
 	//   If it returns failure, the failure detector considers the endpoint failed permanently or for the given amount
 	//   of time See IFailureMonitor::onFailedFor() for an explanation of the duration and slope parameters.
 	template <class X>
-	Future<ErrorOr<REPLY_TYPE(X)>> getReplyUnlessFailedFor(const X& value,
+	Future<ErrorOr<REPLY_TYPE(X)>> replyOnlyOnFailure(const X& value,
 	                                                       double sustainedFailureDuration,
 	                                                       double sustainedFailureSlope,
 	                                                       TaskPriority taskID) const {
@@ -879,7 +879,7 @@ public:
 	}
 
 	template <class X>
-	Future<ErrorOr<REPLY_TYPE(X)>> getReplyUnlessFailedFor(const X& value,
+	Future<ErrorOr<REPLY_TYPE(X)>> replyOnlyOnFailure(const X& value,
 	                                                       double sustainedFailureDuration,
 	                                                       double sustainedFailureSlope) const {
 		// If it is local endpoint, no need for failure monitoring
@@ -890,8 +890,8 @@ public:
 	}
 
 	template <class X>
-	Future<ErrorOr<X>> getReplyUnlessFailedFor(double sustainedFailureDuration, double sustainedFailureSlope) const {
-		return getReplyUnlessFailedFor(ReplyPromise<X>(), sustainedFailureDuration, sustainedFailureSlope);
+	Future<ErrorOr<X>> replyOnlyOnFailure(double sustainedFailureDuration, double sustainedFailureSlope) const {
+		return replyOnlyOnFailure(ReplyPromise<X>(), sustainedFailureDuration, sustainedFailureSlope);
 	}
 
 	explicit RequestStream(const Endpoint& endpoint) : queue(new NetNotifiedQueue<T, IsPublic>(0, 1, endpoint)) {}

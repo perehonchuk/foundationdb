@@ -2287,7 +2287,7 @@ ACTOR Future<Void> startDataDistributor(ClusterControllerData* self, double wait
 			    .detail("Addr", worker.interf.address())
 			    .detail("DDID", req.reqId);
 
-			ErrorOr<DataDistributorInterface> ddInterf = wait(worker.interf.dataDistributor.getReplyUnlessFailedFor(
+			ErrorOr<DataDistributorInterface> ddInterf = wait(worker.interf.dataDistributor.replyOnlyOnFailure(
 			    req, SERVER_KNOBS->WAIT_FOR_DISTRIBUTOR_JOIN_DELAY, 0));
 
 			if (ddInterf.present()) {
@@ -2389,7 +2389,7 @@ ACTOR Future<Void> startRatekeeper(ClusterControllerData* self, double waitTime)
 			    .detail("RKID", req.reqId);
 
 			ErrorOr<RatekeeperInterface> interf = wait(
-			    worker.interf.ratekeeper.getReplyUnlessFailedFor(req, SERVER_KNOBS->WAIT_FOR_RATEKEEPER_JOIN_DELAY, 0));
+			    worker.interf.ratekeeper.replyOnlyOnFailure(req, SERVER_KNOBS->WAIT_FOR_RATEKEEPER_JOIN_DELAY, 0));
 			if (interf.present()) {
 				self->recruitRatekeeper.set(false);
 				self->recruitingRatekeeperID = interf.get().id();
@@ -2478,7 +2478,7 @@ ACTOR Future<Void> startConsistencyScan(ClusterControllerData* self) {
 			    .detail("Addr", worker.interf.address())
 			    .detail("CSID", req.reqId);
 
-			ErrorOr<ConsistencyScanInterface> interf = wait(worker.interf.consistencyScan.getReplyUnlessFailedFor(
+			ErrorOr<ConsistencyScanInterface> interf = wait(worker.interf.consistencyScan.replyOnlyOnFailure(
 			    req, SERVER_KNOBS->WAIT_FOR_CONSISTENCYSCAN_JOIN_DELAY, 0));
 			if (interf.present()) {
 				self->recruitConsistencyScan.set(false);
@@ -2579,7 +2579,7 @@ ACTOR Future<Void> startEncryptKeyProxy(ClusterControllerData* self, EncryptionA
 			self->recruitingEncryptKeyProxyID = req.reqId;
 			TraceEvent("CCEKP_Recruit", self->id).detail("Addr", worker.interf.address()).detail("Id", req.reqId);
 
-			ErrorOr<EncryptKeyProxyInterface> interf = wait(worker.interf.encryptKeyProxy.getReplyUnlessFailedFor(
+			ErrorOr<EncryptKeyProxyInterface> interf = wait(worker.interf.encryptKeyProxy.replyOnlyOnFailure(
 			    req, SERVER_KNOBS->WAIT_FOR_ENCRYPT_KEY_PROXY_JOIN_DELAY, 0));
 			if (interf.present()) {
 				self->recruitEncryptKeyProxy.set(false);
@@ -2751,7 +2751,7 @@ ACTOR Future<Void> startBlobMigrator(ClusterControllerData* self, double waitTim
 			    .detail("Addr", worker.interf.address())
 			    .detail("MGID", req.reqId);
 
-			ErrorOr<BlobMigratorInterface> interf = wait(worker.interf.blobMigrator.getReplyUnlessFailedFor(
+			ErrorOr<BlobMigratorInterface> interf = wait(worker.interf.blobMigrator.replyOnlyOnFailure(
 			    req, SERVER_KNOBS->WAIT_FOR_BLOB_MANAGER_JOIN_DELAY, 0));
 
 			if (interf.present()) {
@@ -2857,7 +2857,7 @@ ACTOR Future<Void> startBlobManager(ClusterControllerData* self, double waitTime
 			    .detail("BMID", req.reqId)
 			    .detail("Epoch", nextEpoch);
 
-			ErrorOr<BlobManagerInterface> interf = wait(worker.interf.blobManager.getReplyUnlessFailedFor(
+			ErrorOr<BlobManagerInterface> interf = wait(worker.interf.blobManager.replyOnlyOnFailure(
 			    req, SERVER_KNOBS->WAIT_FOR_BLOB_MANAGER_JOIN_DELAY, 0));
 			if (interf.present()) {
 				self->recruitBlobManager.set(false);

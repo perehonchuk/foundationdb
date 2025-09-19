@@ -5633,7 +5633,7 @@ ACTOR Future<Void> auditStorageShardReplicaQ(StorageServer* data, AuditStorageRe
 					req.limitBytes = limitBytes;
 					req.version = version;
 					req.tags = TagSet();
-					fs.push_back(remoteServer.getKeyValues.getReplyUnlessFailedFor(req, 2, 0));
+					fs.push_back(remoteServer.getKeyValues.replyOnlyOnFailure(req, 2, 0));
 				}
 
 				// Read local server

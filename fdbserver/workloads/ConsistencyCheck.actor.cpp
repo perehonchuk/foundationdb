@@ -611,7 +611,7 @@ struct ConsistencyCheckWorkload : TestWorkload {
 						if (SERVER_KNOBS->ENABLE_VERSION_VECTOR) {
 							cx->getLatestCommitVersion(iter_ss[j], req.version, req.ssLatestCommitVersions);
 						}
-						keyValueFutures.push_back(iter_ss[j].getKeyValues.getReplyUnlessFailedFor(req, 2, 0));
+						keyValueFutures.push_back(iter_ss[j].getKeyValues.replyOnlyOnFailure(req, 2, 0));
 					}
 
 					wait(waitForAll(keyValueFutures));
@@ -851,7 +851,7 @@ struct ConsistencyCheckWorkload : TestWorkload {
 						if (SERVER_KNOBS->ENABLE_VERSION_VECTOR) {
 							cx->getLatestCommitVersion(kv, req.version, req.ssLatestCommitVersions);
 						}
-						keyValueFutures.push_back(kv.getKeyValues.getReplyUnlessFailedFor(req, 2, 0));
+						keyValueFutures.push_back(kv.getKeyValues.replyOnlyOnFailure(req, 2, 0));
 					}
 
 					wait(waitForAll(keyValueFutures));
@@ -942,7 +942,7 @@ struct ConsistencyCheckWorkload : TestWorkload {
 			// Check that each storage server has the correct key value store type
 			ReplyPromise<KeyValueStoreType> typeReply;
 			ErrorOr<KeyValueStoreType> keyValueStoreType =
-			    wait(storageServers[i].getKeyValueStoreType.getReplyUnlessFailedFor(typeReply, 2, 0));
+			    wait(storageServers[i].getKeyValueStoreType.replyOnlyOnFailure(typeReply, 2, 0));
 
 			if (!keyValueStoreType.present()) {
 				TraceEvent("ConsistencyCheck_ServerUnavailable").detail("ServerID", storageServers[i].id());
@@ -1164,7 +1164,7 @@ struct ConsistencyCheckWorkload : TestWorkload {
 
 		for (itr = workers.begin(); itr != workers.end(); ++itr) {
 			ErrorOr<Standalone<VectorRef<UID>>> stores =
-			    wait(itr->interf.diskStoreRequest.getReplyUnlessFailedFor(DiskStoreRequest(false), 2, 0));
+			    wait(itr->interf.diskStoreRequest.replyOnlyOnFailure(DiskStoreRequest(false), 2, 0));
 			if (stores.isError()) {
 				TraceEvent("ConsistencyCheck_GetDataStoreFailure")
 				    .error(stores.getError())

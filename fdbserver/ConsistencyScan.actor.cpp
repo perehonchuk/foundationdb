@@ -228,7 +228,7 @@ ACTOR Future<int> consistencyCheckReadData(UID myId,
 		if (SERVER_KNOBS->ENABLE_VERSION_VECTOR) {
 			cx->getLatestCommitVersion((*storageServerInterfaces)[j], req.version, req.ssLatestCommitVersions);
 		}
-		keyValueFutures->push_back((*storageServerInterfaces)[j].getKeyValues.getReplyUnlessFailedFor(req, 2, 0));
+		keyValueFutures->push_back((*storageServerInterfaces)[j].getKeyValues.replyOnlyOnFailure(req, 2, 0));
 	}
 
 	wait(waitForAll(*keyValueFutures));
@@ -1232,7 +1232,7 @@ ACTOR Future<bool> getKeyServers(
 		for (int i = 0; i < commitProxyInfo->size(); i++)
 			keyServerLocationFutures.push_back(
 			    commitProxyInfo->get(i, &CommitProxyInterface::getKeyServersLocations)
-			        .getReplyUnlessFailedFor(
+			        .replyOnlyOnFailure(
 			            GetKeyServerLocationsRequest(
 			                span.context, TenantInfo(), begin, end, limitKeyServers, false, latestVersion, Arena()),
 			            2,
@@ -1314,7 +1314,7 @@ ACTOR Future<bool> getKeyLocations(Database cx,
 					if (SERVER_KNOBS->ENABLE_VERSION_VECTOR) {
 						cx->getLatestCommitVersion(kv, req.version, req.ssLatestCommitVersions);
 					}
-					keyValueFutures.push_back(kv.getKeyValues.getReplyUnlessFailedFor(req, 2, 0));
+					keyValueFutures.push_back(kv.getKeyValues.replyOnlyOnFailure(req, 2, 0));
 				}
 
 				wait(waitForAll(keyValueFutures));
@@ -1405,7 +1405,7 @@ ACTOR Future<std::pair<std::vector<int64_t>, StorageMetrics>> getStorageSizeEsti
 		// Check the size of the shard on each storage server
 		for (int i = 0; i < storageServers.size(); i++) {
 			resetReply(req);
-			metricFutures.push_back(storageServers[i].waitMetrics.getReplyUnlessFailedFor(req, 2, 0));
+			metricFutures.push_back(storageServers[i].waitMetrics.replyOnlyOnFailure(req, 2, 0));
 		}
 
 		// Wait for the storage servers to respond

@@ -358,7 +358,7 @@ void endStreamOnDisconnect(Future<Void> signal,
 	}
 }
 
-// Implements tryGetReply, getReplyUnlessFailedFor
+// Implements tryGetReply, replyOnlyOnFailure
 ACTOR template <class X>
 Future<ErrorOr<X>> waitValueOrSignal(Future<X> value,
                                      Future<Void> signal,
