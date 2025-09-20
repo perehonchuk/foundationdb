@@ -118,6 +118,17 @@ def maintenance(logger):
     output3 = run_fdbcli_command("maintenance")
     assert output3 == no_maintenance_output
 
+    # enable maintenance for multiple zones at once
+    run_fdbcli_command("maintenance", "on", "fake_zone_a", "fake_zone_b", "5")
+    output4 = run_fdbcli_command("maintenance")
+    logger.debug("Maintenance status (multi-zone): " + output4)
+    assert "Maintenance for multiple zones:" in output4
+    assert "fake_zone_a" in output4
+    assert "fake_zone_b" in output4
+    run_fdbcli_command("maintenance", "off")
+    output5 = run_fdbcli_command("maintenance")
+    assert output5 == no_maintenance_output
+
 
 @enable_logging()
 def quota(logger):

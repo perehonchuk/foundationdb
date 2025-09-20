@@ -19,6 +19,8 @@
  */
 
 #include <cinttypes>
+#include <unordered_set>
+#include <vector>
 
 #include "boost/lexical_cast.hpp"
 #include "fmt/format.h"
@@ -36,7 +38,7 @@
 
 namespace {
 
-// print zoneId under maintenance, only one is possible at the same time
+// print zone ids under maintenance; multiple zones can be active simultaneously
 ACTOR Future<Void> printHealthyZone(Reference<IDatabase> db) {
 	state Reference<ITransaction> tr = db->createTransaction();
 	loop {
@@ -47,16 +49,50 @@ ACTOR Future<Void> printHealthyZone(Reference<IDatabase> db) {
 			state ThreadFuture<RangeResult> resultFuture =
 			    tr->getRange(fdb_cli::maintenanceSpecialKeyRange, CLIENT_KNOBS->TOO_MANY);
 			RangeResult res = wait(safeThreadFutureToFuture(resultFuture));
-			ASSERT(res.size() <= 1);
-			if (res.size() == 1 && res[0].key == fdb_cli::ignoreSSFailureSpecialKey) {
+			bool ignoreSSFailures = false;
+			for (const auto& kv : res) {
+				if (kv.key == fdb_cli::ignoreSSFailureSpecialKey) {
+					ignoreSSFailures = true;
+					break;
+				}
+			}
+
+			if (ignoreSSFailures) {
 				printf("Data distribution has been disabled for all storage server failures in this cluster and thus "
 				       "maintenance mode is not active.\n");
-			} else if (!res.size() || boost::lexical_cast<double>(res[0].value.toString()) <= 0) {
+				return Void();
+			}
+
+			std::vector<std::pair<std::string, int64_t>> zones;
+			zones.reserve(res.size());
+			for (const auto& kv : res) {
+				std::string zoneId = kv.key.removePrefix(fdb_cli::maintenanceSpecialKeyRange.begin).toString();
+				if (zoneId.empty()) {
+					continue;
+				}
+				double secondsRemaining = 0;
+				try {
+					secondsRemaining = boost::lexical_cast<double>(kv.value.toString());
+				} catch (const boost::bad_lexical_cast&) {
+					continue;
+				}
+				if (secondsRemaining <= 0) {
+					continue;
+				}
+				zones.emplace_back(std::move(zoneId), static_cast<int64_t>(secondsRemaining));
+			}
+
+			if (zones.empty()) {
 				printf("No ongoing maintenance.\n");
+			} else if (zones.size() == 1) {
+				fmt::print("Maintenance for zone {0} will continue for {1} seconds.\n",
+				           zones.front().first,
+				           zones.front().second);
 			} else {
-				std::string zoneId = res[0].key.removePrefix(fdb_cli::maintenanceSpecialKeyRange.begin).toString();
-				int64_t seconds = static_cast<int64_t>(boost::lexical_cast<double>(res[0].value.toString()));
-				fmt::print("Maintenance for zone {0} will continue for {1} seconds.\n", zoneId, seconds);
+				fmt::print("Maintenance for multiple zones:\n");
+				for (const auto& zone : zones) {
+					fmt::print("  - {0} ({1} seconds remaining)\n", zone.first, zone.second);
+				}
 			}
 			return Void();
 		} catch (Error& e) {
@@ -74,10 +110,23 @@ const KeyRangeRef maintenanceSpecialKeyRange =
 // The special key, if present, means data distribution is disabled for storage failures;
 const KeyRef ignoreSSFailureSpecialKey = "\xff\xff/management/maintenance/IgnoreSSFailures"_sr;
 
-// add a zone to maintenance and specify the maintenance duration
-ACTOR Future<bool> setHealthyZone(Reference<IDatabase> db, StringRef zoneId, double seconds, bool printWarning) {
+// add zones to maintenance and specify the maintenance duration
+ACTOR Future<bool> setHealthyZones(Reference<IDatabase> db,
+	                                std::vector<std::string> zoneIds,
+	                                double seconds,
+	                                bool printWarning) {
+	state std::vector<std::string> zoneList = std::move(zoneIds);
 	state Reference<ITransaction> tr = db->createTransaction();
-	TraceEvent("SetHealthyZone").detail("Zone", zoneId).detail("DurationSeconds", seconds);
+	TraceEvent("SetHealthyZone")
+	    .detail("ZoneCount", static_cast<int>(zoneList.size()))
+	    .detail("DurationSeconds", seconds);
+	if (zoneList.empty()) {
+		if (printWarning) {
+			fprintf(stderr,
+			        "ERROR: At least one zone must be specified when enabling maintenance mode.\n");
+		}
+		return false;
+	}
 	loop {
 		tr->setOption(FDBTransactionOptions::SPECIAL_KEY_SPACE_ENABLE_WRITES);
 		try {
@@ -85,23 +134,36 @@ ACTOR Future<bool> setHealthyZone(Reference<IDatabase> db, StringRef zoneId, dou
 			state ThreadFuture<RangeResult> resultFuture =
 			    tr->getRange(fdb_cli::maintenanceSpecialKeyRange, CLIENT_KNOBS->TOO_MANY);
 			RangeResult res = wait(safeThreadFutureToFuture(resultFuture));
-			ASSERT(res.size() <= 1);
-			if (res.size() == 1 && res[0].key == fdb_cli::ignoreSSFailureSpecialKey) {
-				if (printWarning) {
-					fprintf(stderr,
-					        "ERROR: Maintenance mode cannot be used while data distribution is disabled for storage "
-					        "server failures. Use 'datadistribution on' to reenable data distribution.\n");
+			for (const auto& kv : res) {
+				if (kv.key == fdb_cli::ignoreSSFailureSpecialKey) {
+					if (printWarning) {
+						fprintf(stderr,
+						        "ERROR: Maintenance mode cannot be used while data distribution is disabled for storage "
+						        "server failures. Use 'datadistribution on' to reenable data distribution.\n");
+					}
+					return false;
 				}
-				return false;
 			}
-			tr->set(fdb_cli::maintenanceSpecialKeyRange.begin.withSuffix(zoneId),
-			        boost::lexical_cast<std::string>(seconds));
+
+			tr->clear(fdb_cli::maintenanceSpecialKeyRange);
+			std::string secondsStr = boost::lexical_cast<std::string>(seconds);
+			for (const auto& zone : zoneList) {
+				StringRef zoneRef(reinterpret_cast<const uint8_t*>(zone.data()), zone.size());
+				tr->set(fdb_cli::maintenanceSpecialKeyRange.begin.withSuffix(zoneRef), secondsStr);
+			}
 			wait(safeThreadFutureToFuture(tr->commit()));
 			return true;
 		} catch (Error& e) {
 			wait(safeThreadFutureToFuture(tr->onError(e)));
 		}
 	}
+}
+
+ACTOR Future<bool> setHealthyZone(Reference<IDatabase> db, StringRef zoneId, double seconds, bool printWarning) {
+	std::vector<std::string> zoneList;
+	zoneList.push_back(zoneId.toString());
+	bool success = wait(setHealthyZones(db, std::move(zoneList), seconds, printWarning));
+	return success;
 }
 
 // clear ongoing maintenance, let clearSSFailureZoneString = true to enable data distribution for storage
@@ -115,8 +177,14 @@ ACTOR Future<bool> clearHealthyZone(Reference<IDatabase> db, bool printWarning, 
 			state ThreadFuture<RangeResult> resultFuture =
 			    tr->getRange(fdb_cli::maintenanceSpecialKeyRange, CLIENT_KNOBS->TOO_MANY);
 			RangeResult res = wait(safeThreadFutureToFuture(resultFuture));
-			ASSERT(res.size() <= 1);
-			if (!clearSSFailureZoneString && res.size() == 1 && res[0].key == fdb_cli::ignoreSSFailureSpecialKey) {
+			bool ignoreSSFailures = false;
+			for (const auto& kv : res) {
+				if (kv.key == fdb_cli::ignoreSSFailureSpecialKey) {
+					ignoreSSFailures = true;
+					break;
+				}
+			}
+			if (!clearSSFailureZoneString && ignoreSSFailures) {
 				if (printWarning) {
 					fprintf(stderr,
 					        "ERROR: Maintenance mode cannot be used while data distribution is disabled for storage "
@@ -141,16 +209,39 @@ ACTOR Future<bool> maintenanceCommandActor(Reference<IDatabase> db, std::vector<
 	} else if (tokens.size() == 2 && tokencmp(tokens[1], "off")) {
 		bool clearResult = wait(clearHealthyZone(db, true));
 		result = clearResult;
-	} else if (tokens.size() == 4 && tokencmp(tokens[1], "on")) {
+	} else if (tokens.size() >= 4 && tokencmp(tokens[1], "on")) {
 		double seconds;
 		int n = 0;
-		auto secondsStr = tokens[3].toString();
+		auto secondsStr = tokens.back().toString();
 		if (sscanf(secondsStr.c_str(), "%lf%n", &seconds, &n) != 1 || n != secondsStr.size()) {
 			printUsage(tokens[0]);
 			result = false;
 		} else {
-			bool setResult = wait(setHealthyZone(db, tokens[2], seconds, true));
-			result = setResult;
+			std::unordered_set<std::string> seen;
+			std::vector<std::string> zoneIds;
+			for (int i = 2; i < tokens.size() - 1; ++i) {
+				std::string rawToken = tokens[i].toString();
+				size_t start = 0;
+				while (start <= rawToken.size()) {
+					size_t delim = rawToken.find(',', start);
+					std::string zone = rawToken.substr(start, delim == std::string::npos ? std::string::npos : delim - start);
+					if (!zone.empty() && seen.insert(zone).second) {
+						zoneIds.push_back(zone);
+					}
+					if (delim == std::string::npos) {
+						break;
+					}
+					start = delim + 1;
+				}
+			}
+
+			if (zoneIds.empty()) {
+				printUsage(tokens[0]);
+				result = false;
+			} else {
+				bool setResult = wait(setHealthyZones(db, zoneIds, seconds, true));
+				result = setResult;
+			}
 		}
 	} else {
 		printUsage(tokens[0]);
@@ -162,11 +253,11 @@ ACTOR Future<bool> maintenanceCommandActor(Reference<IDatabase> db, std::vector<
 CommandFactory maintenanceFactory(
     "maintenance",
     CommandHelp(
-        "maintenance [on|off] [ZONEID] [SECONDS]",
-        "mark a zone for maintenance",
+        "maintenance [on|off] [ZONEID ...] [SECONDS]",
+        "mark one or more zones for maintenance",
         "Calling this command with `on' prevents data distribution from moving data away from the processes with the "
-        "specified ZONEID. Data distribution will automatically be turned back on for ZONEID after the specified "
-        "SECONDS have elapsed, or after a storage server with a different ZONEID fails. Only one ZONEID can be marked "
-        "for maintenance. Calling this command with no arguments will display any ongoing maintenance. Calling this "
-        "command with `off' will disable maintenance.\n"));
+        "specified ZONEID values. Data distribution will automatically be turned back on for the listed zones after the "
+        "specified SECONDS have elapsed, or after a storage server with a different ZONEID fails. Calling this command "
+        "with no arguments will display any ongoing maintenance. Calling this command with `off' will disable "
+        "maintenance.\n"));
 } // namespace fdb_cli
