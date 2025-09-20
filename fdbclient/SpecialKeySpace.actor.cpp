@@ -68,7 +68,8 @@ std::unordered_map<SpecialKeySpace::MODULE, KeyRange> SpecialKeySpace::moduleToB
 	{ SpecialKeySpace::MODULE::MANAGEMENT, KeyRangeRef("\xff\xff/management/"_sr, "\xff\xff/management0"_sr) },
 	{ SpecialKeySpace::MODULE::ERRORMSG, singleKeyRange("\xff\xff/error_message"_sr) },
 	{ SpecialKeySpace::MODULE::CONFIGURATION, KeyRangeRef("\xff\xff/configuration/"_sr, "\xff\xff/configuration0"_sr) },
-	{ SpecialKeySpace::MODULE::GLOBALCONFIG, KeyRangeRef("\xff\xff/global_config/"_sr, "\xff\xff/global_config0"_sr) },
+	{ SpecialKeySpace::MODULE::GLOBALCONFIG,
+	  KeyRangeRef("\xff\xff/global_settings/"_sr, "\xff\xff/global_settings0"_sr) },
 	{ SpecialKeySpace::MODULE::TRACING, KeyRangeRef("\xff\xff/tracing/"_sr, "\xff\xff/tracing0"_sr) },
 	{ SpecialKeySpace::MODULE::ACTORLINEAGE, KeyRangeRef("\xff\xff/actor_lineage/"_sr, "\xff\xff/actor_lineage0"_sr) },
 	{ SpecialKeySpace::MODULE::ACTOR_PROFILER_CONF,
@@ -1732,8 +1733,8 @@ ACTOR Future<Optional<std::string>> globalConfigCommitActor(GlobalConfigImpl* gl
 	Standalone<VectorRef<KeyValueRef>> insertions;
 	Standalone<VectorRef<KeyRangeRef>> clears;
 
-	// Transform writes from the special-key-space (\xff\xff/global_config/) to
-	// the system key space (\xff/globalConfig/), and writes mutations to
+	// Transform writes from the special-key-space (\xff\xff/global_settings/) to
+	// the system key space (\xff/global_settings/), and writes mutations to
 	// latest version history.
 	state RangeMap<Key, std::pair<bool, Optional<Value>>, KeyRangeRef>::Ranges ranges =
 	    ryw->getSpecialKeySpaceWriteMap().containedRanges(specialKeys);

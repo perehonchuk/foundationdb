@@ -421,13 +421,13 @@ std::string encodeFailedLocalityKey(std::string const&);
 // extern const KeyRangeRef globalConfigData;
 // extern const KeyRef globalConfigDataPrefix;
 
-//   "\xff/globalConfig/k/[[key]]" := "value"
+//   "\xff/global_settings/k/[[key]]" := "value"
 //	 Key-value pairs that have been set. The range this keyspace represents
 //	 contains all globally configured options.
 extern const KeyRangeRef globalConfigDataKeys;
 extern const KeyRef globalConfigKeysPrefix;
 
-//   "\xff/globalConfig/h/[[version]]" := "value"
+//   "\xff/global_settings/h/[[version]]" := "value"
 //   Maps a commit version to a list of mutations made to the global
 //   configuration at that commit. Shipped to nodes periodically. In general,
 //   clients should not write to keys in this keyspace; it will be written
@@ -435,7 +435,7 @@ extern const KeyRef globalConfigKeysPrefix;
 extern const KeyRangeRef globalConfigHistoryKeys;
 extern const KeyRef globalConfigHistoryPrefix;
 
-//   "\xff/globalConfig/v" := "version"
+//   "\xff/global_settings/v" := "version"
 //   Read-only key which returns the commit version of the most recent mutation
 //   made to the global configuration keyspace.
 extern const KeyRef globalConfigVersionKey;

@@ -87,7 +87,7 @@ public:
 	// Given a list of insertions and clears, applies the necessary changes to
 	// the given transaction to update the global configuration database. Keys
 	// in the list of mutations should not include the global configuration
-	// prefix (`\xff\xff/global_config/`). The caller must still commit the
+	// prefix (`\xff\xff/global_settings/`). The caller must still commit the
 	// given transaction in order to persist the changes.
 	static void applyChanges(Transaction& tr,
 	                         const VectorRef<KeyValueRef>& insertions,
@@ -96,7 +96,7 @@ public:
 	// Use this function to turn a global configuration key defined above into
 	// the full path needed to set the value in the database.
 	//
-	// For example, given "config/a", returns "\xff\xff/global_config/config/a".
+	// For example, given "config/a", returns "\xff\xff/global_settings/config/a".
 	static Key prefixedKey(KeyRef key);
 
 	// Get a value from the framework. Values are returned as a ConfigValue
@@ -126,7 +126,7 @@ public:
 	}
 
 	// Trying to write into the global configuration keyspace? To write data,
-	// submit a transaction to \xff\xff/global_config/<your-key> with
+	// submit a transaction to \xff\xff/global_settings/<your-key> with
 	// <your-value> encoded using the FDB tuple typecodes. Use the helper
 	// function `prefixedKey` to correctly prefix your global configuration
 	// key.

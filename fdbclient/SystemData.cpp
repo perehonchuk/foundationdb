@@ -1074,16 +1074,16 @@ std::string encodeFailedLocalityKey(std::string const& locality) {
 	return failedLocalityPrefix.toString() + locality;
 }
 
-// const KeyRangeRef globalConfigKeys( "\xff/globalConfig/"_sr, "\xff/globalConfig0"_sr );
+// const KeyRangeRef globalConfigKeys( "\xff/global_settings/"_sr, "\xff/global_settings0"_sr );
 // const KeyRef globalConfigPrefix = globalConfigKeys.begin;
 
-const KeyRangeRef globalConfigDataKeys("\xff/globalConfig/k/"_sr, "\xff/globalConfig/k0"_sr);
+const KeyRangeRef globalConfigDataKeys("\xff/global_settings/k/"_sr, "\xff/global_settings/k0"_sr);
 const KeyRef globalConfigKeysPrefix = globalConfigDataKeys.begin;
 
-const KeyRangeRef globalConfigHistoryKeys("\xff/globalConfig/h/"_sr, "\xff/globalConfig/h0"_sr);
+const KeyRangeRef globalConfigHistoryKeys("\xff/global_settings/h/"_sr, "\xff/global_settings/h0"_sr);
 const KeyRef globalConfigHistoryPrefix = globalConfigHistoryKeys.begin;
 
-const KeyRef globalConfigVersionKey = "\xff/globalConfig/v"_sr;
+const KeyRef globalConfigVersionKey = "\xff/global_settings/v"_sr;
 
 const KeyRangeRef workerListKeys("\xff/worker/"_sr, "\xff/worker0"_sr);
 const KeyRef workerListPrefix = workerListKeys.begin;
