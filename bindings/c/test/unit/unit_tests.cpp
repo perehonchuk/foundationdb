@@ -823,8 +823,8 @@ TEST_CASE("fdb_transaction_set_option size_limit too small") {
 TEST_CASE("fdb_transaction_set_option size_limit too large") {
 	fdb::Transaction tr(db);
 
-	// Size limit must be less than or equal to 10,000,000.
-	int64_t size_limit = 10000001;
+	// Size limit must be less than or equal to 9,000,000.
+	int64_t size_limit = 9000001;
 	fdb_check(tr.set_option(FDB_TR_OPTION_SIZE_LIMIT, (const uint8_t*)&size_limit, sizeof(size_limit)));
 	tr.set("foo", "bar");
 	fdb::EmptyFuture f1 = tr.commit();
@@ -859,15 +859,15 @@ TEST_CASE("fdb_transaction_set_option size_limit") {
 //   CHECK(wait_future(f1) == 2006); // invalid_option_value
 //
 //   // Set size limit back to default.
-//   size_limit = 10000000;
+//   size_limit = 9000000;
 //   fdb_check(fdb_database_set_option(db, FDB_DB_OPTION_TRANSACTION_SIZE_LIMIT,
 //                                     (const uint8_t *)&size_limit,
 //                                     sizeof(size_limit)));
 // }
 
 // TEST_CASE("FDB_DB_OPTION_TRANSACTION_SIZE_LIMIT too large") {
-//   // Size limit must be less than or equal to 10,000,000.
-//   int64_t size_limit = 10000001;
+//   // Size limit must be less than or equal to 9,000,000.
+//   int64_t size_limit = 9000001;
 //   fdb_check(fdb_database_set_option(db, FDB_DB_OPTION_TRANSACTION_SIZE_LIMIT,
 //                                     (const uint8_t *)&size_limit,
 //                                     sizeof(size_limit)));
@@ -879,7 +879,7 @@ TEST_CASE("fdb_transaction_set_option size_limit") {
 //   CHECK(wait_future(f1) == 2006); // invalid_option_value
 //
 //   // Set size limit back to default.
-//   size_limit = 10000000;
+//   size_limit = 9000000;
 //   fdb_check(fdb_database_set_option(db, FDB_DB_OPTION_TRANSACTION_SIZE_LIMIT,
 //                                     (const uint8_t *)&size_limit,
 //                                     sizeof(size_limit)));
@@ -897,7 +897,7 @@ TEST_CASE("FDB_DB_OPTION_TRANSACTION_SIZE_LIMIT") {
 	CHECK(wait_future(f1) == 2101); // transaction_too_large
 
 	// Set size limit back to default.
-	size_limit = 10000000;
+	size_limit = 9000000;
 	fdb_check(fdb_database_set_option(
 	    db, FDB_DB_OPTION_TRANSACTION_SIZE_LIMIT, (const uint8_t*)&size_limit, sizeof(size_limit)));
 }

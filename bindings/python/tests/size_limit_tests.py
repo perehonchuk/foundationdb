@@ -70,7 +70,7 @@ def test_size_limit_option(db):
         assert e.code == 2101  # Transaction exceeds byte limit (2101)
 
     # Reset the size limit for future tests
-    db.options.set_transaction_size_limit(10000000)
+    db.options.set_transaction_size_limit(9000000)
 
 
 @fdb.transactional

@@ -72,7 +72,7 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( SHARD_STAT_SMOOTH_AMOUNT,                5.0 );
 	init( INIT_MID_SHARD_BYTES,               10000000 ); if( randomize && BUGGIFY ) INIT_MID_SHARD_BYTES = 40000; else if(randomize && BUGGIFY_WITH_PROB(0.75)) INIT_MID_SHARD_BYTES = 200000; // The same value as SERVER_KNOBS->MIN_SHARD_BYTES
 
-	init( TRANSACTION_SIZE_LIMIT,                  1e7 );
+	init( TRANSACTION_SIZE_LIMIT,                  9e6 );
 	init( KEY_SIZE_LIMIT,                          1e4 );
 	init( SYSTEM_KEY_SIZE_LIMIT,                   3e4 );
 	init( VALUE_SIZE_LIMIT,                        1e5 );
