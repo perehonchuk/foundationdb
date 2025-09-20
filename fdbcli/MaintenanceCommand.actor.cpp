@@ -19,7 +19,10 @@
  */
 
 #include <cinttypes>
-#include <unordered_set>
+#include <algorithm>
+#include <cstdio>
+#include <limits>
+#include <unordered_map>
 #include <vector>
 
 #include "boost/lexical_cast.hpp"
@@ -110,16 +113,23 @@ const KeyRangeRef maintenanceSpecialKeyRange =
 // The special key, if present, means data distribution is disabled for storage failures;
 const KeyRef ignoreSSFailureSpecialKey = "\xff\xff/management/maintenance/IgnoreSSFailures"_sr;
 
-// add zones to maintenance and specify the maintenance duration
+
+// add zones to maintenance and specify zone-specific durations
 ACTOR Future<bool> setHealthyZones(Reference<IDatabase> db,
-	                                std::vector<std::string> zoneIds,
-	                                double seconds,
+	                                std::vector<std::pair<std::string, double>> zoneConfigs,
 	                                bool printWarning) {
-	state std::vector<std::string> zoneList = std::move(zoneIds);
+	state std::vector<std::pair<std::string, double>> zoneList = std::move(zoneConfigs);
 	state Reference<ITransaction> tr = db->createTransaction();
+	double minSeconds = std::numeric_limits<double>::infinity();
+	double maxSeconds = 0.0;
+	for (const auto& entry : zoneList) {
+		minSeconds = std::min(minSeconds, entry.second);
+		maxSeconds = std::max(maxSeconds, entry.second);
+	}
 	TraceEvent("SetHealthyZone")
 	    .detail("ZoneCount", static_cast<int>(zoneList.size()))
-	    .detail("DurationSeconds", seconds);
+	    .detail("MinDurationSeconds", zoneList.empty() ? 0.0 : minSeconds)
+	    .detail("MaxDurationSeconds", zoneList.empty() ? 0.0 : maxSeconds);
 	if (zoneList.empty()) {
 		if (printWarning) {
 			fprintf(stderr,
@@ -146,10 +156,12 @@ ACTOR Future<bool> setHealthyZones(Reference<IDatabase> db,
 			}
 
 			tr->clear(fdb_cli::maintenanceSpecialKeyRange);
-			std::string secondsStr = boost::lexical_cast<std::string>(seconds);
-			for (const auto& zone : zoneList) {
+			for (const auto& zoneConfig : zoneList) {
+				const std::string& zone = zoneConfig.first;
+				double seconds = zoneConfig.second;
 				StringRef zoneRef(reinterpret_cast<const uint8_t*>(zone.data()), zone.size());
-				tr->set(fdb_cli::maintenanceSpecialKeyRange.begin.withSuffix(zoneRef), secondsStr);
+				tr->set(fdb_cli::maintenanceSpecialKeyRange.begin.withSuffix(zoneRef),
+				        boost::lexical_cast<std::string>(seconds));
 			}
 			wait(safeThreadFutureToFuture(tr->commit()));
 			return true;
@@ -160,9 +172,9 @@ ACTOR Future<bool> setHealthyZones(Reference<IDatabase> db,
 }
 
 ACTOR Future<bool> setHealthyZone(Reference<IDatabase> db, StringRef zoneId, double seconds, bool printWarning) {
-	std::vector<std::string> zoneList;
-	zoneList.push_back(zoneId.toString());
-	bool success = wait(setHealthyZones(db, std::move(zoneList), seconds, printWarning));
+	std::vector<std::pair<std::string, double>> zoneList;
+	zoneList.emplace_back(zoneId.toString(), seconds);
+	bool success = wait(setHealthyZones(db, std::move(zoneList), printWarning));
 	return success;
 }
 
@@ -209,24 +221,68 @@ ACTOR Future<bool> maintenanceCommandActor(Reference<IDatabase> db, std::vector<
 	} else if (tokens.size() == 2 && tokencmp(tokens[1], "off")) {
 		bool clearResult = wait(clearHealthyZone(db, true));
 		result = clearResult;
-	} else if (tokens.size() >= 4 && tokencmp(tokens[1], "on")) {
-		double seconds;
-		int n = 0;
-		auto secondsStr = tokens.back().toString();
-		if (sscanf(secondsStr.c_str(), "%lf%n", &seconds, &n) != 1 || n != secondsStr.size()) {
+	} else if (tokens.size() >= 3 && tokencmp(tokens[1], "on")) {
+		auto parseSeconds = [](const std::string& value, double& parsed) -> bool {
+			int n = 0;
+			if (sscanf(value.c_str(), "%lf%n", &parsed, &n) != 1) {
+				return false;
+			}
+			return n == value.size();
+		};
+
+		bool hasDefaultSeconds = false;
+		double defaultSeconds = 0.0;
+		std::string trailingToken = tokens.back().toString();
+		if (trailingToken.find(':') == std::string::npos && parseSeconds(trailingToken, defaultSeconds)) {
+			hasDefaultSeconds = true;
+		}
+
+		int lastZoneToken = tokens.size() - (hasDefaultSeconds ? 1 : 0);
+		if (lastZoneToken <= 2) {
 			printUsage(tokens[0]);
 			result = false;
 		} else {
-			std::unordered_set<std::string> seen;
-			std::vector<std::string> zoneIds;
-			for (int i = 2; i < tokens.size() - 1; ++i) {
+			std::unordered_map<std::string, int> zoneIndex;
+			std::vector<std::pair<std::string, double>> zoneConfigs;
+			bool parseError = false;
+			auto upsertZone = [&](const std::string& zone, double seconds) {
+				if (zone.empty()) {
+					parseError = true;
+					return;
+				}
+				auto it = zoneIndex.find(zone);
+				if (it == zoneIndex.end()) {
+					zoneIndex.emplace(zone, zoneConfigs.size());
+					zoneConfigs.emplace_back(zone, seconds);
+				} else {
+					zoneConfigs[it->second].second = seconds;
+				}
+			};
+
+			for (int i = 2; i < lastZoneToken && !parseError; ++i) {
 				std::string rawToken = tokens[i].toString();
 				size_t start = 0;
-				while (start <= rawToken.size()) {
+				while (start <= rawToken.size() && !parseError) {
 					size_t delim = rawToken.find(',', start);
-					std::string zone = rawToken.substr(start, delim == std::string::npos ? std::string::npos : delim - start);
-					if (!zone.empty() && seen.insert(zone).second) {
-						zoneIds.push_back(zone);
+					std::string piece = rawToken.substr(start, delim == std::string::npos ? std::string::npos : delim - start);
+					if (!piece.empty()) {
+						size_t sep = piece.find(':');
+						double secondsValue = 0.0;
+						if (sep != std::string::npos) {
+							std::string zone = piece.substr(0, sep);
+							std::string secondsToken = piece.substr(sep + 1);
+							if (!parseSeconds(secondsToken, secondsValue)) {
+								parseError = true;
+								break;
+							}
+							upsertZone(zone, secondsValue);
+						} else {
+							if (!hasDefaultSeconds) {
+								parseError = true;
+								break;
+							}
+							upsertZone(piece, defaultSeconds);
+						}
 					}
 					if (delim == std::string::npos) {
 						break;
@@ -235,11 +291,11 @@ ACTOR Future<bool> maintenanceCommandActor(Reference<IDatabase> db, std::vector<
 				}
 			}
 
-			if (zoneIds.empty()) {
+			if (parseError || zoneConfigs.empty()) {
 				printUsage(tokens[0]);
 				result = false;
 			} else {
-				bool setResult = wait(setHealthyZones(db, zoneIds, seconds, true));
+				bool setResult = wait(setHealthyZones(db, std::move(zoneConfigs), true));
 				result = setResult;
 			}
 		}
@@ -253,11 +309,12 @@ ACTOR Future<bool> maintenanceCommandActor(Reference<IDatabase> db, std::vector<
 CommandFactory maintenanceFactory(
     "maintenance",
     CommandHelp(
-        "maintenance [on|off] [ZONEID ...] [SECONDS]",
+        "maintenance [on|off] ZONEID[:SECONDS] ... [DEFAULT_SECONDS]",
         "mark one or more zones for maintenance",
         "Calling this command with `on' prevents data distribution from moving data away from the processes with the "
-        "specified ZONEID values. Data distribution will automatically be turned back on for the listed zones after the "
-        "specified SECONDS have elapsed, or after a storage server with a different ZONEID fails. Calling this command "
-        "with no arguments will display any ongoing maintenance. Calling this command with `off' will disable "
-        "maintenance.\n"));
+        "specified ZONEID values. Each zone may include its own duration using `ZONEID:SECONDS`; if omitted, a trailing "
+        "DEFAULT_SECONDS argument applies to all listed zones without an explicit duration. Data distribution will "
+        "automatically be turned back on after the configured durations elapse or after a storage server with a "
+        "different ZONEID fails. Calling this command with no arguments will display any ongoing maintenance. Calling "
+        "this command with `off' will disable maintenance.\n"));
 } // namespace fdb_cli

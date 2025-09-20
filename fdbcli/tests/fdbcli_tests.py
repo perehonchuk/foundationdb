@@ -118,16 +118,38 @@ def maintenance(logger):
     output3 = run_fdbcli_command("maintenance")
     assert output3 == no_maintenance_output
 
-    # enable maintenance for multiple zones at once
+    # enable maintenance for multiple zones at once using a shared duration
     run_fdbcli_command("maintenance", "on", "fake_zone_a", "fake_zone_b", "5")
     output4 = run_fdbcli_command("maintenance")
-    logger.debug("Maintenance status (multi-zone): " + output4)
+    logger.debug("Maintenance status (multi-zone shared duration): " + output4)
     assert "Maintenance for multiple zones:" in output4
     assert "fake_zone_a" in output4
     assert "fake_zone_b" in output4
     run_fdbcli_command("maintenance", "off")
     output5 = run_fdbcli_command("maintenance")
     assert output5 == no_maintenance_output
+
+    # enable maintenance with per-zone durations
+    run_fdbcli_command("maintenance", "on", "fake_zone_c:3", "fake_zone_d:8")
+    output6 = run_fdbcli_command("maintenance")
+    logger.debug("Maintenance status (multi-zone custom durations): " + output6)
+    lines = output6.splitlines()
+    assert lines and lines[0] == "Maintenance for multiple zones:"
+    remaining = {}
+    for line in lines[1:]:
+        clean = line.strip()
+        if not clean:
+            continue
+        assert clean.startswith("- ")
+        zone_part, rest = clean[2:].split(" ", 1)
+        assert rest.startswith("(")
+        seconds_part = rest[1:].split(" ", 1)[0]
+        remaining[zone_part] = int(seconds_part)
+    assert "fake_zone_c" in remaining and 0 < remaining["fake_zone_c"] <= 3
+    assert "fake_zone_d" in remaining and 0 < remaining["fake_zone_d"] <= 8
+    run_fdbcli_command("maintenance", "off")
+    output7 = run_fdbcli_command("maintenance")
+    assert output7 == no_maintenance_output
 
 
 @enable_logging()
