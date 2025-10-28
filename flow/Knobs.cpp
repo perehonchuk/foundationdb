@@ -314,7 +314,7 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	init( ENABLE_WARNING_READ_CONSISTENCY_CHECK_NOT_ENOUGH_REPLICA, false); if (randomize && BUGGIFY) { ENABLE_WARNING_READ_CONSISTENCY_CHECK_NOT_ENOUGH_REPLICA = true; }
 
 	// Health Monitor
-	init( FAILURE_DETECTION_DELAY,                             4.0 ); if( randomize && BUGGIFY ) FAILURE_DETECTION_DELAY = 1.0;
+	init( FAILURE_DETECTION_DELAY,                             6.0 ); if( randomize && BUGGIFY ) FAILURE_DETECTION_DELAY = 1.0;
 	init( HEALTH_MONITOR_MARK_FAILED_UNSTABLE_CONNECTIONS,    true );
 	init( HEALTH_MONITOR_CLIENT_REQUEST_INTERVAL_SECS,          30 );
 	init( HEALTH_MONITOR_CONNECTION_MAX_CLOSED,                  5 );
