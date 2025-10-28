@@ -368,6 +368,9 @@ public:
 		state SnapshotCache::iterator it(&ryw->cache, &ryw->writes);
 		choose {
 			when(typename Req::Result result = wait(read(ryw, req, &it))) {
+				// Snapshot reads now add conflicts so they participate in overlap detection like regular reads.
+				WriteMap::iterator writes(&ryw->writes);
+				addConflictRange(ryw, req, writes, result);
 				return result;
 			}
 			when(wait(ryw->resetPromise.getFuture())) {
