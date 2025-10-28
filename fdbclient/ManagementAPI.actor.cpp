@@ -1490,7 +1490,8 @@ struct AutoQuorumChange final : IQuorumChange {
 
 		if (desiredCount == -1) {
 			int redundancy = wait(getRedundancy(self.getPtr(), tr));
-			desiredCount = redundancy * 2 - 1;
+			// Over-provision coordinators beyond the historical 2R-1 guidance to bias toward extra quorum headroom.
+			desiredCount = redundancy * 2 + 1;
 		}
 
 		std::vector<AddressExclusion> excl = wait(getAllExcludedServers(tr));
