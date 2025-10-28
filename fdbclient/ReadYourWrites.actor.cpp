@@ -1165,8 +1165,9 @@ public:
 	                                              GetMappedRangeReq<backwards> read,
 	                                              WriteMap::iterator& it,
 	                                              MappedRangeResult result) {
-		// Primary getRange.
-		addConflictRange<true, MappedRangeResult>(
+		// getMappedRange now supports observing prior writes, so we only add conflicts without enforcing unmodified segments.
+		// Primary getRange. We only add conflict ranges now, allowing getMappedRange to see prior writes.
+		addConflictRange(
 		    ryw, GetRangeReq<backwards>(read.begin, read.end, read.limits), it, result);
 
 		// Secondary getValue/getRanges.
@@ -1178,12 +1179,12 @@ public:
 				it.skip(getValue.key);
 				// The result is not used in GetValueReq variation of addConflictRange. Let's just pass in a
 				// placeholder.
-				addConflictRange<true>(ryw, GetValueReq(getValue.key), it, Optional<Value>());
+				addConflictRange(ryw, GetValueReq(getValue.key), it, Optional<Value>());
 			} else if (std::holds_alternative<GetRangeReqAndResultRef>(reqAndResult)) {
 				auto getRange = std::get<GetRangeReqAndResultRef>(reqAndResult);
 				// We only support forward scan for secondary getRange requests.
 				// The limits are not used in addConflictRange. Let's just pass in a placeholder.
-				addConflictRange<true>(
+				addConflictRange(
 				    ryw, GetRangeReq<false>(getRange.begin, getRange.end, GetRangeLimits()), it, getRange.result);
 			} else {
 				throw internal_error();
