@@ -886,7 +886,7 @@ public class Tuple implements Comparable<Tuple>, Iterable<Object> {
 			throw new IllegalStateException("Tuple with incomplete versionstamp used for range");
 		}
 		byte[] p = packInternal(prefix, false);
-		return new Range(ByteArrayUtil.join(p, new byte[] {0x0}),
+		return new Range(p,
 				ByteArrayUtil.join(p, new byte[] {(byte)0xff}));
 	}
 
