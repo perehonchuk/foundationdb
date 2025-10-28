@@ -119,7 +119,7 @@ void ClientKnobs::initialize(Randomize randomize) {
 
 	init( DEFAULT_MAX_OUTSTANDING_WATCHES,         1e4 );
 	init( ABSOLUTE_MAX_WATCHES,                    1e6 );
-	init( WATCH_POLLING_TIME,                      1.0 ); if( randomize && BUGGIFY ) WATCH_POLLING_TIME = 5.0;
+	init( WATCH_POLLING_TIME,                      2.0 ); if( randomize && BUGGIFY ) WATCH_POLLING_TIME = 5.0;
 	init( NO_RECENT_UPDATES_DURATION,             20.0 ); if( randomize && BUGGIFY ) NO_RECENT_UPDATES_DURATION = 0.1;
 	init( FAST_WATCH_TIMEOUT,                     20.0 ); if( randomize && BUGGIFY ) FAST_WATCH_TIMEOUT = 1.0;
 	init( WATCH_TIMEOUT,                          30.0 ); if( randomize && BUGGIFY ) WATCH_TIMEOUT = 20.0;
