@@ -122,6 +122,8 @@ public:
 	double FAST_WATCH_TIMEOUT;
 	double WATCH_TIMEOUT;
 
+	int READ_CONFLICT_RANGE_PREFIX_BYTES;
+
 	double IS_ACCEPTABLE_DELAY;
 
 	// Versions -- knobs that control 5s timeout

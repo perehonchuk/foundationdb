@@ -1905,6 +1905,35 @@ void ReadYourWritesTransaction::addReadConflictRange(KeyRangeRef const& keys) {
 		end = end.substr(0, endMaxSize + 1);
 	}
 
+	int prefixBytes = CLIENT_KNOBS->READ_CONFLICT_RANGE_PREFIX_BYTES;
+	if (prefixBytes > 0) {
+		if (begin != allKeys.begin && begin.size() > 0) {
+			int beginPrefixLength = std::min(prefixBytes, static_cast<int>(begin.size()));
+			if (beginPrefixLength < begin.size()) {
+				begin = StringRef(arena, begin.substr(0, beginPrefixLength));
+			}
+		}
+		if (end != allKeys.end) {
+			int endPrefixLength = std::min(prefixBytes, static_cast<int>(end.size()));
+			if (endPrefixLength > 0) {
+				StringRef endPrefix = end.substr(0, endPrefixLength);
+				bool allFF = true;
+				for (int i = 0; i < endPrefixLength; ++i) {
+					if (static_cast<uint8_t>(endPrefix[i]) != 0xff) {
+						allFF = false;
+						break;
+					}
+				}
+				if (allFF) {
+					end = allKeys.end;
+				} else {
+					StringRef widenedEnd = strinc(endPrefix, arena);
+					end = widenedEnd;
+				}
+			}
+		}
+	}
+
 	KeyRangeRef r = KeyRangeRef(begin, end);
 
 	if (r.empty()) {

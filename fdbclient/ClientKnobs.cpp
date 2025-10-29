@@ -123,6 +123,7 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( NO_RECENT_UPDATES_DURATION,             20.0 ); if( randomize && BUGGIFY ) NO_RECENT_UPDATES_DURATION = 0.1;
 	init( FAST_WATCH_TIMEOUT,                     20.0 ); if( randomize && BUGGIFY ) FAST_WATCH_TIMEOUT = 1.0;
 	init( WATCH_TIMEOUT,                          30.0 ); if( randomize && BUGGIFY ) WATCH_TIMEOUT = 20.0;
+	init( READ_CONFLICT_RANGE_PREFIX_BYTES,           1 ); if( randomize && BUGGIFY ) READ_CONFLICT_RANGE_PREFIX_BYTES = 5;
 
 	// Versions -- knobs that control 5s timeout
 	init( VERSIONS_PER_SECOND,                     1e6 ); // Must be the same as SERVER_KNOBS->VERSIONS_PER_SECOND
