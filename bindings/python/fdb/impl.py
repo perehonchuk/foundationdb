@@ -557,25 +557,6 @@ class TransactionRead(_FDBBase):
             )
         )
 
-
-class Transaction(TransactionRead):
-    """A modifiable snapshot of a Database."""
-
-    def __init__(self, tpointer, db):
-        super(Transaction, self).__init__(tpointer, db, False)
-        self.options = _TransactionOptions(self)
-        self.__snapshot = self.snapshot = TransactionRead(tpointer, db, True)
-
-    def __del__(self):
-        pass
-
-    def set_read_version(self, version):
-        """Set the read version of the transaction."""
-        self.capi.fdb_transaction_set_read_version(self.tpointer, version)
-
-    def _set_option(self, option, param, length):
-        self.capi.fdb_transaction_set_option(self.tpointer, option, param, length)
-
     def _atomic_operation(self, opcode, key, param):
         paramBytes = valueToBytes(param)
         paramLength = len(paramBytes)
@@ -687,6 +668,25 @@ class Transaction(TransactionRead):
             self.clear_range(key.start, key.stop)
         else:
             self.clear(key)
+
+
+class Transaction(TransactionRead):
+    """A modifiable snapshot of a Database."""
+
+    def __init__(self, tpointer, db):
+        super(Transaction, self).__init__(tpointer, db, False)
+        self.options = _TransactionOptions(self)
+        self.__snapshot = self.snapshot = TransactionRead(tpointer, db, True)
+
+    def __del__(self):
+        pass
+
+    def set_read_version(self, version):
+        """Set the read version of the transaction."""
+        self.capi.fdb_transaction_set_read_version(self.tpointer, version)
+
+    def _set_option(self, option, param, length):
+        self.capi.fdb_transaction_set_option(self.tpointer, option, param, length)
 
 
 class Future(_FDBBase):
