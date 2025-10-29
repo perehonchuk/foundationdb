@@ -260,6 +260,7 @@ public:
 
 	double RETRY_RELOCATESHARD_DELAY;
 	double DATA_DISTRIBUTION_FAILURE_REACTION_TIME;
+	// Defaults target roughly 32MB minimum shards and cap merges around 150MB to keep ranges tighter.
 	int MIN_SHARD_BYTES, SHARD_BYTES_RATIO, SHARD_BYTES_PER_SQRT_BYTES, MAX_SHARD_BYTES, KEY_SERVER_SHARD_BYTES;
 	int64_t SHARD_MAX_BYTES_PER_KSEC, // Shards with more than this bandwidth will be split immediately
 	    SHARD_MIN_BYTES_PER_KSEC, // Shards with more than this bandwidth will not be merged

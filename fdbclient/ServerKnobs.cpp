@@ -204,12 +204,12 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( DD_TEAM_PIVOT_UPDATE_DELAY,                            5.0 );
 
 	init( ALLOW_LARGE_SHARD,                                   false ); if( randomize && BUGGIFY )  ALLOW_LARGE_SHARD = true;
-	init( MAX_LARGE_SHARD_BYTES,                          1000000000 ); // 1G
+	init( MAX_LARGE_SHARD_BYTES,                           300000000 ); // 300MB cap keeps oversized shards rare
 	init( SHARD_ENCODE_LOCATION_METADATA,                      false ); if( isSimulated ) SHARD_ENCODE_LOCATION_METADATA = deterministicRandom()->random01() < 0.75;
 	init( ENABLE_DD_PHYSICAL_SHARD,                            false ); // EXPERIMENTAL; If true, SHARD_ENCODE_LOCATION_METADATA must be true; When true, optimization of data move between DCs is disabled
 	init( DD_PHYSICAL_SHARD_MOVE_PROBABILITY,                    0.0 ); // FIXME: re-enable after ShardedRocksDB is well tested by simulation
 	init( ENABLE_PHYSICAL_SHARD_MOVE_EXPERIMENT,               false ); // FIXME: re-enable after ShardedRocksDB is well tested by simulation
-	init( MAX_PHYSICAL_SHARD_BYTES,                         10000000 ); // 10 MB; for ENABLE_DD_PHYSICAL_SHARD; smaller leads to larger number of physicalShard per storage server
+	init( MAX_PHYSICAL_SHARD_BYTES,                         32000000 ); // 32 MB; for ENABLE_DD_PHYSICAL_SHARD; smaller leads to larger number of physicalShard per storage server
  	init( PHYSICAL_SHARD_METRICS_DELAY,                        300.0 ); // 300 seconds; for ENABLE_DD_PHYSICAL_SHARD
 	init( ANONYMOUS_PHYSICAL_SHARD_TRANSITION_TIME,            600.0 ); if( randomize && BUGGIFY )  ANONYMOUS_PHYSICAL_SHARD_TRANSITION_TIME = 0.0; // 600 seconds; for ENABLE_DD_PHYSICAL_SHARD
 	init( PHYSICAL_SHARD_MOVE_VERBOSE_TRACKING,                false );
@@ -226,11 +226,11 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	bool buggifySmallShards = randomize && BUGGIFY;
 	bool simulationMediumShards = !buggifySmallShards && isSimulated && randomize && !BUGGIFY; // prefer smaller shards in simulation
 	// FIXME: increase this even more eventually
-	init( MIN_SHARD_BYTES,                                  10000000 ); if( buggifySmallShards ) MIN_SHARD_BYTES = 400000; if (simulationMediumShards) MIN_SHARD_BYTES = 2000000; //FIXME: data distribution tracker (specifically StorageMetrics) relies on this number being larger than the maximum size of a key value pair
-	init( SHARD_BYTES_RATIO,                                       4 );
-	init( SHARD_BYTES_PER_SQRT_BYTES,                             45 ); if( buggifySmallShards ) SHARD_BYTES_PER_SQRT_BYTES = 0;//Approximately 10000 bytes per shard
-	init( MAX_SHARD_BYTES,                                 500000000 );
-	init( KEY_SERVER_SHARD_BYTES,                          500000000 );
+	init( MIN_SHARD_BYTES,                                  32000000 ); if( buggifySmallShards ) MIN_SHARD_BYTES = 400000; if (simulationMediumShards) MIN_SHARD_BYTES = 2000000; //FIXME: data distribution tracker (specifically StorageMetrics) relies on this number being larger than the maximum size of a key value pair
+	init( SHARD_BYTES_RATIO,                                       2 );
+	init( SHARD_BYTES_PER_SQRT_BYTES,                             30 ); if( buggifySmallShards ) SHARD_BYTES_PER_SQRT_BYTES = 0;//Approximately 10000 bytes per shard
+	init( MAX_SHARD_BYTES,                                 150000000 );
+	init( KEY_SERVER_SHARD_BYTES,                          150000000 );
 
 	init( SHARD_MAX_READ_OPS_PER_KSEC,                  45000 * 1000 );
     init( SHARD_READ_OPS_CHANGE_THRESHOLD, SHARD_MAX_READ_OPS_PER_KSEC / 4); if(randomize && BUGGIFY) SHARD_READ_OPS_CHANGE_THRESHOLD = 2000;
@@ -252,33 +252,33 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	*/
 	init( SHARD_MAX_BYTES_READ_PER_KSEC_JITTER,     0.1 );
 	bool buggifySmallBandwidthSplit = randomize && BUGGIFY;
-	init( SHARD_MAX_BYTES_PER_KSEC,                 1LL*1000000*1000 ); if( buggifySmallBandwidthSplit ) SHARD_MAX_BYTES_PER_KSEC = 1LL*100000*1000;
-	/* 1*1MB/sec * 1000sec/ksec
+	init( SHARD_MAX_BYTES_PER_KSEC,                 400LL*1000*1000 ); if( buggifySmallBandwidthSplit ) SHARD_MAX_BYTES_PER_KSEC = 1LL*100000*1000;
+	/* 400*1KB/sec * 1000sec/ksec (~0.4MB/sec)
 		Shards with more than this bandwidth will be split immediately.
-		For a large shard (100MB), it will be split into multiple shards with sizes < SHARD_SPLIT_BYTES_PER_KSEC;
-		all but one split shard will be moved; so splitting may cost ~100MB of work or about 10MB/sec over a 10 sec sampling window.
+		For a large shard (~150MB), it will be split into multiple shards with sizes < SHARD_SPLIT_BYTES_PER_KSEC;
+		all but one split shard will be moved, so splitting can still require relocating on the order of hundreds of megabytes even though the bandwidth sample is capped at this lower threshold.
 		If the sampling window is too much longer, the MVCC window will fill up while we wait.
 		If SHARD_MAX_BYTES_PER_KSEC is too much lower, we could do a lot of data movement work in response to a small impulse of bandwidth.
 		If SHARD_MAX_BYTES_PER_KSEC is too high relative to the I/O bandwidth of a given server, a workload can remain concentrated on a single
 		team indefinitely, limiting performance.
 		*/
 
-	init( SHARD_MIN_BYTES_PER_KSEC,                100 * 1000 * 1000 ); if( buggifySmallBandwidthSplit ) SHARD_MIN_BYTES_PER_KSEC = 20*1000*1000;
-	/* 100*1KB/sec * 1000sec/ksec
+	init( SHARD_MIN_BYTES_PER_KSEC,                 40 * 1000 * 1000 ); if( buggifySmallBandwidthSplit ) SHARD_MIN_BYTES_PER_KSEC = 20*1000*1000;
+	/* 40*1KB/sec * 1000sec/ksec (~0.04MB/sec)
 		Shards with more than this bandwidth will not be merged.
 		Obviously this needs to be significantly less than SHARD_MAX_BYTES_PER_KSEC, else we will repeatedly merge and split.
 		It should probably be significantly less than SHARD_SPLIT_BYTES_PER_KSEC, else we will merge right after splitting.
 
 		The number of extra shards in the database because of bandwidth splitting can't be more than about W/SHARD_MIN_BYTES_PER_KSEC, where
-		W is the maximum bandwidth of the entire database in bytes/ksec.  For 250MB/sec write bandwidth, (250MB/sec)/(200KB/sec) = 1250 extra
+		W is the maximum bandwidth of the entire database in bytes/ksec.  For 250MB/sec write bandwidth, (250MB/sec)/(40KB/sec) ~= 6250 extra
 		shards.
 
 		The bandwidth sample maintained by the storage server needs to be accurate enough to reliably measure this minimum bandwidth.  See
 		BYTES_WRITTEN_UNITS_PER_SAMPLE.  If this number is too low, the storage server needs to spend more memory and time on sampling.
 		*/
 
-	init( SHARD_SPLIT_BYTES_PER_KSEC,              250 * 1000 * 1000 ); if( buggifySmallBandwidthSplit ) SHARD_SPLIT_BYTES_PER_KSEC = 50 * 1000 * 1000;
-	/* 250*1KB/sec * 1000sec/ksec
+	init( SHARD_SPLIT_BYTES_PER_KSEC,              110 * 1000 * 1000 ); if( buggifySmallBandwidthSplit ) SHARD_SPLIT_BYTES_PER_KSEC = 50 * 1000 * 1000;
+	/* 110*1KB/sec * 1000sec/ksec (~0.11MB/sec)
 		When splitting a shard, it is split into pieces with less than this bandwidth.
 		Obviously this should be less than half of SHARD_MAX_BYTES_PER_KSEC.
 
@@ -328,8 +328,8 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( AVAILABLE_SPACE_RATIO_CUTOFF,                         0.05 );
 	init( DESIRED_TEAMS_PER_SERVER,                                5 ); if( randomize && BUGGIFY ) DESIRED_TEAMS_PER_SERVER = deterministicRandom()->randomInt(1, 10);
 	init( MAX_TEAMS_PER_SERVER,           5*DESIRED_TEAMS_PER_SERVER );
-	init( DD_SHARD_SIZE_GRANULARITY,                         5000000 );
-	init( DD_SHARD_SIZE_GRANULARITY_SIM,                      500000 ); if( randomize && BUGGIFY ) DD_SHARD_SIZE_GRANULARITY_SIM = 0;
+	init( DD_SHARD_SIZE_GRANULARITY,                         2000000 );
+	init( DD_SHARD_SIZE_GRANULARITY_SIM,                      200000 ); if( randomize && BUGGIFY ) DD_SHARD_SIZE_GRANULARITY_SIM = 0;
 	init( DD_MOVE_KEYS_PARALLELISM,                               15 ); if( randomize && BUGGIFY ) DD_MOVE_KEYS_PARALLELISM = 1;
 	init( DD_FETCH_SOURCE_PARALLELISM,                          1000 ); if( randomize && BUGGIFY ) DD_FETCH_SOURCE_PARALLELISM = 1;
 	init( DD_MERGE_LIMIT,                                       2000 ); if( randomize && BUGGIFY ) DD_MERGE_LIMIT = 2;
