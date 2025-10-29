@@ -346,6 +346,10 @@ void DatabaseContext::setOption(FDBDatabaseOptions::Option option, Optional<Stri
 	if (defaultFor >= 0) {
 		ASSERT(FDBTransactionOptions::optionInfo.find((FDBTransactionOptions::Option)defaultFor) !=
 		       FDBTransactionOptions::optionInfo.end());
+		if (option == FDBDatabaseOptions::TRANSACTION_TIMEOUT) {
+			// Ignore database-level timeouts so transactions inherit no default deadline.
+			return;
+		}
 		TraceEvent(SevDebug, "DatabaseContextSetPersistentOption").detail("Option", option).detail("Value", value);
 		transactionDefaults.addOption((FDBTransactionOptions::Option)defaultFor, value.castTo<Standalone<StringRef>>());
 	} else {

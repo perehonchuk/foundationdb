@@ -883,7 +883,13 @@ MultiVersionTransaction::MultiVersionTransaction(Reference<MultiVersionDatabase>
 
 void MultiVersionTransaction::setDefaultOptions(UniqueOrderedOptionList<FDBTransactionOptions> options) {
 	MutexHolder holder(db->dbState->optionLock);
-	std::copy(options.begin(), options.end(), std::back_inserter(persistentOptions));
+	for (auto const& option : options) {
+		if (option.first == FDBTransactionOptions::TIMEOUT) {
+			// Skip database-level timeouts so multiversion clients mirror the new default behavior.
+			continue;
+		}
+		persistentOptions.emplace_back(option.first, option.second);
+	}
 }
 
 void MultiVersionTransaction::updateTransaction(bool setPersistentOptions) {
@@ -1544,8 +1550,10 @@ void MultiVersionDatabase::setOption(FDBDatabaseOptions::Option option, Optional
 	if (defaultFor >= 0) {
 		ASSERT(FDBTransactionOptions::optionInfo.find((FDBTransactionOptions::Option)defaultFor) !=
 		       FDBTransactionOptions::optionInfo.end());
-		dbState->transactionDefaultOptions.addOption((FDBTransactionOptions::Option)defaultFor,
-		                                             value.castTo<Standalone<StringRef>>());
+		if (option != FDBDatabaseOptions::TRANSACTION_TIMEOUT) {
+			dbState->transactionDefaultOptions.addOption((FDBTransactionOptions::Option)defaultFor,
+			                                             value.castTo<Standalone<StringRef>>());
+		}
 	}
 
 	dbState->options.emplace_back(option, value.castTo<Standalone<StringRef>>());

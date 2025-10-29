@@ -1551,8 +1551,13 @@ ReadYourWritesTransaction::ReadYourWritesTransaction(Database const& cx, Optiona
   : ISingleThreadTransaction(cx->deferredError), tr(cx, tenant), cache(&arena), writes(&arena), retries(0),
     approximateSize(0), creationTime(now()), commitStarted(false), versionStampFuture(tr.getVersionstamp()),
     specialKeySpaceWriteMap(std::make_pair(false, Optional<Value>()), specialKeys.end), options(tr) {
-	std::copy(
-	    cx.getTransactionDefaults().begin(), cx.getTransactionDefaults().end(), std::back_inserter(persistentOptions));
+	for (auto const& option : cx.getTransactionDefaults()) {
+		if (option.first == FDBTransactionOptions::TIMEOUT) {
+			// Database-level transaction timeouts are ignored; transactions start without a preset deadline.
+			continue;
+		}
+		persistentOptions.emplace_back(option.first, option.second);
+	}
 	applyPersistentOptions();
 }
 
