@@ -81,6 +81,8 @@ struct NetworkOptions {
 	bool primaryClient;
 	std::map<std::string, KnobValue> knobs;
 
+	static constexpr const char* DEFAULT_TRACE_LOG_GROUP = "cluster";
+
 	NetworkOptions();
 };
 

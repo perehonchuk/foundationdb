@@ -549,13 +549,13 @@ const KeyRef JSONSchemas::statusSchema = R"statusSchema(
                  "connected_clients":[
                      {
                          "address":"127.0.0.1:9898",
-                         "log_group":"default"
+                         "log_group":"cluster"
                      }
                  ],
                  "max_protocol_clients":[
                      {
                          "address":"127.0.0.1:9898",
-                         "log_group":"default"
+                         "log_group":"cluster"
                      }
                  ],
                  "count" : 1,

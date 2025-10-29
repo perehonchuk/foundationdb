@@ -131,7 +131,9 @@ TLSConfig tlsConfig(TLSEndpointType::CLIENT);
 
 // The default values, TRACE_DEFAULT_ROLL_SIZE and TRACE_DEFAULT_MAX_LOGS_SIZE are located in Trace.h.
 NetworkOptions::NetworkOptions()
-  : traceRollSize(TRACE_DEFAULT_ROLL_SIZE), traceMaxLogsSize(TRACE_DEFAULT_MAX_LOGS_SIZE), traceLogGroup("default"),
+  : traceRollSize(TRACE_DEFAULT_ROLL_SIZE),
+    traceMaxLogsSize(TRACE_DEFAULT_MAX_LOGS_SIZE),
+    traceLogGroup(DEFAULT_TRACE_LOG_GROUP),
     traceFormat("xml"), traceClockSource("now"), traceInitializeOnSetup(false),
     supportedVersions(new ReferencedObject<Standalone<VectorRef<ClientVersionRef>>>()), runLoopProfilingEnabled(false),
     primaryClient(true) {}
@@ -717,6 +719,13 @@ void setNetworkOption(FDBNetworkOptions::Option option, Optional<StringRef> valu
 				setTraceLogGroup(value.get().toString());
 			} else {
 				networkOptions.traceLogGroup = value.get().toString();
+			}
+		} else {
+			const std::string resetGroup(NetworkOptions::DEFAULT_TRACE_LOG_GROUP);
+			if (traceFileIsOpen()) {
+				setTraceLogGroup(resetGroup);
+			} else {
+				networkOptions.traceLogGroup = resetGroup;
 			}
 		}
 		break;
