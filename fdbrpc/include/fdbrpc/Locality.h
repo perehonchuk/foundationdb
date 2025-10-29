@@ -450,4 +450,8 @@ LBDistance::Type loadBalanceDistance(LocalityData const& localLoc,
                                      LocalityData const& otherLoc,
                                      NetworkAddress const& otherAddr);
 
+// Generates a deterministic locality identifier string from the network address.
+// The identifier is stable for all processes sharing the same IP address.
+std::string deriveLocalityIdFromAddress(const NetworkAddress& address);
+
 #endif

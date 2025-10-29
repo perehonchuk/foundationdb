@@ -53,6 +53,7 @@
 #include "fdbrpc/FlowProcess.actor.h"
 #include "fdbrpc/Net2FileSystem.h"
 #include "fdbrpc/PerfMetric.h"
+#include "fdbrpc/Locality.h"
 #include "fdbrpc/fdbrpc.h"
 #include "fdbrpc/FlowGrpc.h"
 #include "fdbrpc/simulator.h"
@@ -2022,7 +2023,12 @@ private:
 		}
 		if (!zoneId.present() &&
 		    !(localities.isPresent(LocalityData::keyZoneId) && localities.isPresent(LocalityData::keyMachineId))) {
-			machineId = getSharedMemoryMachineId().toString();
+			const NetworkAddress localAddress = g_network->getLocalAddress();
+			if (localAddress.isValid()) {
+				machineId = deriveLocalityIdFromAddress(localAddress);
+			} else {
+				machineId = "auto-" + getSharedMemoryMachineId().toString();
+			}
 		}
 		if (!localities.isPresent(LocalityData::keyZoneId))
 			localities.set(LocalityData::keyZoneId, zoneId.present() ? zoneId : machineId);
