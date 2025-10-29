@@ -233,8 +233,9 @@ bool DatabaseConfiguration::isValid() const {
 	      LOG_TEST(autoGrvProxyCount >= 1) && LOG_TEST(autoResolverCount >= 1) && LOG_TEST(autoDesiredTLogCount >= 1) &&
 	      LOG_TEST(!!storagePolicy) && LOG_TEST(!!tLogPolicy) && LOG_TEST(getDesiredRemoteLogs() >= 1) &&
 	      LOG_TEST(remoteTLogReplicationFactor >= 0) && LOG_TEST(repopulateRegionAntiQuorum >= 0) &&
-	      LOG_TEST(repopulateRegionAntiQuorum <= 1) && LOG_TEST(usableRegions >= 1) && LOG_TEST(usableRegions <= 2) &&
-	      LOG_TEST(regions.size() <= 2) && LOG_TEST((usableRegions == 1 || regions.size() == 2)) &&
+	      LOG_TEST(repopulateRegionAntiQuorum <= 1) && LOG_TEST(usableRegions >= 1) &&
+	      LOG_TEST(usableRegions <= MAX_SUPPORTED_REGIONS) && LOG_TEST(regions.size() <= MAX_SUPPORTED_REGIONS) &&
+	      LOG_TEST((usableRegions == 1 || regions.size() >= usableRegions)) &&
 	      LOG_TEST((regions.size() == 0 || regions[0].priority >= 0)) &&
 	      LOG_TEST((regions.size() == 0 || tLogPolicy->info() != "dcid^2 x zoneid^2 x 1")) &&
 	      // We cannot specify regions with three_datacenter replication

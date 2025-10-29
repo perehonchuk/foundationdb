@@ -295,7 +295,7 @@ Future<ConfigurationResult> changeConfig(Reference<DB> db, std::map<std::string,
 					state Future<RangeResult> fServerList =
 					    (newConfig.regions.size()) ? safeThreadFutureToFuture(fServerListF) : Future<RangeResult>();
 
-					if (newConfig.usableRegions == 2) {
+					if (newConfig.usableRegions > 1) {
 						if (oldReplicationUsesDcId) {
 							state typename DB::TransactionT::template FutureT<RangeResult> fLocalityListF =
 							    tr->getRange(tagLocalityListKeys, CLIENT_KNOBS->TOO_MANY);

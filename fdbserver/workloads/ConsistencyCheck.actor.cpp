@@ -557,36 +557,44 @@ struct ConsistencyCheckWorkload : TestWorkload {
 			}
 		}
 
-		int missingDc0 = configuration.regions.size() == 0
-		                     ? 0
-		                     : std::count(missingStorage.begin(), missingStorage.end(), configuration.regions[0].dcId);
-		int missingDc1 = configuration.regions.size() < 2
-		                     ? 0
-		                     : std::count(missingStorage.begin(), missingStorage.end(), configuration.regions[1].dcId);
+		std::vector<int> missingPerRegion;
+		missingPerRegion.reserve(configuration.regions.size());
+		for (const auto& region : configuration.regions) {
+			missingPerRegion.push_back(
+			    std::count(missingStorage.begin(), missingStorage.end(), region.dcId));
+		}
 
-		if ((configuration.regions.size() == 0 && missingStorage.size()) ||
-		    (configuration.regions.size() == 1 && missingDc0) ||
-		    (configuration.regions.size() == 2 && configuration.usableRegions == 1 && missingDc0 && missingDc1) ||
-		    (configuration.regions.size() == 2 && configuration.usableRegions > 1 && (missingDc0 || missingDc1))) {
+		bool missingCondition = false;
+		int countMissing = missingStorage.size();
+		int acceptableTssMissing = 1;
 
+		if (configuration.regions.empty()) {
+			missingCondition = !missingStorage.empty();
+		} else if (configuration.regions.size() == 1) {
+			countMissing = missingPerRegion[0];
+			missingCondition = countMissing > 0;
+		} else if (configuration.usableRegions <= 1) {
+			int minMissing = missingStorage.size();
+			for (int count : missingPerRegion) {
+				minMissing = std::min(minMissing, count);
+			}
+			countMissing = minMissing;
+			missingCondition = minMissing > 0;
+		} else {
+			int activeRegions =
+			    std::min(configuration.usableRegions, static_cast<int>(configuration.regions.size()));
+			int missingActive = 0;
+			for (int idx = 0; idx < activeRegions; ++idx) {
+				missingActive += missingPerRegion[idx];
+			}
+			countMissing = missingActive;
+			acceptableTssMissing = activeRegions;
+			missingCondition = missingActive > 0;
+		}
+
+		if (missingCondition) {
 			// TODO could improve this check by also ensuring DD is currently recruiting a TSS by using quietdb?
 			bool couldExpectMissingTss = (configuration.desiredTSSCount - tssMapping.size()) > 0;
-
-			int countMissing = missingStorage.size();
-			int acceptableTssMissing = 1;
-			if (configuration.regions.size() == 1) {
-				countMissing = missingDc0;
-			} else if (configuration.regions.size() == 2) {
-				if (configuration.usableRegions == 1) {
-					// all processes should be missing from 1, so take the number missing from the other
-					countMissing = std::min(missingDc0, missingDc1);
-				} else if (configuration.usableRegions == 2) {
-					countMissing = missingDc0 + missingDc1;
-					acceptableTssMissing = 2;
-				} else {
-					ASSERT(false); // in case fdb ever adds 3+ region support?
-				}
-			}
 
 			if (!couldExpectMissingTss || countMissing > acceptableTssMissing) {
 				self->testFailure("No storage server on worker");

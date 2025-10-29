@@ -101,6 +101,8 @@ struct RegionInfo {
 };
 
 struct DatabaseConfiguration {
+	static constexpr int MAX_SUPPORTED_REGIONS = 3;
+
 	DatabaseConfiguration();
 
 	void applyMutation(MutationRef mutation);
