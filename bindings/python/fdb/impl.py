@@ -21,6 +21,7 @@
 # FoundationDB Python API
 
 import atexit
+import collections.abc
 import ctypes
 import ctypes.util
 import functools
@@ -557,6 +558,17 @@ class TransactionRead(_FDBBase):
             )
         )
 
+    def get_multi(self, keys):
+        """Fetch multiple keys and return their values in order."""
+        if keys is None:
+            raise TypeError("keys must be an iterable of keys")
+        if isinstance(keys, (bytes, bytearray, memoryview)):
+            raise TypeError("keys must be an iterable of keys")
+
+        key_list = list(keys)
+        futures = [self.get(key) for key in key_list]
+        return [future.value for future in futures]
+
 
 class Transaction(TransactionRead):
     """A modifiable snapshot of a Database."""
@@ -618,6 +630,16 @@ class Transaction(TransactionRead):
     def clear_range_startswith(self, prefix):
         prefix = keyToBytes(prefix)
         return self.clear_range(prefix, strinc(prefix))
+
+    def set_multi(self, items):
+        """Set multiple key-value pairs in a single API call."""
+        if isinstance(items, collections.abc.Mapping):
+            iterator = items.items()
+        else:
+            iterator = items
+
+        for key, value in iterator:
+            self.set(key, value)
 
     def watch(self, key):
         key = keyToBytes(key)

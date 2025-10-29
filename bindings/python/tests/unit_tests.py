@@ -227,6 +227,34 @@ def test_get_client_status(db):
     assert status["Healthy"]
 
 
+def test_multi_get_and_set(db):
+    prefix = b"bulk_api/"
+    keys = [prefix + suffix for suffix in (b"a", b"b", b"missing")]
+
+    @fdb.transactional
+    def seed(tr):
+        tr.clear_range_startswith(prefix)
+        tr.set_multi({keys[0]: b"one", keys[1]: b"two"})
+
+    seed(db)
+
+    @fdb.transactional
+    def overwrite_with_iter(tr):
+        updates = ((keys[0], b"alpha"), (keys[1], b"beta"))
+        tr.set_multi(updates)
+
+    overwrite_with_iter(db)
+
+    @fdb.transactional
+    def verify(tr):
+        ordered = tr.get_multi(keys)
+        assert ordered == [b"alpha", b"beta", None]
+        lazy_keys = (k for k in keys)
+        assert tr.get_multi(lazy_keys) == ordered
+
+    verify(db)
+
+
 def run_unit_tests(db):
     try:
         log("test_db_options")
@@ -257,6 +285,8 @@ def run_unit_tests(db):
         test_get_approximate_size(db)
         log("test_get_client_status")
         test_get_client_status(db)
+        log("test_multi_get_and_set")
+        test_multi_get_and_set(db)
 
         if fdb.get_api_version() >= 710:
             log("test_tenants")
