@@ -873,7 +873,12 @@ public:
 		return State(value, ThreadFuture<Void>(nextChange.getPtr()));
 	}
 
-	void set(V const& v, bool triggerIfSame = false) {
+	void set(V const& v, bool triggerIfSame = true) { applySet(v, triggerIfSame); }
+
+	void setIfDifferent(V const& v) { applySet(v, false); }
+
+private:
+	void applySet(V const& v, bool triggerIfSame) {
 		Reference<ThreadSingleAssignmentVar<Void>> trigger(new ThreadSingleAssignmentVar<Void>());
 
 		lock.enter();
@@ -888,8 +893,6 @@ public:
 			trigger->send(Void());
 		}
 	}
-
-private:
 	V value;
 	Reference<ThreadSingleAssignmentVar<Void>> nextChange;
 	ThreadSpinLock lock;

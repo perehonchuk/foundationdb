@@ -762,7 +762,8 @@ public:
 	V const& get() const { return value; }
 	V getCopy() const __attribute__((swift_attr("import_unsafe"))) { return value; }
 	Future<Void> onChange() const { return nextChange.getFuture(); }
-	void set(V const& v) {
+	void set(V const& v) { setUnconditional(v); }
+	void setIfDifferent(V const& v) {
 		if (v != value)
 			setUnconditional(v);
 	}
