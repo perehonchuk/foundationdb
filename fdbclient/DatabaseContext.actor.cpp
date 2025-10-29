@@ -833,12 +833,12 @@ ACTOR static Future<Void> clientStatusUpdateActor(DatabaseContext* cx) {
 			}
 			cx->clientStatusUpdater.outStatusQ.clear();
 			wait(cx->globalConfig->onInitialized());
-			double sampleRate =
-			    cx->globalConfig->get<double>(fdbClientInfoTxnSampleRate, std::numeric_limits<double>::infinity());
+			auto sampleRate = cx->globalConfig->get<double>(fdbClientInfoTxnSampleRate);
 			double clientSamplingProbability =
-			    std::isinf(sampleRate) ? CLIENT_KNOBS->CSI_SAMPLING_PROBABILITY : sampleRate;
-			int64_t sizeLimit = cx->globalConfig->get<int64_t>(fdbClientInfoTxnSizeLimit, -1);
-			int64_t clientTxnInfoSizeLimit = sizeLimit == -1 ? CLIENT_KNOBS->CSI_SIZE_LIMIT : sizeLimit;
+			    (!sampleRate || std::isinf(*sampleRate)) ? CLIENT_KNOBS->CSI_SAMPLING_PROBABILITY : *sampleRate;
+			auto sizeLimit = cx->globalConfig->get<int64_t>(fdbClientInfoTxnSizeLimit);
+			int64_t clientTxnInfoSizeLimit =
+			    (sizeLimit && *sizeLimit != -1) ? *sizeLimit : CLIENT_KNOBS->CSI_SIZE_LIMIT;
 			if (!trChunksQ.empty() && deterministicRandom()->random01() < clientSamplingProbability)
 				wait(delExcessClntTxnEntriesActor(&tr, clientTxnInfoSizeLimit));
 

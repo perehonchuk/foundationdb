@@ -107,22 +107,26 @@ public:
 	const std::map<KeyRef, Reference<ConfigValue>> get(KeyRangeRef range);
 
 	// For arithmetic value types, returns a copy of the value for the given
+	// key if it exists.
+	template <typename T, typename std::enable_if<std::is_arithmetic<T>{}, bool>::type = true>
+	std::optional<T> get(KeyRef name) {
+		auto configValue = get(name);
+		if (configValue.isValid() && configValue->value.has_value()) {
+			return std::any_cast<T>(configValue->value);
+		}
+		return std::nullopt;
+	}
+
+	// For arithmetic value types, returns a copy of the value for the given
 	// key, or the supplied default value if the framework does not know about
 	// the key.
 	template <typename T, typename std::enable_if<std::is_arithmetic<T>{}, bool>::type = true>
 	const T get(KeyRef name, T defaultVal) {
-		try {
-			auto configValue = get(name);
-			if (configValue.isValid()) {
-				if (configValue->value.has_value()) {
-					return std::any_cast<T>(configValue->value);
-				}
-			}
-
-			return defaultVal;
-		} catch (Error& e) {
-			throw;
+		auto value = get<T>(name);
+		if (value.has_value()) {
+			return *value;
 		}
+		return defaultVal;
 	}
 
 	// Trying to write into the global configuration keyspace? To write data,

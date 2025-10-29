@@ -6781,9 +6781,9 @@ void Transaction::checkDeferredError() const {
 
 Reference<TransactionLogInfo> Transaction::createTrLogInfoProbabilistically(const Database& cx) {
 	if (!cx->isError()) {
-		double sampleRate =
-		    cx->globalConfig->get<double>(fdbClientInfoTxnSampleRate, std::numeric_limits<double>::infinity());
-		double clientSamplingProbability = std::isinf(sampleRate) ? CLIENT_KNOBS->CSI_SAMPLING_PROBABILITY : sampleRate;
+		auto sampleRate = cx->globalConfig->get<double>(fdbClientInfoTxnSampleRate);
+		double clientSamplingProbability =
+		    (!sampleRate || std::isinf(*sampleRate)) ? CLIENT_KNOBS->CSI_SAMPLING_PROBABILITY : *sampleRate;
 		if (((networkOptions.logClientInfo.present() && networkOptions.logClientInfo.get()) || BUGGIFY) &&
 		    deterministicRandom()->random01() < clientSamplingProbability &&
 		    (!g_network->isSimulated() || !g_simulator->speedUpSimulation)) {

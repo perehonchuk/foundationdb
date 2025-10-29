@@ -56,14 +56,13 @@ ACTOR Future<bool> profileCommandActor(Database db,
 			}
 			std::string sampleRateStr = "default";
 			std::string sizeLimitStr = "default";
-			const double sampleRateDbl =
-			    db->globalConfig->get<double>(fdbClientInfoTxnSampleRate, std::numeric_limits<double>::infinity());
-			if (!std::isinf(sampleRateDbl)) {
-				sampleRateStr = std::to_string(sampleRateDbl);
+			auto sampleRate = db->globalConfig->get<double>(fdbClientInfoTxnSampleRate);
+			if (sampleRate && !std::isinf(*sampleRate)) {
+				sampleRateStr = std::to_string(*sampleRate);
 			}
-			const int64_t sizeLimit = db->globalConfig->get<int64_t>(fdbClientInfoTxnSizeLimit, -1);
-			if (sizeLimit != -1) {
-				sizeLimitStr = boost::lexical_cast<std::string>(sizeLimit);
+			auto sizeLimit = db->globalConfig->get<int64_t>(fdbClientInfoTxnSizeLimit);
+			if (sizeLimit && *sizeLimit != -1) {
+				sizeLimitStr = boost::lexical_cast<std::string>(*sizeLimit);
 			}
 			printf("Client profiling rate is set to %s and size limit is set to %s.\n",
 			       sampleRateStr.c_str(),

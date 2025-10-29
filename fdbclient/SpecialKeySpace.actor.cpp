@@ -2176,10 +2176,10 @@ Future<RangeResult> ClientProfilingImpl::getRange(ReadYourWritesTransaction* ryw
 			result.push_back_deep(result.arena(), KeyValueRef(sampleRateKey, entry.second.get()));
 		} else {
 			std::string sampleRateStr = "default";
-			const double sampleRateDbl = ryw->getDatabase()->globalConfig->get<double>(
-			    fdbClientInfoTxnSampleRate, std::numeric_limits<double>::infinity());
-			if (!std::isinf(sampleRateDbl)) {
-				sampleRateStr = std::to_string(sampleRateDbl);
+			auto sampleRate =
+			    ryw->getDatabase()->globalConfig->get<double>(fdbClientInfoTxnSampleRate);
+			if (sampleRate && !std::isinf(*sampleRate)) {
+				sampleRateStr = std::to_string(*sampleRate);
 			}
 			result.push_back_deep(result.arena(), KeyValueRef(sampleRateKey, Value(sampleRateStr)));
 		}
@@ -2194,9 +2194,9 @@ Future<RangeResult> ClientProfilingImpl::getRange(ReadYourWritesTransaction* ryw
 			result.push_back_deep(result.arena(), KeyValueRef(txnSizeLimitKey, entry.second.get()));
 		} else {
 			std::string sizeLimitStr = "default";
-			const int64_t sizeLimit = ryw->getDatabase()->globalConfig->get<int64_t>(fdbClientInfoTxnSizeLimit, -1);
-			if (sizeLimit != -1) {
-				sizeLimitStr = boost::lexical_cast<std::string>(sizeLimit);
+			auto sizeLimit = ryw->getDatabase()->globalConfig->get<int64_t>(fdbClientInfoTxnSizeLimit);
+			if (sizeLimit && *sizeLimit != -1) {
+				sizeLimitStr = boost::lexical_cast<std::string>(*sizeLimit);
 			}
 			result.push_back_deep(result.arena(), KeyValueRef(txnSizeLimitKey, Value(sizeLimitStr)));
 		}
