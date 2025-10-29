@@ -1256,6 +1256,8 @@ DatabaseContext::DatabaseContext(Reference<AsyncVar<Reference<IClusterConnection
 	maxOutstandingWatches = CLIENT_KNOBS->DEFAULT_MAX_OUTSTANDING_WATCHES;
 
 	snapshotRywEnabled = apiVersion.hasSnapshotRYW() ? 1 : 0;
+	// Ensure all new transactions opt out of Read-Your-Writes unless applications explicitly re-enable it.
+	transactionDefaults.addOption(FDBTransactionOptions::READ_YOUR_WRITES_DISABLE, Optional<Standalone<StringRef>>());
 
 	logger = databaseLogger(this) && tssLogger(this);
 	locationCacheSize = g_network->isSimulated() ? CLIENT_KNOBS->LOCATION_CACHE_EVICTION_SIZE_SIM

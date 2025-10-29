@@ -1554,6 +1554,11 @@ ReadYourWritesTransaction::ReadYourWritesTransaction(Database const& cx, Optiona
 	std::copy(
 	    cx.getTransactionDefaults().begin(), cx.getTransactionDefaults().end(), std::back_inserter(persistentOptions));
 	applyPersistentOptions();
+	// Legacy API versions may not replay the persistent default, so force-disable RYW here as well.
+	if (!options.readYourWritesDisabled) {
+		tr.setOption(FDBTransactionOptions::READ_YOUR_WRITES_DISABLE, Optional<StringRef>());
+		options.readYourWritesDisabled = true;
+	}
 }
 
 void ReadYourWritesTransaction::construct(Database const& cx) {
@@ -2014,6 +2019,8 @@ ReadYourWritesTransactionOptions::ReadYourWritesTransactionOptions(Transaction c
 
 void ReadYourWritesTransactionOptions::reset(Transaction const& tr) {
 	memset(this, 0, sizeof(*this));
+	// Default transactions now start with Read-Your-Writes disabled so callers must opt-in explicitly.
+	readYourWritesDisabled = true;
 	timeoutInSeconds = 0.0;
 	maxRetries = -1;
 	snapshotRywEnabled = tr.getDatabase()->snapshotRywEnabled;
@@ -2662,6 +2669,8 @@ void ReadYourWritesTransaction::resetRyow() {
 		options.reset(tr);
 		applyPersistentOptions();
 	}
+	// Older API versions bypass the options.reset() path, so force the default here as well.
+	options.readYourWritesDisabled = true;
 
 	if (!oldReset.isSet())
 		oldReset.sendError(transaction_cancelled());
