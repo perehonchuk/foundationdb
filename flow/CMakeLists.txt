@@ -131,7 +131,7 @@ foreach(ft flow flow_sampling flowlinktest)
     endif()
     target_link_libraries(${ft} PRIVATE ${FLOW_LIBS})
 
-    if(USE_VALGRIND)
+    if(FDB_ENABLE_VALGRIND)
         target_link_libraries(${ft} PUBLIC Valgrind)
     endif()
 
@@ -268,4 +268,3 @@ if (WITH_SWIFT)
     add_dependencies(flow flow_swift)
     add_dependencies(flow_sampling flow_swift)
 endif() # WITH SWIFT
-

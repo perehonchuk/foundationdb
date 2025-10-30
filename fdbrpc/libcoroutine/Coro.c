@@ -48,7 +48,7 @@
 #include "taskimpl.h"
 #endif
 
-#ifdef USE_VALGRIND
+#ifdef FDB_ENABLE_VALGRIND
 #include <valgrind.h>
 #define STACK_REGISTER(coro)                                                                                           \
 	{                                                                                                                  \

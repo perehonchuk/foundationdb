@@ -24,8 +24,8 @@
 #  define USE_SANITIZER
 # endif
 # cmakedefine USE_GCOV
-# cmakedefine USE_VALGRIND
-# ifdef USE_VALGRIND
+# cmakedefine FDB_ENABLE_VALGRIND
+# ifdef FDB_ENABLE_VALGRIND
 #  define VALGRIND 1
 # endif
 # cmakedefine DTRACE_PROBES

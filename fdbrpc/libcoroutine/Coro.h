@@ -76,7 +76,7 @@ struct Coro {
 	size_t allocatedStackSize;
 	void* stack;
 
-#ifdef USE_VALGRIND
+#ifdef FDB_ENABLE_VALGRIND
 	unsigned int valgrindStackId;
 #endif
 

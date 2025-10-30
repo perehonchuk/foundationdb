@@ -16,7 +16,7 @@ endif()
 # Valgrind
 ################################################################################
 
-if(USE_VALGRIND)
+if(FDB_ENABLE_VALGRIND)
   find_package(Valgrind REQUIRED)
 endif()
 

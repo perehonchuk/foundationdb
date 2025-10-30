@@ -256,7 +256,7 @@ if(WITH_PYTHON)
     add_fdb_test(TEST_FILES noSim/ShardedRocksDBCheckpointDeterminism.toml UNIT)
     # TODO: Enable noSim/ShardedRocksDBCheckpointTest.toml once the crash issue is fixed
     add_fdb_test(TEST_FILES noSim/ShardedRocksDBCheckpointTest.toml IGNORE)
-    if (USE_VALGRIND)
+    if (FDB_ENABLE_VALGRIND)
       add_fdb_test(TEST_FILES noSim/PerfShardedRocksDBTest.toml IGNORE)
     else()
       add_fdb_test(TEST_FILES noSim/PerfShardedRocksDBTest.toml UNIT)
@@ -554,7 +554,7 @@ if(WITH_PYTHON)
   if(NOT OPEN_FOR_IDE AND NOT WIN32)
     create_correctness_package()
 
-    if(USE_VALGRIND)
+    if(FDB_ENABLE_VALGRIND)
       create_valgrind_correctness_package()
     endif()
 
