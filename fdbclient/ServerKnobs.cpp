@@ -23,6 +23,10 @@
 #include "flow/IRandom.h"
 #include "flow/flow.h"
 
+namespace {
+static constexpr int DEFAULT_TRANSACTION_LIFE_SECONDS = 10;
+}
+
 #define init(...) KNOB_FN(__VA_ARGS__, INIT_ATOMIC_KNOB, INIT_KNOB)(__VA_ARGS__)
 
 ServerKnobs::ServerKnobs(Randomize randomize, ClientKnobs* clientKnobs, IsSimulated isSimulated) {
@@ -30,23 +34,23 @@ ServerKnobs::ServerKnobs(Randomize randomize, ClientKnobs* clientKnobs, IsSimula
 }
 
 // Returns a deterministically random transaction timeout value for simulation testing.
-// More weight is given to the famous 5s timeout, but [1, 10] range is returned with lower weight.
+// More weight is given to the default 10s timeout, but [1, DEFAULT_TRANSACTION_LIFE_SECONDS] range is returned with lower weight.
 int randomTxnTimeoutSeconds() {
 	if (deterministicRandom()->truePercent(90)) {
-		return 5;
+		return DEFAULT_TRANSACTION_LIFE_SECONDS;
 	} else {
-		return deterministicRandom()->randomInt(1, 11); // [1, 10]
+		return deterministicRandom()->randomInt(1, DEFAULT_TRANSACTION_LIFE_SECONDS + 1); // [1, DEFAULT_TRANSACTION_LIFE_SECONDS]
 	}
 }
 
 void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSimulated isSimulated) {
 	// clang-format off
 	init( ALLOW_DANGEROUS_KNOBS,                               isSimulated );
-	
-	// Versions -- knobs that control 5s timeout
+
+	// Versions -- knobs that control 10s timeout
 	init( VERSIONS_PER_SECOND,                                   1e6 );
-	init( MAX_READ_TRANSACTION_LIFE_VERSIONS,      5 * VERSIONS_PER_SECOND ); if (isSimulated) MAX_READ_TRANSACTION_LIFE_VERSIONS = randomTxnTimeoutSeconds() * VERSIONS_PER_SECOND;
-	init( MAX_WRITE_TRANSACTION_LIFE_VERSIONS,     5 * VERSIONS_PER_SECOND ); if (randomize && BUGGIFY) MAX_WRITE_TRANSACTION_LIFE_VERSIONS=std::max<int>(1, 1 * VERSIONS_PER_SECOND);
+	init( MAX_READ_TRANSACTION_LIFE_VERSIONS,     DEFAULT_TRANSACTION_LIFE_SECONDS * VERSIONS_PER_SECOND ); if (isSimulated) MAX_READ_TRANSACTION_LIFE_VERSIONS = randomTxnTimeoutSeconds() * VERSIONS_PER_SECOND;
+	init( MAX_WRITE_TRANSACTION_LIFE_VERSIONS,    DEFAULT_TRANSACTION_LIFE_SECONDS * VERSIONS_PER_SECOND ); if (randomize && BUGGIFY) MAX_WRITE_TRANSACTION_LIFE_VERSIONS=std::max<int>(1, 1 * VERSIONS_PER_SECOND);
 	
 	// Versions -- other
 	init( MAX_VERSIONS_IN_FLIGHT,                100 * VERSIONS_PER_SECOND );
