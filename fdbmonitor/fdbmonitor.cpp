@@ -481,7 +481,7 @@ int main(int argc, char** argv) {
 				uint64_t current_rss = getRss(i.first);
 				if (current_rss > rss_limit) {
 					log_process_msg(SevWarn,
-					                i.second->ssection.c_str(),
+					                i.second->logName.c_str(),
 					                "Process %d being killed for exceeding resident memory limit, current %" PRIu64
 					                " , limit %" PRIu64 "\n",
 					                id_pid[i.first],
@@ -657,21 +657,21 @@ int main(int argc, char** argv) {
 								priority = SevError;
 							}
 							log_process_msg(priority,
-							                cmd->ssection.c_str(),
+							                cmd->logName.c_str(),
 							                "Process %d exited %d, restarting in %d seconds\n",
 							                pid,
 							                WEXITSTATUS(child_status),
 							                delay);
 						} else if (WIFSIGNALED(child_status))
 							log_process_msg(SevWarn,
-							                cmd->ssection.c_str(),
+							                cmd->logName.c_str(),
 							                "Process %d terminated by signal %d, restarting in %d seconds\n",
 							                pid,
 							                WTERMSIG(child_status),
 							                delay);
 						else
 							log_process_msg(SevWarnAlways,
-							                cmd->ssection.c_str(),
+							                cmd->logName.c_str(),
 							                "Process %d exited for unknown reason, restarting in %d seconds\n",
 							                pid,
 							                delay);

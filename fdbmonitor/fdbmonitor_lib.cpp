@@ -561,7 +561,7 @@ void start_process(Command* cmd, ProcessID id, uid_t uid, gid_t gid, int delay, 
 #endif
 
 		if (!cmd->quiet) {
-			fprintf(stdout, "Launching %s (%d) for %s\n", cmd->argv[0], getpid(), cmd->ssection.c_str());
+			fprintf(stdout, "Launching %s (%d) for %s\n", cmd->argv[0], getpid(), cmd->logName.c_str());
 			fflush(stdout);
 		}
 
@@ -787,13 +787,13 @@ void read_child_output(Command* cmd, int pipe_idx, fdb_fd_set fds) {
 	int start = 0;
 	for (int i = 0; i < len; i++) {
 		if (buf[i] == '\n') {
-			log_process_msg(priority, cmd->ssection.c_str(), "%.*s", i - start + 1, buf + start);
+			log_process_msg(priority, cmd->logName.c_str(), "%.*s", i - start + 1, buf + start);
 			start = i + 1;
 		}
 	}
 
 	if (start < len) {
-		log_process_msg(priority, cmd->ssection.c_str(), "%.*s\n", len - start, buf + start);
+		log_process_msg(priority, cmd->logName.c_str(), "%.*s\n", len - start, buf + start);
 	}
 }
 

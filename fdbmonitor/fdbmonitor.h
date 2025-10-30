@@ -142,9 +142,40 @@ private:
 	std::vector<std::string> commands;
 	fdb_fd_set fds;
 
+private:
+	static std::string composeLogName(const std::string& section, const ProcessID& id) {
+		std::string tag = section.empty() ? id : section;
+		std::string suffix;
+
+		auto dotPos = id.find('.');
+		if (dotPos != std::string::npos && dotPos + 1 < id.size()) {
+			suffix = id.substr(dotPos + 1);
+		} else if (!section.empty() && id.rfind(section, 0) == 0) {
+			// Handle ids that repeat the section prefix (e.g. fdbserver.4500).
+			size_t prefixLen = section.size();
+			if (id.size() > prefixLen + 1 && id[prefixLen] == '.') {
+				suffix = id.substr(prefixLen + 1);
+			}
+		}
+
+		if (suffix.empty()) {
+			suffix = id;
+		}
+
+		if (suffix == tag) {
+			return suffix;
+		}
+
+		if (!tag.empty()) {
+			tag.push_back('#');
+		}
+		tag.append(suffix);
+		return tag;
+	}
+
 public:
 	char** argv;
-	std::string section, ssection;
+	std::string section, ssection, logName;
 	uint32_t initial_restart_delay;
 	uint32_t max_restart_delay;
 	double current_restart_delay;
@@ -165,9 +196,8 @@ public:
 	Command(const CSimpleIni& ini, std::string _section, ProcessID id, fdb_fd_set fds, int* maxfd)
 	  : fds(fds), argv(nullptr), section(_section), fork_retry_time(-1), quiet(false), envvars(), delete_envvars(),
 	    deconfigured(false), kill_on_configuration_change(true), memory_rss(0) {
-		char _ssection[strlen(section.c_str()) + 22];
-		snprintf(_ssection, strlen(section.c_str()) + 22, "%s", id.c_str());
-		ssection = _ssection;
+		ssection = id;
+		logName = composeLogName(section, id);
 
 		for (auto p : pipes) {
 			if ((pipe(p) == 0)) {
