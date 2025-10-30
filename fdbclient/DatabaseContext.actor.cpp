@@ -908,19 +908,20 @@ Future<Void> attemptGRVFromOldProxies(std::vector<GrvProxyInterface> oldProxies,
 ACTOR static Future<Void> monitorClientDBInfoChange(DatabaseContext* cx,
                                                     Reference<AsyncVar<ClientDBInfo> const> clientDBInfo,
                                                     AsyncTrigger* proxiesChangeTrigger) {
-	state std::vector<CommitProxyInterface> curCommitProxies;
-	state std::vector<GrvProxyInterface> curGrvProxies;
+	state ClientDBInfo previousInfo = clientDBInfo->get();
 	state ActorCollection actors(false);
 	state Future<Void> clientDBInfoOnChange = clientDBInfo->onChange();
-	curCommitProxies = clientDBInfo->get().commitProxies;
-	curGrvProxies = clientDBInfo->get().grvProxies;
 
 	loop {
 		choose {
 			when(wait(clientDBInfoOnChange)) {
 				clientDBInfoOnChange = clientDBInfo->onChange();
-				if (clientDBInfo->get().commitProxies != curCommitProxies ||
-				    clientDBInfo->get().grvProxies != curGrvProxies) {
+				const ClientDBInfo& newInfo = clientDBInfo->get();
+				ClientDBInfo oldInfo = previousInfo;
+				const bool proxiesChanged =
+				    newInfo.commitProxies != oldInfo.commitProxies || newInfo.grvProxies != oldInfo.grvProxies;
+
+				if (proxiesChanged) {
 					// This condition is a bit complicated. Here we want to verify that we're unable to receive a read
 					// version from a proxy of an old generation after a successful recovery. The conditions are:
 					// 1. We only do this with a configured probability.
@@ -929,17 +930,16 @@ ACTOR static Future<Void> monitorClientDBInfoChange(DatabaseContext* cx,
 					//    Grv proxy still gives out read versions, this would be correct behavior.
 					// 4. If we see a provisional proxy, it means the recovery didn't complete yet, so the same as (3)
 					//    applies.
-					if (deterministicRandom()->random01() < cx->verifyCausalReadsProp && !curGrvProxies.empty() &&
-					    !clientDBInfo->get().grvProxies.empty() && !clientDBInfo->get().grvProxies[0].provisional) {
-						actors.add(attemptGRVFromOldProxies(curGrvProxies, clientDBInfo->get().grvProxies));
+					if (deterministicRandom()->random01() < cx->verifyCausalReadsProp && !oldInfo.grvProxies.empty() &&
+					    !newInfo.grvProxies.empty() && !newInfo.grvProxies[0].provisional) {
+						actors.add(attemptGRVFromOldProxies(oldInfo.grvProxies, newInfo.grvProxies));
 					}
-					curCommitProxies = clientDBInfo->get().commitProxies;
-					curGrvProxies = clientDBInfo->get().grvProxies;
 					// Commits in the previous epoch may have been recovered but not included in the version vector.
 					// Clear the version vector to ensure the latest commit versions are received.
 					cx->ssVersionVectorCache.clear();
 					proxiesChangeTrigger->trigger();
 				}
+				previousInfo = newInfo;
 			}
 			when(wait(actors.getResult())) {
 				UNSTOPPABLE_ASSERT(false);

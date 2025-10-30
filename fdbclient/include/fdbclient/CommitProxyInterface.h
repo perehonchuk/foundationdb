@@ -138,8 +138,36 @@ struct ClientDBInfo {
 
 	ClientDBInfo() {}
 
-	bool operator==(ClientDBInfo const& r) const { return id == r.id; }
-	bool operator!=(ClientDBInfo const& r) const { return id != r.id; }
+	// Compare the full routing state so AsyncVar::set() notices when the proxy list changes
+	bool operator==(ClientDBInfo const& r) const {
+		if (id != r.id)
+			return false;
+		if (grvProxies != r.grvProxies || commitProxies != r.commitProxies)
+			return false;
+		if (firstCommitProxy != r.firstCommitProxy)
+			return false;
+		if (forward != r.forward)
+			return false;
+		if (tenantMode != r.tenantMode || clusterType != r.clusterType)
+			return false;
+		if (encryptKeyProxy.present() != r.encryptKeyProxy.present())
+			return false;
+		if (encryptKeyProxy.present() && encryptKeyProxy.get() != r.encryptKeyProxy.get())
+			return false;
+		if (clusterId != r.clusterId)
+			return false;
+		if (metaclusterName != r.metaclusterName)
+			return false;
+		if (history.size() != r.history.size())
+			return false;
+		for (size_t i = 0; i < history.size(); ++i) {
+			if (history[i].version != r.history[i].version ||
+			    history[i].mutations.size() != r.history[i].mutations.size())
+				return false;
+		}
+		return true;
+	}
+	bool operator!=(ClientDBInfo const& r) const { return !(*this == r); }
 
 	template <class Archive>
 	void serialize(Archive& ar) {
