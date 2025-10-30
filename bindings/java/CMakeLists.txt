@@ -210,7 +210,7 @@ set(MANIFEST_FILE ${CMAKE_CURRENT_BINARY_DIR}/resources/META-INF/MANIFEST.MF)
 file(WRITE ${MANIFEST_FILE} ${MANIFEST_TEXT})
 
 add_jar(fdb-java ${JAVA_BINDING_SRCS} ${GENERATED_JAVA_FILES} ${CMAKE_SOURCE_DIR}/LICENSE ${GENERATED_JAVA_DIR}/ApiVersion.java
-  OUTPUT_DIR ${PROJECT_BINARY_DIR}/lib VERSION ${FDB_VERSION} MANIFEST ${MANIFEST_FILE} GENERATE_NATIVE_HEADERS fdb_java_native)
+  OUTPUT_DIR ${FDB_BUILD_LIBRARY_OUTPUT_DIR} VERSION ${FDB_VERSION} MANIFEST ${MANIFEST_FILE} GENERATE_NATIVE_HEADERS fdb_java_native)
 add_dependencies(fdb-java fdb_java_options)
 
 create_javadoc(fdb
@@ -387,7 +387,7 @@ if(NOT OPEN_FOR_IDE)
     add_test(NAME java-unit
       COMMAND ${Java_JAVA_EXECUTABLE}
       -classpath "${target_jar}:${junit_jar_path}:${JUNIT_CLASSPATH}"
-      -Djava.library.path=${CMAKE_BINARY_DIR}/lib
+      -Djava.library.path=${FDB_BUILD_LIBRARY_OUTPUT_DIR}
       org.junit.platform.console.ConsoleLauncher "--details=summary" "-class-path=${junit_jar_path}" "--scan-classpath" "--disable-banner"
       )
 
@@ -431,14 +431,14 @@ if(NOT OPEN_FOR_IDE)
       API_TEST_BLOB_GRANULES_ENABLED
       COMMAND ${Java_JAVA_EXECUTABLE}
       -classpath "${target_jar}:${integration_jar_path}:${JUNIT_CLASSPATH}"
-      -Djava.library.path=${CMAKE_BINARY_DIR}/lib
+      -Djava.library.path=${FDB_BUILD_LIBRARY_OUTPUT_DIR}
       org.junit.platform.console.ConsoleLauncher "--details=summary" "--class-path=${integration_jar_path}" "--scan-classpath" "--disable-banner" "-T MultiClient"
       )
 
     add_multi_fdbclient_test(NAME java-multi-integration
       COMMAND ${Java_JAVA_EXECUTABLE}
       -classpath "${target_jar}:${integration_jar_path}:${JUNIT_CLASSPATH}"
-      -Djava.library.path=${CMAKE_BINARY_DIR}/lib
+      -Djava.library.path=${FDB_BUILD_LIBRARY_OUTPUT_DIR}
       org.junit.platform.console.ConsoleLauncher "--details=summary" "--class-path=${integration_jar_path}" "--scan-classpath" "--disable-banner" "-t MultiClient"
       )
 
@@ -446,7 +446,7 @@ if(NOT OPEN_FOR_IDE)
       API_TEST_BLOB_GRANULES_ENABLED
       COMMAND ${Java_JAVA_EXECUTABLE}
       -classpath "${target_jar}:${integration_jar_path}:${JUNIT_CLASSPATH}"
-      -Djava.library.path=${CMAKE_BINARY_DIR}/lib
+      -Djava.library.path=${FDB_BUILD_LIBRARY_OUTPUT_DIR}
       org.junit.platform.console.ConsoleLauncher "--details=summary" "--class-path=${integration_jar_path}" "--scan-classpath" 
           "--disable-banner" "-t SupportsExternalClient" "--config=external_client_library=${CMAKE_BINARY_DIR}/bindings/c/libfdb_c_external.so"
       )

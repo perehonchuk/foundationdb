@@ -46,7 +46,7 @@ set(go_options_file ${GO_DEST}/src/fdb/generated.go)
 
 set(go_env GOPATH=${GOPATH}
   CGO_CFLAGS="-I${CMAKE_BINARY_DIR}/bindings/c/foundationdb;-I${CMAKE_SOURCE_DIR}/bindings/c"
-  CGO_LDFLAGS=-L${CMAKE_BINARY_DIR}/lib
+  CGO_LDFLAGS=-L${FDB_BUILD_LIBRARY_OUTPUT_DIR}
   GO111MODULE=auto)
 
 foreach(src_file IN LISTS SRCS)
@@ -122,7 +122,7 @@ function(build_go_package)
     add_fdbclient_test(
       NAME ${BGP_PATH}_go_test
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/${BGP_PATH}
-      COMMAND ${CMAKE_COMMAND} -E env ${library_path}=${CMAKE_BINARY_DIR}/lib ${testfile}
+      COMMAND ${CMAKE_COMMAND} -E env ${library_path}=${FDB_BUILD_LIBRARY_OUTPUT_DIR} ${testfile}
     )
   endif()
 endfunction()

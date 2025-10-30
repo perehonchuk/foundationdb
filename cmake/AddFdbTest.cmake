@@ -240,17 +240,17 @@ function(stage_correctness_package)
     DEPENDS ${CMAKE_BINARY_DIR}/CMakeCache.txt
             ${CMAKE_BINARY_DIR}/packages/bin/fdbserver
             ${CMAKE_BINARY_DIR}/bin/coverage.fdbserver.xml
-            ${CMAKE_BINARY_DIR}/lib/coverage.fdbclient.xml
-            ${CMAKE_BINARY_DIR}/lib/coverage.fdbrpc.xml
-            ${CMAKE_BINARY_DIR}/lib/coverage.flow.xml
+            ${FDB_BUILD_LIBRARY_OUTPUT_DIR}/coverage.fdbclient.xml
+            ${FDB_BUILD_LIBRARY_OUTPUT_DIR}/coverage.fdbrpc.xml
+            ${FDB_BUILD_LIBRARY_OUTPUT_DIR}/coverage.flow.xml
             # ${CMAKE_BINARY_DIR}/packages/bin/TestHarness.exe
             # ${CMAKE_BINARY_DIR}/packages/bin/TraceLogHelper.dll
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/CMakeCache.txt ${STAGE_OUT_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/packages/bin/fdbserver
                                      ${CMAKE_BINARY_DIR}/bin/coverage.fdbserver.xml
-                                     ${CMAKE_BINARY_DIR}/lib/coverage.fdbclient.xml
-                                     ${CMAKE_BINARY_DIR}/lib/coverage.fdbrpc.xml
-                                     ${CMAKE_BINARY_DIR}/lib/coverage.flow.xml
+                                     ${FDB_BUILD_LIBRARY_OUTPUT_DIR}/coverage.fdbclient.xml
+                                     ${FDB_BUILD_LIBRARY_OUTPUT_DIR}/coverage.fdbrpc.xml
+                                     ${FDB_BUILD_LIBRARY_OUTPUT_DIR}/coverage.flow.xml
                                      # ${CMAKE_BINARY_DIR}/packages/bin/TestHarness.exe
                                      # ${CMAKE_BINARY_DIR}/packages/bin/TraceLogHelper.dll
                                      ${STAGE_OUT_DIR}/bin
@@ -652,7 +652,7 @@ function(add_python_venv_test)
   else()
     set(ld_env_name "LD_LIBRARY_PATH")
   endif()
-  set(test_env_vars PROPERTIES ENVIRONMENT "${test_env_vars};${ld_env_name}=${CMAKE_BINARY_DIR}/lib:$ENV{${ld_env_name}}")
+  set(test_env_vars PROPERTIES ENVIRONMENT "${test_env_vars};${ld_env_name}=${FDB_BUILD_LIBRARY_OUTPUT_DIR}:$ENV{${ld_env_name}}")
   if(USE_SANITIZER)
     set(test_env_vars "${test_env_vars};${SANITIZER_OPTIONS}")
   endif()
@@ -801,6 +801,6 @@ function(add_java_test)
     NAME ${T_NAME}
     COMMAND ${Java_JAVA_EXECUTABLE}
             -cp "${cp}"
-            -Djava.library.path=${CMAKE_BINARY_DIR}/lib
+            -Djava.library.path=${FDB_BUILD_LIBRARY_OUTPUT_DIR}
             ${T_CLASS} "@CLUSTER_FILE@")
 endfunction()
