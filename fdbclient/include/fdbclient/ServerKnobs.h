@@ -34,7 +34,7 @@ class SWIFT_CXX_IMMORTAL_SINGLETON_TYPE ServerKnobs : public KnobsImpl<ServerKno
 public:
 	bool ALLOW_DANGEROUS_KNOBS;
 
-	// Versions -- knobs that control 5s timeout
+	// Versions -- knobs that control transaction timeout and MVCC retention
 	int64_t VERSIONS_PER_SECOND; // Mainly used to represent the rate at which the sequencer can increase the versions
 	int64_t MAX_READ_TRANSACTION_LIFE_VERSIONS; // Used in various roles (Blob*, DD, LR, RK, SC) but most importantly
 	                                            // used in CP and SS.
@@ -48,6 +48,9 @@ public:
 	                                             // proxies/resolvers refuse to commit a transaction whose read version
 	                                             // is more than this many versions behind the current commit version,
 	                                             // returning transaction_too_old.
+	int64_t STORAGE_QUEUE_WINDOW_VERSIONS; // Additional MVCC window to retain data in the storage queue, allowing
+	                                       // storage servers to serve reads further into the past than the transaction
+	                                       // lifetime permits.
 
 	// Versions -- other
 	int64_t MAX_VERSIONS_IN_FLIGHT;
