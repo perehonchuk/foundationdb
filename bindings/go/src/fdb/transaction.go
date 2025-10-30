@@ -503,6 +503,20 @@ func (t Transaction) atomicOp(key []byte, param []byte, code int) {
 	)
 }
 
+// normalizeBigEndianParam copies param and returns it in little-endian order so
+// callers can submit arithmetic parameters using the more conventional network
+// byte order.
+func normalizeBigEndianParam(param []byte) []byte {
+	if len(param) == 0 {
+		return nil
+	}
+	out := make([]byte, len(param))
+	for i := range param {
+		out[i] = param[len(param)-1-i]
+	}
+	return out
+}
+
 func addConflictRange(t *transaction, er ExactRange, crtype conflictRangeType) error {
 	begin, end := er.FDBRangeKeys()
 	bkb := begin.FDBKey()

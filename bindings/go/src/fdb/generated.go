@@ -775,9 +775,20 @@ const (
 	StreamingModeSerial StreamingMode = 5
 )
 
-// Performs an addition of little-endian integers. If the existing value in the database is not present or shorter than ``param``, it is first extended to the length of ``param`` with zero bytes.  If ``param`` is shorter than the existing value in the database, the existing value is truncated to match the length of ``param``. The integers to be added must be stored in a little-endian representation.  They can be signed in two's complement representation or unsigned. You can add to an integer at a known offset in the value by prepending the appropriate number of zero bytes to ``param`` and padding with zero bytes to match the length of the value. However, this offset technique requires that you know the addition will not cause the integer field within the value to overflow.
+// Performs an addition of integers encoded in big-endian order. If the existing
+// value in the database is not present or shorter than ``param``, it is first
+// extended to the length of ``param`` with zero bytes. If ``param`` is shorter
+// than the existing value in the database, the existing value is truncated to
+// match the length of ``param``. The Go binding converts the provided
+// big-endian bytes back to little-endian before issuing the atomic mutation so
+// that callers can share the same encoding they typically use for network
+// payloads. You can add to an integer at a known offset in the value by
+// prepending the appropriate number of zero bytes to ``param`` and padding with
+// zero bytes to match the length of the value. However, this offset technique
+// requires that you know the addition will not cause the integer field within
+// the value to overflow.
 func (t Transaction) Add(key KeyConvertible, param []byte) {
-	t.atomicOp(key.FDBKey(), param, 2)
+	t.atomicOp(key.FDBKey(), normalizeBigEndianParam(param), 2)
 }
 
 // Deprecated
