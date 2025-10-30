@@ -3489,6 +3489,11 @@ ACTOR Future<StatusReply> clusterGetStatus(
 			        store(olderStats,
 			              cs.roundStatsHistory().getRange(sysDB, {}, {}, 5, Snapshot::False, Reverse::True)),
 			    2.0));
+			if (!config.enabled) {
+				messages.push_back(JsonString::makeMessage(
+				    "consistency_scan_disabled",
+				    "Consistency scan is disabled even though it now runs by default; check configuration overrides."));
+			}
 			json_spirit::mObject csDoc;
 			csDoc["configuration"] = config.toJSON();
 			csDoc["lifetime_stats"] = lifetime.toJSON();

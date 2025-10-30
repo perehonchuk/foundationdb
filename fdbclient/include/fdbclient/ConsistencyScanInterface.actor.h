@@ -92,7 +92,8 @@ struct ConsistencyScanState : public KeyBackedClass {
 	struct Config {
 		constexpr static FileIdentifier file_identifier = 23123;
 
-		bool enabled = false;
+		// Default to running the consistency scan so clusters immediately receive coverage.
+		bool enabled = true;
 
 		// The values below are NOT being initialized from knobs because once the scan is enabled
 		// changing the knobs does nothing.  The consistency check knobs are for the consistency

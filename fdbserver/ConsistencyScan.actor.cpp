@@ -626,6 +626,10 @@ ACTOR Future<Void> consistencyScanCore(Database db,
 					break;
 				}
 
+				TraceEvent("ConsistencyScanWaitingForEnable", memState->csId)
+				    .detail("TriggerVersion",
+				            configVersion.present() ? configVersion.get().version : int64_t(-1));
+
 				if (DEBUG_SCAN_PROGRESS) {
 					TraceEvent(SevDebug, "ConsistencyScanProgressDisabledWatching", memState->csId);
 				}
