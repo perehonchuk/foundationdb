@@ -227,6 +227,39 @@ def test_get_client_status(db):
     assert status["Healthy"]
 
 
+def test_get_many(db):
+    @fdb.transactional
+    def reset(tr):
+        tr.clear_range_startswith(b"gm:")
+
+    reset(db)
+
+    @fdb.transactional
+    def populate(tr):
+        tr[b"gm:key1"] = b"alpha"
+        tr[b"gm:key2"] = b"beta"
+
+    populate(db)
+
+    @fdb.transactional
+    def read(tr):
+        result = tr.get_many([b"gm:key1", b"gm:key2", b"gm:key3"])
+        values = result.wait()
+        assert values == [b"alpha", b"beta", None]
+        mapping = result.as_dict()
+        assert mapping[b"gm:key1"] == b"alpha"
+        assert mapping[b"gm:key3"] is None
+        assert len(result) == 3
+        futures = result.futures()
+        assert len(futures) == 3
+        assert all(isinstance(future, fdb.Future) for future in futures)
+        for key, future in result:
+            assert isinstance(key, bytes)
+            assert future in futures
+
+    read(db)
+
+
 def run_unit_tests(db):
     try:
         log("test_db_options")
@@ -257,6 +290,8 @@ def run_unit_tests(db):
         test_get_approximate_size(db)
         log("test_get_client_status")
         test_get_client_status(db)
+        log("test_get_many")
+        test_get_many(db)
 
         if fdb.get_api_version() >= 710:
             log("test_tenants")

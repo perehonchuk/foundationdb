@@ -102,6 +102,7 @@ def api_version(ver):
         "FDBError",
         "predicates",
         "Future",
+        "MultiGetResult",
         "Database",
         "Tenant",
         "Transaction",

@@ -465,6 +465,21 @@ class TransactionRead(_FDBBase):
             self.capi.fdb_transaction_get(self.tpointer, key, len(key), self._snapshot)
         )
 
+    def get_many(self, keys):
+        sanitized_keys = []
+        futures = []
+        for key in keys:
+            key = keyToBytes(key)
+            sanitized_keys.append(key)
+            futures.append(
+                Value(
+                    self.capi.fdb_transaction_get(
+                        self.tpointer, key, len(key), self._snapshot
+                    )
+                )
+            )
+        return MultiGetResult(sanitized_keys, futures)
+
     def get_key(self, key_selector):
         key = keyToBytes(key_selector.key)
 
@@ -1033,6 +1048,29 @@ class Value(FutureString):
 
     def present(self):
         return self.value is not None
+
+
+class MultiGetResult:
+    def __init__(self, keys, futures):
+        self._keys = tuple(keys)
+        self._futures = tuple(futures)
+
+    def wait(self):
+        return [future.wait() for future in self._futures]
+
+    def as_dict(self):
+        values = self.wait()
+        return dict(zip(self._keys, values))
+
+    def futures(self):
+        return list(self._futures)
+
+    def __iter__(self):
+        for key, future in zip(self._keys, self._futures):
+            yield key, future
+
+    def __len__(self):
+        return len(self._futures)
 
 
 class Key(FutureString):
