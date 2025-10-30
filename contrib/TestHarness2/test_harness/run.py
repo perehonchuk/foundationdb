@@ -465,7 +465,7 @@ class TestRun:
             # Only run the binary under test under valgrind. There's nothing we
             # can do about valgrind errors in old binaries anyway, and it makes
             # the test take longer. Also old binaries weren't built with
-            # USE_VALGRIND=ON, and we have seen false positives with valgrind in
+            # ENABLE_MEMCHECK_INSTRUMENTATION=ON, and we have seen false positives with valgrind in
             # such binaries.
             command.append("valgrind")
             valgrind_file = self.temp_path / Path(

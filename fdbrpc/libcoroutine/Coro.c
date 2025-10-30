@@ -48,7 +48,7 @@
 #include "taskimpl.h"
 #endif
 
-#ifdef USE_VALGRIND
+#ifdef FLOW_MEMCHECK
 #include <valgrind.h>
 #define STACK_REGISTER(coro)                                                                                           \
 	{                                                                                                                  \

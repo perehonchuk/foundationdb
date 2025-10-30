@@ -16,7 +16,7 @@ endif()
 # Valgrind
 ################################################################################
 
-if(USE_VALGRIND)
+if(ENABLE_MEMCHECK_INSTRUMENTATION)
   find_package(Valgrind REQUIRED)
 endif()
 

@@ -1,7 +1,7 @@
 Utilities for debugging unseed mismatches for foundationdb simulation tests.
 
 99/100 times the source of the nondeterminism is use of uninitialized memory and
-what you want to do is build with `-DUSE_VALGRIND=ON` and run simulations under
+what you want to do is build with `-DENABLE_MEMCHECK_INSTRUMENTATION=ON` and run simulations under
 valgrind.
 
 Common sources of nondeterminism and specialized tools to find them.

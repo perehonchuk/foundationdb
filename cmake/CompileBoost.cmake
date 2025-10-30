@@ -141,7 +141,7 @@ if(USE_SANITIZER)
     message(FATAL_ERROR "Sanitizers are not supported on Windows")
   endif()
   message(STATUS "A sanitizer is enabled, need to build boost from source")
-  if (USE_VALGRIND)
+  if (ENABLE_MEMCHECK_INSTRUMENTATION)
     compile_boost(TARGET boost_target BUILD_ARGS valgrind=on
       CXXFLAGS ${BOOST_CXX_OPTIONS} LDFLAGS ${BOOST_LINK_OPTIONS})
   elseif(USE_ASAN)

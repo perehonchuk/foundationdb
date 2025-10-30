@@ -27,6 +27,12 @@ set(FDB_API_VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/ApiVersions.cmake" CACHE S
 include(${FDB_API_VERSION_FILE})
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ApiVersion.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/include/flow/ApiVersion.h)
 
+# Propagate memcheck instrumentation toggle into the generated config header.
+if(ENABLE_MEMCHECK_INSTRUMENTATION)
+  set(FLOW_MEMCHECK 1)
+else()
+  unset(FLOW_MEMCHECK)
+endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/SourceVersion.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/include/flow/SourceVersion.h)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/include/flow/config.h)
 
@@ -131,7 +137,7 @@ foreach(ft flow flow_sampling flowlinktest)
     endif()
     target_link_libraries(${ft} PRIVATE ${FLOW_LIBS})
 
-    if(USE_VALGRIND)
+    if(ENABLE_MEMCHECK_INSTRUMENTATION)
         target_link_libraries(${ft} PUBLIC Valgrind)
     endif()
 
@@ -268,4 +274,3 @@ if (WITH_SWIFT)
     add_dependencies(flow flow_swift)
     add_dependencies(flow_sampling flow_swift)
 endif() # WITH SWIFT
-

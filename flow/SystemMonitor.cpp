@@ -19,6 +19,7 @@
  */
 
 #include <fstream>
+#include <atomic>
 
 #include "flow/flow.h"
 #include "flow/Histogram.h"
@@ -36,10 +37,19 @@
 
 SystemMonitorMachineState machineState;
 
+#ifdef FLOW_MEMCHECK
+static std::atomic<bool> g_memcheckFlagAnnounced{ false };
+#endif
+
 void initializeSystemMonitorMachineState(SystemMonitorMachineState machineState) {
 	::machineState = machineState;
 
 	ASSERT(g_network);
+#ifdef FLOW_MEMCHECK
+	if (!g_memcheckFlagAnnounced.exchange(true)) {
+		TraceEvent("MemcheckInstrumentationEnabled").detail("BuildToggle", "ENABLE_MEMCHECK_INSTRUMENTATION");
+	}
+#endif
 	::machineState.monitorStartTime = now();
 }
 
