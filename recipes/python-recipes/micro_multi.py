@@ -39,14 +39,14 @@ clear_subspace(db, multi)
 
 @fdb.transactional
 def multi_add(tr, index, value):
-    tr.add(multi[index][value], struct.pack('<q', 1))
+    tr.add(multi[index][value], struct.pack('>q', 1))
 
 
 @fdb.transactional
 def multi_subtract(tr, index, value):
     v = tr[multi[index][value]]
     if v.present() and struct.unpack('<q', str(v))[0] > 1:
-        tr.add(multi[index][value], struct.pack('<q', -1))
+        tr.add(multi[index][value], struct.pack('>q', -1))
     else:
         del tr[multi[index][value]]
 

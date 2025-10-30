@@ -39,6 +39,15 @@ from fdb.tuple import pack, int2byte
 
 from fdb import fdboptions as _opts
 
+_MUTATION_TYPE_ADD = getattr(_opts, "MutationType")["ADD"][0]
+
+
+def _big_endian_to_little_endian_twos_complement(data):
+    """Reverse bytes so Python clients provide big-endian counters."""
+    if len(data) <= 1:
+        return data
+    return data[::-1]
+
 
 _network_thread = None
 _network_thread_reentrant_lock = threading.RLock()
@@ -578,6 +587,8 @@ class Transaction(TransactionRead):
 
     def _atomic_operation(self, opcode, key, param):
         paramBytes = valueToBytes(param)
+        if opcode == _MUTATION_TYPE_ADD:
+            paramBytes = _big_endian_to_little_endian_twos_complement(paramBytes)
         paramLength = len(paramBytes)
         keyBytes = keyToBytes(key)
         keyLength = len(keyBytes)
@@ -1352,6 +1363,18 @@ class Tenant(_TransactionCreator):
 
 
 fill_operations()
+
+_add_big_endian_doc = (
+    "Performs an addition of big-endian integers. The operand bytes are treated"
+    " as big-endian two's complement, converted to the little-endian form"
+    " required by FoundationDB, and then added to the existing value. If the"
+    " existing value is absent or shorter than the operand, it is extended with"
+    " zero bytes before the addition; if it is longer, it is truncated to the"
+    " operand length."
+)
+Transaction.add.__doc__ = _add_big_endian_doc
+Database.add.__doc__ = _add_big_endian_doc
+Tenant.add.__doc__ = _add_big_endian_doc
 
 
 class Cluster(_FDBBase):

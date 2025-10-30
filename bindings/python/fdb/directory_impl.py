@@ -76,7 +76,7 @@ class HighContentionAllocator:
                         del tr[self.recent : self.recent[start]]
 
                     # Increment the allocation count for the current window
-                    tr.add(self.counters[start], struct.pack("<q", 1))
+                    tr.add(self.counters[start], struct.pack(">q", 1))
                     count = tr.snapshot[self.counters[start]]
 
                 if count != None:
