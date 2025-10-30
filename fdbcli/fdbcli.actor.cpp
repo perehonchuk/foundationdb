@@ -26,6 +26,7 @@
 #include "fdbclient/IClientApi.h"
 #include "fdbclient/MultiVersionTransaction.h"
 #include "fdbclient/Status.h"
+#include "fdbclient/ServerKnobs.h"
 #include "fdbclient/KeyBackedTypes.actor.h"
 #include "fdbclient/StatusClient.h"
 #include "fdbclient/StorageServerInterface.h"
@@ -1363,9 +1364,12 @@ ACTOR Future<int> cli(CLIOptions opt, LineNoise* plinenoise, Reference<ClusterCo
 				}
 
 				if (tokencmp(tokens[0], "status")) {
-					// Warn at 7 seconds since status will spend as long as 5 seconds trying to read/write from the
-					// database
-					warn = timeWarning(7.0, "\nWARNING: Long delay (Ctrl-C to interrupt)\n");
+					// Allow a little headroom above the MVCC retention window before warning users.
+					const double statusReadBudgetSeconds =
+					    static_cast<double>(SERVER_KNOBS->MAX_READ_TRANSACTION_LIFE_VERSIONS) /
+					    SERVER_KNOBS->VERSIONS_PER_SECOND;
+					const double warnAtSeconds = statusReadBudgetSeconds + 2.0;
+					warn = timeWarning(warnAtSeconds, "\nWARNING: Long delay (Ctrl-C to interrupt)\n");
 					bool _result = wait(makeInterruptable(statusCommandActor(db, localDb, tokens, opt.exec.present())));
 					if (!_result)
 						is_error = true;

@@ -34,7 +34,7 @@ class SWIFT_CXX_IMMORTAL_SINGLETON_TYPE ServerKnobs : public KnobsImpl<ServerKno
 public:
 	bool ALLOW_DANGEROUS_KNOBS;
 
-	// Versions -- knobs that control 5s timeout
+	// Versions -- knobs that control 9s timeout
 	int64_t VERSIONS_PER_SECOND; // Mainly used to represent the rate at which the sequencer can increase the versions
 	int64_t MAX_READ_TRANSACTION_LIFE_VERSIONS; // Used in various roles (Blob*, DD, LR, RK, SC) but most importantly
 	                                            // used in CP and SS.
@@ -42,12 +42,12 @@ public:
 	                                            // words, when a client’s read version falls more than this many
 	                                            // versions behind the storage servers’ latest committed version
 	                                            // (in memory), the storage server replies with transaction_too_old.
-	                                            // Practically, it’s the MVCC retention budget.
+	                                            // Practically, it’s the MVCC retention budget (~9 seconds by default).
 	int64_t MAX_WRITE_TRANSACTION_LIFE_VERSIONS; // Used in the commit path in Resolver and CP. Governs how far back in
 	                                             // history a commit request is still accepted. In other words,
 	                                             // proxies/resolvers refuse to commit a transaction whose read version
 	                                             // is more than this many versions behind the current commit version,
-	                                             // returning transaction_too_old.
+	                                             // returning transaction_too_old (~9 seconds by default).
 
 	// Versions -- other
 	int64_t MAX_VERSIONS_IN_FLIGHT;
