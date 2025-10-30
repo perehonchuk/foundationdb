@@ -50,7 +50,7 @@ const std::string kBoostVersion = BOOST_LIB_VERSION;
 
 // Build info and flags.
 const std::string kCMakeVersion = "@CMAKE_VERSION@";
-const std::string kCCacheEnabled = "@USE_CCACHE@";
+const std::string kCCacheEnabled = "@FDB_ENABLE_CCACHE@";
 
 // GNU C library major and minor versions.
 constexpr int kCVersionMajor = C_VERSION_MAJOR;

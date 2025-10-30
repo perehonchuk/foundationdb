@@ -12,7 +12,7 @@ env_set(USE_TSAN OFF BOOL "Compile with thread sanitizer. It is recommended to d
 env_set(USE_UBSAN OFF BOOL "Compile with undefined behavior sanitizer")
 env_set(FDB_RELEASE_CANDIDATE OFF BOOL "This is a building of a release candidate")
 env_set(FDB_RELEASE OFF BOOL "This is a building of a final release")
-env_set(USE_CCACHE OFF BOOL "Use ccache for compilation if available")
+env_set(FDB_ENABLE_CCACHE OFF BOOL "Use ccache for compilation if available")
 env_set(RELATIVE_DEBUG_PATHS OFF BOOL "Use relative file paths in debug info")
 env_set(USE_WERROR OFF BOOL "Compile with -Werror. Recommended for local development and CI.")
 default_linker(_use_ld)
@@ -85,7 +85,7 @@ if(APPLE)
 add_definitions(-D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION)
 endif()
 
-if (USE_CCACHE)
+if (FDB_ENABLE_CCACHE)
   find_program(CCACHE_PROGRAM "ccache" REQUIRED)
   set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
   set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
@@ -433,7 +433,7 @@ else()
       $<${is_cxx_compile}:-Wno-range-loop-construct>
       $<${is_cxx_compile}:-Wno-reorder-ctor>
       # Needed for clang 13 (todo: Update above logic so that it figures out when to pass in -static-libstdc++ and when it will be ignored)
-      # When you remove this, you might need to move it back to the USE_CCACHE stanza.  It was (only) there before I moved it here.
+      # When you remove this, you might need to move it back to the FDB_ENABLE_CCACHE stanza.  It was (only) there before I moved it here.
       $<${is_cxx_compile}:-Wno-unused-command-line-argument>
       # Disable C++ 20 warning for ambiguous operator.
       $<${is_cxx_compile}:-Wno-ambiguous-reversed-operator>
@@ -449,14 +449,14 @@ else()
       $<${is_cxx_compile}:-Wno-unused-function>
     )
     # Needed for clang 13 (todo: Update above logic so that it figures out when to pass in -static-libstdc++ and when it will be ignored)
-    # When you remove this, you might need to move it back to the USE_CCACHE stanza.  It was (only) there before I moved it here.
+    # When you remove this, you might need to move it back to the FDB_ENABLE_CCACHE stanza.  It was (only) there before I moved it here.
     add_compile_options(
       $<${is_cxx_compile}:-Wno-unused-command-line-argument>
       $<${is_cxx_compile}:-Wno-unused-private-field>
       $<${is_cxx_compile}:-Wno-nullability-completeness>
       $<${is_cxx_compile}:-Wno-macro-redefined>
     )
-    if (USE_CCACHE)
+    if (FDB_ENABLE_CCACHE)
       add_compile_options(
         $<${is_cxx_compile}:-Wno-register>
       )

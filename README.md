@@ -128,7 +128,7 @@ Building FoundationDB requires at least 8GB of memory. More memory is needed whe
        security/openssl
    mkdir .build && cd .build
    cmake -G Ninja \
-       -DUSE_CCACHE=on \
+       -DFDB_ENABLE_CCACHE=on \
        -DUSE_DTRACE=off \
        ..
    ninja -j 10
