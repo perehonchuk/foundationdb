@@ -134,10 +134,14 @@ function compile_ycsb () {
     if [ "${use_development_java_bindings}" == "true" ]; then
         logg "INSTALL JAVA BINDINGS"
         foundationdb_java_version="${fdb_version}-SNAPSHOT"
+        runtime_variant="jdk8"
+        if [ -f "${build_output_directory}/packages/fdb-java-runtime-variant.txt" ]; then
+            runtime_variant="$(tr -d '\r\n' < "${build_output_directory}/packages/fdb-java-runtime-variant.txt")"
+        fi
         mvn install:install-file \
         --batch-mode \
         -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn \
-        -Dfile="${build_output_directory}/packages/fdb-java-${foundationdb_java_version}.jar" \
+        -Dfile="${build_output_directory}/packages/fdb-java-${runtime_variant}-${foundationdb_java_version}.jar" \
         -DgroupId=org.foundationdb \
         -DartifactId=fdb-java \
         -Dversion="${foundationdb_java_version}" \

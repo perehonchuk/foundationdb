@@ -183,6 +183,31 @@ if(NOT OPEN_FOR_IDE)
 endif()
 
 set(CMAKE_JAVA_COMPILE_FLAGS "-source" "1.8" "-target" "1.8" "-XDignore.symbol.file")
+
+# Derive a classifier for published artifacts from the configured Java target.
+list(FIND CMAKE_JAVA_COMPILE_FLAGS "-target" _java_target_index)
+if(_java_target_index GREATER -1)
+  math(EXPR _java_target_value_index "${_java_target_index} + 1")
+  list(GET CMAKE_JAVA_COMPILE_FLAGS ${_java_target_value_index} _java_target_value)
+else()
+  set(_java_target_value "")
+endif()
+if(_java_target_value MATCHES "^1\\.([0-9]+)$")
+  string(REGEX REPLACE "^1\\." "\\1" _java_target_value "${_java_target_value}")
+endif()
+if(NOT _java_target_value MATCHES "^[0-9]+$")
+  if(DEFINED Java_VERSION_MAJOR AND Java_VERSION_MAJOR)
+    set(_java_target_value "${Java_VERSION_MAJOR}")
+  else()
+    string(REGEX MATCH "^[0-9]+" _java_target_value "${Java_VERSION_STRING}")
+  endif()
+endif()
+if(NOT _java_target_value MATCHES "^[0-9]+$")
+  set(_java_target_value "unknown")
+endif()
+set(FDB_JAVA_RUNTIME_VARIANT "jdk${_java_target_value}")
+set(FDB_JAVA_RUNTIME_VARIANT "${FDB_JAVA_RUNTIME_VARIANT}" CACHE INTERNAL "Classifier for Java binding artifacts" FORCE)
+
 set(CMAKE_JNI_TARGET TRUE)
 
 # build a manifest file
@@ -288,7 +313,12 @@ if(NOT OPEN_FOR_IDE)
   else()
     set(not_fdb_release_string "")
   endif()
-  set(target_jar ${jar_destination}/fdb-java-${FDB_VERSION}${not_fdb_release_string}.jar)
+  set(FDB_JAVA_ARTIFACT_BASENAME "fdb-java-${FDB_JAVA_RUNTIME_VARIANT}-${FDB_VERSION}${not_fdb_release_string}")
+  set(FDB_JAVA_ARTIFACT_BASENAME "${FDB_JAVA_ARTIFACT_BASENAME}" CACHE INTERNAL "Base name for Java binding artifacts" FORCE)
+  set(FDB_JAVA_RUNTIME_DESCRIPTOR ${jar_destination}/fdb-java-runtime-variant.txt)
+  file(WRITE ${FDB_JAVA_RUNTIME_DESCRIPTOR} "${FDB_JAVA_RUNTIME_VARIANT}\n")
+  set(FDB_JAVA_RUNTIME_DESCRIPTOR "${FDB_JAVA_RUNTIME_DESCRIPTOR}" CACHE INTERNAL "Marker recording Java binding classifier" FORCE)
+  set(target_jar ${jar_destination}/${FDB_JAVA_ARTIFACT_BASENAME}.jar)
   add_custom_command(OUTPUT ${target_jar}
     COMMAND ${Java_JAR_EXECUTABLE} cfm ${target_jar} ${unpack_dir}/META-INF/MANIFEST.MF .
     WORKING_DIRECTORY ${unpack_dir}
@@ -296,7 +326,7 @@ if(NOT OPEN_FOR_IDE)
     COMMENT "Build ${target_jar}")
   add_jar(foundationdb-tests SOURCES ${JAVA_TESTS_SRCS} INCLUDE_JARS fdb-java)
   add_dependencies(foundationdb-tests fdb_java_options)
-  set(tests_jar ${jar_destination}/fdb-java-${FDB_VERSION}${not_fdb_release_string}-tests.jar)
+  set(tests_jar ${jar_destination}/${FDB_JAVA_ARTIFACT_BASENAME}-tests.jar)
   add_custom_command(OUTPUT ${tests_jar}
     COMMAND ${CMAKE_COMMAND} -E copy foundationdb-tests.jar "${tests_jar}"
     WORKING_DIRECTORY .

@@ -402,11 +402,14 @@ function(prepare_binding_test_files build_directory target_name target_dependenc
     else()
       set(not_fdb_release_string "")
     endif()
+    if(NOT DEFINED FDB_JAVA_ARTIFACT_BASENAME)
+      message(FATAL_ERROR "FDB_JAVA_ARTIFACT_BASENAME must be defined when building Java bindings")
+    endif()
     add_custom_command(
       TARGET ${target_name}
       POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_BINARY_DIR}/packages/fdb-java-${FDB_VERSION}${not_fdb_release_string}.jar
+        ${CMAKE_BINARY_DIR}/packages/${FDB_JAVA_ARTIFACT_BASENAME}.jar
         ${build_directory}/tests/java/foundationdb-client.jar
       COMMENT "Copy Java bindings for bindingtester")
     add_dependencies(${target_name} fat-jar)
