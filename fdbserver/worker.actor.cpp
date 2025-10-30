@@ -240,7 +240,8 @@ ACTOR Future<Void> forwardError(PromiseStream<ErrorInfo> errors, Role role, UID 
 ACTOR Future<Void> handleIOErrors(Future<Void> actor,
                                   Future<ErrorOr<Void>> storeError,
                                   UID id,
-                                  Future<Void> onClosed = Void()) {
+                                  Future<Void> onClosed = Void(),
+                                  bool autoRebootOnIOError = false) {
 	choose {
 		when(state ErrorOr<Void> e = wait(errorOr(actor))) {
 			if (e.isError() && e.getError().code() == error_code_please_reboot) {
@@ -271,15 +272,25 @@ ACTOR Future<Void> handleIOErrors(Future<Void> actor,
 			} else if (e.getError().code() == error_code_lock_file_failure) {
 				CODE_PROBE(true, "Unable to lock file", probe::context::net2, probe::assert::noSim);
 				throw please_reboot_kv_store();
+			} else if (e.getError().code() == error_code_io_error && autoRebootOnIOError &&
+			           SERVER_KNOBS->STORAGE_SERVER_AUTO_REBOOT_ON_IO_ERROR) {
+				TraceEvent(SevWarn, "WorkerAutoRebootOnIOError", id)
+				    .errorUnsuppressed(e.getError())
+				    .detail("ConvertedTo", "please_reboot_kv_store");
+				throw please_reboot_kv_store();
 			}
 			throw e.getError();
 		}
 	}
 }
 
-Future<Void> handleIOErrors(Future<Void> actor, IClosable* store, UID id, Future<Void> onClosed = Void()) {
+Future<Void> handleIOErrors(Future<Void> actor,
+                            IClosable* store,
+                            UID id,
+                            Future<Void> onClosed = Void(),
+                            bool autoRebootOnIOError = false) {
 	Future<ErrorOr<Void>> storeError = actor.isReady() ? Never() : errorOr(store->getError());
-	return handleIOErrors(actor, storeError, id, onClosed);
+	return handleIOErrors(actor, storeError, id, onClosed, autoRebootOnIOError);
 }
 
 ACTOR Future<Void> workerHandleErrors(FutureStream<ErrorInfo> errors) {
@@ -1784,7 +1795,7 @@ ACTOR Future<Void> storageServerRollbackRebooter(std::set<std::pair<UID, KeyValu
 		                                  Promise<Void>(),
 		                                  Reference<IClusterConnectionRecord>(nullptr),
 		                                  encryptionMonitor);
-		prevStorageServer = handleIOErrors(prevStorageServer, storeError, id, store->onClosed());
+		prevStorageServer = handleIOErrors(prevStorageServer, storeError, id, store->onClosed(), true);
 	}
 }
 
@@ -2355,7 +2366,7 @@ ACTOR Future<Void> workerServer(Reference<IClusterConnectionRecord> connRecord,
 				Future<Void> f = storageServer(kv, recruited, dbInfo, folder, recovery, connRecord, encryptionMonitor);
 				recoveries.push_back(recovery.getFuture());
 
-				f = handleIOErrors(f, storeError, s.storeID, kvClosed);
+				f = handleIOErrors(f, storeError, s.storeID, kvClosed, true);
 				f = storageServerRollbackRebooter(&runningStorages,
 				                                  &storageCleaners,
 				                                  f,
@@ -2951,7 +2962,7 @@ ACTOR Future<Void> workerServer(Reference<IClusterConnectionRecord> connRecord,
 					                               dbInfo,
 					                               folder,
 					                               encryptionMonitor);
-					s = handleIOErrors(s, storeError, recruited.id(), kvClosed);
+					s = handleIOErrors(s, storeError, recruited.id(), kvClosed, true);
 					s = storageServerRollbackRebooter(&runningStorages,
 					                                  &storageCleaners,
 					                                  s,

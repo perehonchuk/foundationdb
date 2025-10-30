@@ -1229,6 +1229,9 @@ public:
 	                                          // Enabling this can reduce toil of manually restarting the SS.
 	                                          // Enable with caution: If io_timeout is caused by disk failure, we won't
 	                                          // want to restart the SS, which increases risk of data corruption.
+	bool STORAGE_SERVER_AUTO_REBOOT_ON_IO_ERROR; // When enabled, a storage server hit by io_error converts it into a
+	                                             // request to rebuild the KV store in-place instead of exiting the
+	                                             // process, keeping the worker alive while discarding the bad files.
 	int STORAGE_DISK_CLEANUP_MAX_RETRIES; // Max retries to cleanup left-over disk files from last storage server
 	int STORAGE_DISK_CLEANUP_RETRY_INTERVAL; // Sleep interval between cleanup retries
 	double WORKER_START_STORAGE_DELAY;
