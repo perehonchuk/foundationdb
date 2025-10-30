@@ -32,7 +32,6 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 )
 
-var oneBytes = []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 var allocatorMutex = sync.Mutex{}
 
 type highContentionAllocator struct {
@@ -93,7 +92,7 @@ func (hca highContentionAllocator) allocate(tr fdb.Transaction, s subspace.Subsp
 			}
 
 			// Increment the allocation count for the current window
-			tr.Add(hca.counters.Sub(start), oneBytes)
+			tr.AddInt64(hca.counters.Sub(start), 1)
 			countFuture := tr.Snapshot().Get(hca.counters.Sub(start))
 
 			allocatorMutex.Unlock()
