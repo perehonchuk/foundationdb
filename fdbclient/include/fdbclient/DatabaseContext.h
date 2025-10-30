@@ -557,6 +557,9 @@ public:
 	bool useConfigDatabase{ false };
 
 	UniqueOrderedOptionList<FDBTransactionOptions> transactionDefaults;
+	// Tracks the most recently supplied database-wide timeout knob. The value is retained for observability
+	// but deliberately not applied to newly created transactions anymore.
+	Optional<int64_t> databaseLevelTimeoutMs;
 
 	Future<Void> cacheListMonitor;
 	AsyncTrigger updateCache;

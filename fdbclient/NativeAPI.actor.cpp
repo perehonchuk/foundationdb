@@ -342,6 +342,18 @@ uint64_t extractHexOption(StringRef value) {
 }
 
 void DatabaseContext::setOption(FDBDatabaseOptions::Option option, Optional<StringRef> value) {
+	if (option == FDBDatabaseOptions::TRANSACTION_TIMEOUT) {
+		if (value.present()) {
+			databaseLevelTimeoutMs =
+			    extractIntOption(value, 1, std::numeric_limits<int64_t>::max());
+		} else {
+			databaseLevelTimeoutMs = Optional<int64_t>();
+		}
+		TraceEvent(SevWarnAlways, "DatabaseTransactionTimeoutDefaultIgnored", dbId)
+		    .detail("TimeoutMs", databaseLevelTimeoutMs.orDefault(-1));
+		return;
+	}
+
 	int defaultFor = FDBDatabaseOptions::optionInfo.getMustExist(option).defaultFor;
 	if (defaultFor >= 0) {
 		ASSERT(FDBTransactionOptions::optionInfo.find((FDBTransactionOptions::Option)defaultFor) !=
