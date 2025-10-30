@@ -182,6 +182,43 @@ def test_watches(db):
             return
 
 
+def test_snapshot_allows_mutations(db):
+    base = b"snapshot/mutate/"
+
+    @fdb.transactional
+    def prep(tr):
+        tr.clear_range_startswith(base)
+        tr.set(base + b"delete", b"old")
+        tr.set(base + b"prefix/item", b"old")
+
+    prep(db)
+
+    @fdb.transactional
+    def mutate_with_snapshot(tr):
+        tr.snapshot.set(base + b"write", b"from_snapshot")
+        tr.snapshot[base + b"alias"] = b"alias-value"
+        tr.snapshot.clear(base + b"delete")
+        tr.snapshot.clear_range_startswith(base + b"prefix")
+        return tr.get(base + b"write")
+
+    assert mutate_with_snapshot(db) == b"from_snapshot"
+
+    @fdb.transactional
+    def verify(tr):
+        return (
+            tr.get(base + b"write"),
+            tr.get(base + b"alias"),
+            tr.get(base + b"delete"),
+            list(tr.get_range_startswith(base + b"prefix")),
+        )
+
+    write_val, alias_val, delete_val, prefix_items = verify(db)
+    assert write_val == b"from_snapshot"
+    assert alias_val == b"alias-value"
+    assert delete_val is None
+    assert prefix_items == []
+
+
 @fdb.transactional
 def test_locality(tr):
     tr.options.set_timeout(60 * 1000)

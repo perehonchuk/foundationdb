@@ -528,6 +528,54 @@ class TransactionRead(_FDBBase):
             return self.get_range(key.start, key.stop, reverse=(key.step == -1))
         return self.get(key)
 
+    def _key_bytes(self, key):
+        if isinstance(key, KeySelector):
+            key = self.get_key(key)
+        key = keyToBytes(key)
+        return key, len(key)
+
+    def set(self, key, value):
+        keyBytes, keyLength = self._key_bytes(key)
+        valueBytes = valueToBytes(value)
+        self.capi.fdb_transaction_set(
+            self.tpointer, keyBytes, keyLength, valueBytes, len(valueBytes)
+        )
+
+    def _atomic_operation(self, opcode, key, param):
+        keyBytes, keyLength = self._key_bytes(key)
+        paramBytes = valueToBytes(param)
+        self.capi.fdb_transaction_atomic_op(
+            self.tpointer, keyBytes, keyLength, paramBytes, len(paramBytes), opcode
+        )
+
+    def clear(self, key):
+        keyBytes, keyLength = self._key_bytes(key)
+        self.capi.fdb_transaction_clear(self.tpointer, keyBytes, keyLength)
+
+    def clear_range(self, begin, end):
+        if begin is None:
+            begin = b""
+        if end is None:
+            end = b"\xff"
+        beginBytes, beginLength = self._key_bytes(begin)
+        endBytes, endLength = self._key_bytes(end)
+        self.capi.fdb_transaction_clear_range(
+            self.tpointer, beginBytes, beginLength, endBytes, endLength
+        )
+
+    def clear_range_startswith(self, prefix):
+        prefix = keyToBytes(prefix)
+        return self.clear_range(prefix, strinc(prefix))
+
+    def __setitem__(self, key, value):
+        self.set(key, value)
+
+    def __delitem__(self, key):
+        if isinstance(key, slice):
+            self.clear_range(key.start, key.stop)
+        else:
+            self.clear(key)
+
     def get_estimated_range_size_bytes(self, begin_key, end_key):
         if begin_key is None or end_key is None:
             if fdb.get_api_version() >= 700:
