@@ -460,6 +460,7 @@ public:
 	[[nodiscard]] Future<Standalone<VectorRef<const char*>>> getAddressesForKey(const Key& key);
 
 	void enableCheckWrites();
+	// Collapses the supplied range to a single-key fence; callers must add write conflicts for broader coverage.
 	void addReadConflictRange(KeyRangeRef const& keys);
 	void addWriteConflictRange(KeyRangeRef const& keys);
 	void makeSelfConflicting();

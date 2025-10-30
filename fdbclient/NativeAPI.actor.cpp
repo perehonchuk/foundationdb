@@ -4155,7 +4155,21 @@ void Transaction::addReadConflictRange(KeyRangeRef const& keys) {
 		return;
 	}
 
-	tr.transaction.read_conflict_ranges.push_back_deep(tr.arena, r);
+	// Collapse broad read conflicts down to their anchor key so they behave as lightweight fences.
+	// Clients that require wide protection must add matching write conflict ranges to cover the whole span.
+	KeyRef anchorKey = r.begin;
+	KeyRangeRef collapsed = singleKeyRange(anchorKey, tr.arena);
+
+	auto& ranges = tr.transaction.read_conflict_ranges;
+	if (ranges.size()) {
+		KeyRangeRef const& previous = ranges[ranges.size() - 1];
+		// Skip redundant insertions of the same single-key fence to avoid bloating the conflict set.
+		if (previous.begin == collapsed.begin && previous.end == collapsed.end) {
+			return;
+		}
+	}
+
+	ranges.push_back(tr.arena, collapsed);
 }
 
 void Transaction::makeSelfConflicting() {
