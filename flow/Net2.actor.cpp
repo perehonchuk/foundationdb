@@ -22,6 +22,7 @@
 #include "boost/asio/ip/address.hpp"
 #include "boost/system/system_error.hpp"
 #include "flow/Arena.h"
+#include "flow/FastAlloc.h"
 #include "flow/Knobs.h"
 #include "flow/Platform.h"
 #include "flow/Trace.h"
@@ -1399,8 +1400,9 @@ Net2::Net2(const TLSConfig& tlsConfig, bool useThreadPool, bool useMetrics)
     sslHandshakerThreadsStarted(0), sslPoolHandshakesInProgress(0), tlsConfig(tlsConfig),
     tlsInitializedState(ETLSInitState::NONE), network(this), tscBegin(0), tscEnd(0), taskBegin(0),
     currentTaskID(TaskPriority::DefaultYield), stopped(false), started(false), numYields(0),
-    lastPriorityStats(nullptr) {
+	lastPriorityStats(nullptr) {
 	// Until run() is called, yield() will always yield
+	traceFastAllocatorChoice();
 	TraceEvent("Net2Starting").log();
 
 	// Set the global members

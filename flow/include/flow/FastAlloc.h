@@ -190,6 +190,10 @@ int64_t getTotalUnusedAllocatedMemory();
 void* countedNew(size_t nbytes);
 void countedDelete(size_t nbytes, void* ptr);
 
+// Returns whether the build is linked against jemalloc and emits a trace once per process.
+bool fastAllocatorUsesJemalloc();
+void traceFastAllocatorChoice();
+
 // Allow temporary overriding of default allocators used by arena to let memory survive deallocation and test
 // correctness of memory policy (e.g. zeroing out sensitive contents after use)
 namespace keepalive_allocator {

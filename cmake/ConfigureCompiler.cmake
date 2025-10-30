@@ -38,9 +38,10 @@ if(USE_ASAN OR USE_VALGRIND OR USE_MSAN OR USE_TSAN OR USE_UBSAN)
   set(USE_SANITIZER ON)
 endif()
 
-set(jemalloc_default ON)
-# We don't want to use jemalloc on Windows
-# Nor on FreeBSD, where jemalloc is the default system allocator
+# Default to the platform allocator unless explicitly requested.
+set(jemalloc_default OFF)
+# Historically we disabled jemalloc in these configurations; keep those checks
+# so an explicit opt-in still gets overridden when incompatible.
 if(USE_SANITIZER OR WIN32 OR (CMAKE_SYSTEM_NAME STREQUAL "FreeBSD") OR APPLE)
   set(jemalloc_default OFF)
 endif()

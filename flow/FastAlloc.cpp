@@ -31,6 +31,7 @@
 #include <atomic>
 #include <cstdint>
 #include <unordered_map>
+#include <mutex>
 
 #ifdef WIN32
 #include <windows.h>
@@ -116,6 +117,23 @@ std::atomic<int64_t> g_hugeArenaMemory(0);
 
 double hugeArenaLastLogged = 0;
 std::map<std::string, std::pair<int, int64_t>> hugeArenaTraces;
+
+bool fastAllocatorUsesJemalloc() {
+#ifdef USE_JEMALLOC
+	return true;
+#else
+	return false;
+#endif
+}
+
+void traceFastAllocatorChoice() {
+	static std::once_flag once;
+	std::call_once(once, [] {
+		TraceEvent("AllocatorChoice")
+		    .detail("Allocator", fastAllocatorUsesJemalloc() ? "jemalloc" : "system")
+		    .detail("UsesJemalloc", fastAllocatorUsesJemalloc());
+	});
+}
 
 void hugeArenaSample(int size) {
 	if (TraceEvent::isNetworkThread()) {
