@@ -280,16 +280,11 @@ struct ConfigureDatabaseWorkload : TestWorkload {
 	}
 
 	ACTOR Future<Void> _start(ConfigureDatabaseWorkload* self, Database cx) {
-		// Redwood is the only storage engine type supporting encryption.
+		// Redwood previously handled encryption-specific rollouts, but it is no longer available.
 		DatabaseConfiguration config = wait(getDatabaseConfiguration(cx));
 		TraceEvent("ConfigureDatabase_Config").detail("Config", config.toString());
 		if (config.encryptionAtRestMode.isEncryptionEnabled()) {
-			TraceEvent("ConfigureDatabase_EncryptionEnabled");
-			self->storageEngineExcludeTypes = { (int)SimulationStorageEngine::SSD,
-				                                (int)SimulationStorageEngine::MEMORY,
-				                                (int)SimulationStorageEngine::RADIX_TREE,
-				                                (int)SimulationStorageEngine::ROCKSDB,
-				                                (int)SimulationStorageEngine::SHARDED_ROCKSDB };
+			TraceEvent("ConfigureDatabase_EncryptionEnabledWithoutRedwood");
 		}
 		if (!SERVER_KNOBS->SHARD_ENCODE_LOCATION_METADATA) {
 			self->storageEngineExcludeTypes.push_back((int)SimulationStorageEngine::SHARDED_ROCKSDB);
@@ -466,7 +461,7 @@ struct ConfigureDatabaseWorkload : TestWorkload {
 			} else if (randomChoice == 5) {
 				int storeType = 0;
 				while (true) {
-					storeType = deterministicRandom()->randomInt(0, 6);
+					storeType = deterministicRandom()->randomInt(0, 5);
 					if (std::find(self->storageEngineExcludeTypes.begin(),
 					              self->storageEngineExcludeTypes.end(),
 					              storeType) == self->storageEngineExcludeTypes.end()) {
@@ -487,12 +482,9 @@ struct ConfigureDatabaseWorkload : TestWorkload {
 					storeTypeStr = "memory-radixtree";
 					break;
 				case 3:
-					storeTypeStr = "ssd-redwood-1";
-					break;
-				case 4:
 					storeTypeStr = "ssd-rocksdb-v1";
 					break;
-				case 5:
+				case 4:
 					storeTypeStr = "ssd-sharded-rocksdb";
 					break;
 				default:

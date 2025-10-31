@@ -236,11 +236,13 @@ std::string KeyValueStoreType::getStoreTypeStr(const StoreType& storeType) {
 }
 
 KeyValueStoreType KeyValueStoreType::fromString(const std::string& str) {
+	if (str == "redwood" || str == "ssd-redwood-1") {
+		printf("Error: The Redwood storage engine has been removed.\n");
+		throw invalid_option_value();
+	}
 	static std::map<std::string, StoreType> names = { { "ssd-1", SSD_BTREE_V1 },
 		                                              { "ssd-2", SSD_BTREE_V2 },
 		                                              { "ssd", SSD_BTREE_V2 },
-		                                              { "redwood", SSD_REDWOOD_V1 },
-		                                              { "ssd-redwood-1", SSD_REDWOOD_V1 },
 		                                              { "ssd-rocksdb-v1", SSD_ROCKSDB_V1 },
 		                                              { "ssd-sharded-rocksdb", SSD_SHARDED_ROCKSDB },
 		                                              { "memory", MEMORY },

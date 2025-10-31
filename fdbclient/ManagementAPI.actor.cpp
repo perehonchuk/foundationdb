@@ -266,8 +266,8 @@ std::map<std::string, std::string> configForToken(std::string const& mode) {
 		logType = KeyValueStoreType::SSD_BTREE_V2;
 		storeType = KeyValueStoreType::SSD_BTREE_V2;
 	} else if (mode == "ssd-redwood-1") {
-		logType = KeyValueStoreType::SSD_BTREE_V2;
-		storeType = KeyValueStoreType::SSD_REDWOOD_V1;
+		printf("Error: Redwood storage engine is no longer available.\n");
+		return out;
 	} else if (mode == "ssd-rocksdb-v1") {
 		logType = KeyValueStoreType::SSD_BTREE_V2;
 		storeType = KeyValueStoreType::SSD_ROCKSDB_V1;

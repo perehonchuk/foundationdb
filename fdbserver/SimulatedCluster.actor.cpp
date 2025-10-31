@@ -466,7 +466,7 @@ public:
 	//	0 = "ssd"
 	//	1 = "memory"
 	//	2 = "memory-radixtree"
-	//	3 = "ssd-redwood-1"
+	//	3 = "(reserved for the removed ssd-redwood-1 engine)"
 	//	4 = "ssd-rocksdb-v1"
 	//	5 = "ssd-sharded-rocksdb"
 	// Requires a comma-separated list of numbers WITHOUT whitespaces
@@ -1750,17 +1750,18 @@ const std::unordered_map<SimulationStorageEngine, StorageEngineConfigFunc> STORA
 	{ SimulationStorageEngine::SSD, ssdStorageEngineConfig },
 	{ SimulationStorageEngine::MEMORY, memoryStorageEngineConfig },
 	{ SimulationStorageEngine::RADIX_TREE, radixTreeStorageEngineConfig },
-	{ SimulationStorageEngine::REDWOOD, redwoodStorageEngineConfig },
 	{ SimulationStorageEngine::ROCKSDB, rocksdbStorageEngineConfig },
 	{ SimulationStorageEngine::SHARDED_ROCKSDB, shardedRocksDBStorageEngineConfig }
 };
 
 // TODO: Figure out what is broken with the RocksDB engine in simulation.
 const std::vector<SimulationStorageEngine> SIMULATION_STORAGE_ENGINE = {
-	SimulationStorageEngine::SSD,        SimulationStorageEngine::MEMORY,
-	SimulationStorageEngine::RADIX_TREE, SimulationStorageEngine::REDWOOD,
+    SimulationStorageEngine::SSD,
+    SimulationStorageEngine::MEMORY,
+    SimulationStorageEngine::RADIX_TREE,
 #ifdef WITH_ROCKSDB
-	SimulationStorageEngine::ROCKSDB,    SimulationStorageEngine::SHARDED_ROCKSDB,
+    SimulationStorageEngine::ROCKSDB,
+    SimulationStorageEngine::SHARDED_ROCKSDB,
 #endif
 };
 
@@ -1780,9 +1781,12 @@ SimulationStorageEngine chooseSimulationStorageEngine(const TestConfig& testConf
 	SimulationStorageEngine result = SimulationStorageEngine::SIMULATION_STORAGE_ENGINE_INVALID_VALUE;
 
 	if (isEncryptionEnabled) {
-		// Only storage engine supporting encryption is Redwood.
-		reason = "EncryptionEnabled"_sr;
-		result = SimulationStorageEngine::REDWOOD;
+		// Redwood previously provided encryption coverage but has been retired.
+		reason = "EncryptionForcedToSSD"_sr;
+		TraceEvent(SevWarnAlways, "RedwoodStorageEngineRetired")
+		    .detail("RequestedEncryption", true)
+		    .detail("FallbackEngine", "ssd");
+		result = SimulationStorageEngine::SSD;
 
 	} else if (testConfig.storageEngineType.present()) {
 		reason = "ConfigureSpecified"_sr;

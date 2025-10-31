@@ -39,7 +39,7 @@ enum class SimulationStorageEngine : uint8_t {
 	SSD = 0,
 	MEMORY = 1,
 	RADIX_TREE = 2,
-	REDWOOD = 3,
+	REDWOOD = 3, // Reserved for the retired Redwood engine
 	ROCKSDB = 4,
 	SHARDED_ROCKSDB = 5,
 	SIMULATION_STORAGE_ENGINE_INVALID_VALUE
