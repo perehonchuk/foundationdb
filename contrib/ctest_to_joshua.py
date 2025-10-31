@@ -123,9 +123,9 @@ Unknown arguments are forwarded to ctest, so you may use -R to filter tests e.g.
     if platform.system() == "Darwin":
         joshua_builder.add_arg(os.path.join(args.build_dir, "lib/libfdb_c.dylib"))
     else:
-        joshua_builder.add_arg(os.path.join(args.build_dir, "lib/libfdb_c.so"))
+        joshua_builder.add_arg(os.path.join(args.build_dir, "lib64/libfdb_c.so"))
 
-    joshua_test = '#!/bin/bash\nexport BASH_XTRACEFD=1\nset -euxo pipefail\nexport {library_path}=build/lib:"${library_path}"\n'.format(
+    joshua_test = '#!/bin/bash\nexport BASH_XTRACEFD=1\nset -euxo pipefail\nexport {library_path}=build/lib64:"${library_path}"\n'.format(
         library_path="DYLD_LIBRARY_PATH"
         if platform.system() == "Darwin"
         else "LD_LIBRARY_PATH"

@@ -51,7 +51,7 @@ mkdir -p -m 0755 $CLIENTSDIR/usr/include/foundationdb
 mkdir -p -m 0755 $CLIENTSDIR/usr/share/doc/foundationdb-clients
 
 install -m 0755 bin/fdbcli $CLIENTSDIR/usr/bin
-install -m 0644 lib/libfdb_c.so lib/libfdb_c_shim.so $CLIENTSDIR/usr/lib
+install -m 0644 lib64/libfdb_c.so lib64/libfdb_c_shim.so $CLIENTSDIR/usr/lib
 install -m 0644 bindings/c/foundationdb/fdb_c.h bindings/c/foundationdb/fdb_c_types.h bindings/c/foundationdb/fdb_c_internal.h bindings/c/foundationdb/fdb_c_options.g.h fdbclient/vexillographer/fdb.options bindings/c/foundationdb/fdb_c_shim.h $CLIENTSDIR/usr/include/foundationdb
 dos2unix -q -n README.md $CLIENTSDIR/usr/share/doc/foundationdb-clients/README
 chmod 0644 $CLIENTSDIR/usr/share/doc/foundationdb-clients/README

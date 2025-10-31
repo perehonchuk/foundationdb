@@ -90,6 +90,14 @@ function create_fake_website_directory () {
     # symlinks and the binaries tarball
     ############################################################################
     logg "FETCHING CLIENT LIBRARY"
+    local_client_lib="${build_output_directory}/lib64/libfdb_c.so"
+    if [ ! -f "${local_client_lib}" ]; then
+        local_client_lib="${build_output_directory}/lib/libfdb_c.so"
+    fi
+    packages_client_lib="${build_output_directory}/packages/lib64/libfdb_c.so"
+    if [ ! -f "${packages_client_lib}" ]; then
+        packages_client_lib="${build_output_directory}/packages/lib/libfdb_c.so"
+    fi
     case "${stripped_binaries_and_from_where}" in
         "unstripped_artifactory")
             for version in "${fdb_library_versions[@]}"; do
@@ -118,11 +126,11 @@ function create_fake_website_directory () {
             ;;
         "unstripped_local")
             logg "COPYING UNSTRIPPED CLIENT LIBRARY"
-            cp -pr "${build_output_directory}/lib/libfdb_c.so" "${website_directory}/${fdb_version}/libfdb_c.x86_64.so"
+            cp -pr "${local_client_lib}" "${website_directory}/${fdb_version}/libfdb_c.x86_64.so"
             ;;
         "stripped_local")
             logg "COPYING STRIPPED CLIENT LIBRARY"
-            cp -pr "${build_output_directory}/packages/lib/libfdb_c.so" "${website_directory}/${fdb_version}/libfdb_c.x86_64.so"
+            cp -pr "${packages_client_lib}" "${website_directory}/${fdb_version}/libfdb_c.x86_64.so"
             ;;
     esac
     # override fdb_website variable that is passed to Docker build
