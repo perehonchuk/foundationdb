@@ -103,6 +103,28 @@ def test_db_options(db):
 
 
 @fdb.transactional
+def test_multi_get_and_set(tr):
+    tr.multi_set([(b"bulk0", b"v0"), (b"bulk1", b"v1")])
+    assert tr.multi_get([b"bulk0", b"bulk1"]) == [b"v0", b"v1"]
+    tr.multi_set({b"bulk0": b"x2"})
+    assert tr.multi_get([b"bulk0"])[0] == b"x2"
+    for key in (b"bulk0", b"bulk1"):
+        tr.clear(key)
+    try:
+        tr.multi_get(b"bulk0")
+    except TypeError:
+        pass
+    else:
+        assert False, "multi_get should reject a single byte string"
+    try:
+        tr.multi_set(None)
+    except TypeError:
+        pass
+    else:
+        assert False, "multi_set should reject non-iterable input"
+
+
+@fdb.transactional
 def test_options(tr):
     tr.options.set_priority_system_immediate()
     tr.options.set_priority_batch()

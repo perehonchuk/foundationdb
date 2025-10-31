@@ -528,6 +528,21 @@ class TransactionRead(_FDBBase):
             return self.get_range(key.start, key.stop, reverse=(key.step == -1))
         return self.get(key)
 
+    def multi_get(self, keys):
+        """Fetch a batch of keys in the order provided."""
+        if keys is None:
+            raise TypeError("multi_get expects an iterable of keys")
+        if isinstance(keys, (bytes, bytearray, memoryview)):
+            raise TypeError(
+                "multi_get expects an iterable of keys, not a single byte string"
+            )
+        try:
+            key_list = list(keys)
+        except TypeError:
+            raise TypeError("multi_get expects an iterable of keys")
+        futures = [self.get(key) for key in key_list]
+        return [future.wait() for future in futures]
+
     def get_estimated_range_size_bytes(self, begin_key, end_key):
         if begin_key is None or end_key is None:
             if fdb.get_api_version() >= 700:
@@ -678,6 +693,22 @@ class Transaction(TransactionRead):
 
     def cancel(self):
         self.capi.fdb_transaction_cancel(self.tpointer)
+
+    def multi_set(self, items):
+        """Set multiple key/value pairs within the transaction."""
+        if items is None:
+            raise TypeError("multi_set expects a mapping or iterable of pairs")
+        if hasattr(items, "items"):
+            candidate_items = items.items()
+        else:
+            candidate_items = items
+        try:
+            pairs = list(candidate_items)
+        except TypeError:
+            raise TypeError("multi_set expects a mapping or iterable of pairs")
+        for key, value in pairs:
+            self.set(key, value)
+        return len(pairs)
 
     def __setitem__(self, key, value):
         self.set(key, value)
