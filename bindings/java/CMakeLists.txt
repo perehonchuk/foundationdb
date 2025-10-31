@@ -182,7 +182,12 @@ if(NOT OPEN_FOR_IDE)
   target_include_directories(java_workloads PUBLIC ${JNI_INCLUDE_DIRS})
 endif()
 
-set(CMAKE_JAVA_COMPILE_FLAGS "-source" "1.8" "-target" "1.8" "-XDignore.symbol.file")
+# The bindings now target JDK 17 bytecode; fail fast if an older toolchain slips through.
+if(Java_VERSION_STRING AND Java_VERSION_STRING VERSION_LESS "17")
+  message(FATAL_ERROR "The Java bindings require JDK 17 or newer, but ${Java_VERSION_STRING} was detected")
+endif()
+
+set(CMAKE_JAVA_COMPILE_FLAGS "-release" "17" "-XDignore.symbol.file")
 set(CMAKE_JNI_TARGET TRUE)
 
 # build a manifest file
