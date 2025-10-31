@@ -62,6 +62,7 @@ enum Severity { SevDebug = 5, SevInfo = 10, SevWarn = 20, SevWarnAlways = 30, Se
 
 extern bool daemonize;
 extern std::string logGroup;
+extern std::string monitorOutputPath;
 
 typedef std::string ProcessID;
 

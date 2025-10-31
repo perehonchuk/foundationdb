@@ -60,6 +60,7 @@
 #include <stdarg.h>
 #include <pwd.h>
 #include <grp.h>
+#include <mutex>
 
 #include "fdbmonitor.h"
 #include "fdbclient/versions.h"
@@ -68,6 +69,8 @@ namespace fdbmonitor {
 
 bool daemonize = false;
 std::string logGroup = "default";
+std::string monitorOutputPath;
+std::mutex monitorLogMutex;
 
 int severity_to_priority(Severity severity) {
 	switch (severity) {
@@ -117,23 +120,49 @@ int randomInt(int min, int max) {
 }
 
 void vlog_process_msg(Severity severity, const char* process, const char* format, va_list args) {
+	if (!monitorOutputPath.empty()) {
+		va_list fileArgs;
+		va_copy(fileArgs, args);
+		std::lock_guard<std::mutex> guard(monitorLogMutex);
+		FILE* logFile = fopen(monitorOutputPath.c_str(), "ab");
+		if (logFile) {
+			fprintf(logFile,
+			        "Time=\"%.6f\" Severity=\"%d\" LogGroup=\"%s\" Process=\"%s\": ",
+			        get_cur_timestamp(),
+			        (int)severity,
+			        logGroup.c_str(),
+			        process);
+			vfprintf(logFile, format, fileArgs);
+			fclose(logFile);
+		} else {
+			monitorOutputPath.clear();
+		}
+		va_end(fileArgs);
+	}
+
 	if (daemonize) {
+		va_list syslogArgs;
+		va_copy(syslogArgs, args);
 		char buf[4096];
-		int len = vsnprintf(buf, 4096, format, args);
+		int len = vsnprintf(buf, 4096, format, syslogArgs);
 		syslog(severity_to_priority(severity),
 		       "LogGroup=\"%s\" Process=\"%s\": %.*s",
 		       logGroup.c_str(),
 		       process,
 		       len,
 		       buf);
-	} else {
+		va_end(syslogArgs);
+	} else if (monitorOutputPath.empty()) {
+		va_list stderrArgs;
+		va_copy(stderrArgs, args);
 		fprintf(stderr,
 		        "Time=\"%.6f\" Severity=\"%d\" LogGroup=\"%s\" Process=\"%s\": ",
 		        get_cur_timestamp(),
 		        (int)severity,
 		        logGroup.c_str(),
 		        process);
-		vfprintf(stderr, format, args);
+		vfprintf(stderr, format, stderrArgs);
+		va_end(stderrArgs);
 	}
 }
 

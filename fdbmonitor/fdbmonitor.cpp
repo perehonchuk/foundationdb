@@ -24,6 +24,8 @@
 #include <cinttypes>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <cstdio>
+#include <cerrno>
 
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/event.h>
@@ -112,8 +114,6 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	log_msg(SevInfo, "Started FoundationDB Process Monitor " FDB_VT_PACKAGE_NAME " (v" FDB_VT_VERSION ")\n");
-
 	// Modify _confpath to be absolute for further traversals
 	if (!_confpath.empty() && _confpath[0] != '/') {
 		char buf[PATH_MAX];
@@ -139,6 +139,21 @@ int main(int argc, char** argv) {
 	// Will always succeed given an absolute path
 	std::string confdir = parentDirectory(confpath, false);
 	std::string conffile = confpath.substr(confdir.size());
+
+	monitorOutputPath = joinPath(confdir, "fdbmonitor-output.log");
+	FILE* outputStream = fopen(monitorOutputPath.c_str(), "ab");
+	if (!outputStream) {
+		std::string failedPath = monitorOutputPath;
+		monitorOutputPath.clear();
+		log_err("fopen",
+		        errno,
+		        "Unable to open fdbmonitor output log %s; falling back to stderr logging\n",
+		        failedPath.c_str());
+	} else {
+		fclose(outputStream);
+	}
+
+	log_msg(SevInfo, "Started FoundationDB Process Monitor " FDB_VT_PACKAGE_NAME " (v" FDB_VT_VERSION ")\n");
 
 #ifdef __linux__
 	// Setup inotify
