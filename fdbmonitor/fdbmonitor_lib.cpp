@@ -633,6 +633,14 @@ void kill_process(ProcessID id, bool wait, bool cleanup) {
 
 void load_conf(const char* confpath, uid_t& uid, gid_t& gid, sigset_t* mask, fdb_fd_set rfds, int* maxfd) {
 	log_msg(SevInfo, "Loading configuration %s\n", confpath);
+	auto log_forced_restart = [](Command* command, const char* reason) {
+		if (command && command->requested_disable_config_kill) {
+			log_msg(SevWarn,
+			        "Forcing restart of %s for %s despite kill-on-configuration-change=false request\n",
+			        command->ssection.c_str(),
+			        reason);
+		}
+	};
 
 	CSimpleIniA ini;
 	ini.SetUnicode();
@@ -677,6 +685,7 @@ void load_conf(const char* confpath, uid_t& uid, gid_t& gid, sigset_t* mask, fdb
 			std::vector<ProcessID> kill_ids;
 			for (auto i : id_pid) {
 				if (id_command[i.first]->kill_on_configuration_change) {
+					log_forced_restart(id_command[i.first].get(), "user or group change");
 					kill_ids.push_back(i.first);
 				}
 			}
@@ -701,6 +710,7 @@ void load_conf(const char* confpath, uid_t& uid, gid_t& gid, sigset_t* mask, fdb
 			id_command[i.first]->deconfigured = true;
 
 			if (id_command[i.first]->kill_on_configuration_change) {
+				log_forced_restart(id_command[i.first].get(), "section removal");
 				kill_ids.push_back(i.first);
 				id_command.erase(i.first);
 			}
@@ -716,6 +726,7 @@ void load_conf(const char* confpath, uid_t& uid, gid_t& gid, sigset_t* mask, fdb
 				id_command[i.first] = std::move(cmd);
 
 				if (c->kill_on_configuration_change) {
+					log_forced_restart(c, "configuration update");
 					kill_ids.push_back(i.first);
 					start_ids.emplace_back(i.first, c);
 				}

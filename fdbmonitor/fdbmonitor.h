@@ -157,6 +157,7 @@ public:
 	std::string delete_envvars;
 	bool deconfigured;
 	bool kill_on_configuration_change;
+	bool requested_disable_config_kill;
 	uint64_t memory_rss;
 
 	// one pair for each of stdout and stderr
@@ -164,7 +165,7 @@ public:
 
 	Command(const CSimpleIni& ini, std::string _section, ProcessID id, fdb_fd_set fds, int* maxfd)
 	  : fds(fds), argv(nullptr), section(_section), fork_retry_time(-1), quiet(false), envvars(), delete_envvars(),
-	    deconfigured(false), kill_on_configuration_change(true), memory_rss(0) {
+	    deconfigured(false), kill_on_configuration_change(true), requested_disable_config_kill(false), memory_rss(0) {
 		char _ssection[strlen(section.c_str()) + 22];
 		snprintf(_ssection, strlen(section.c_str()) + 22, "%s", id.c_str());
 		ssection = _ssection;
@@ -269,7 +270,12 @@ public:
 		const char* kocc =
 		    get_value_multi(ini, "kill-on-configuration-change", ssection.c_str(), section.c_str(), "general", nullptr);
 		if (kocc && strcmp(kocc, "true")) {
-			kill_on_configuration_change = false;
+			requested_disable_config_kill = true;
+			log_msg(SevWarn,
+			        "kill-on-configuration-change=false requested on %s but graceful reloads are disabled; "
+			        "fdbmonitor will still restart this process on configuration updates\n",
+			        ssection.c_str());
+			kill_on_configuration_change = true;
 		}
 
 		const char* binary = get_value_multi(ini, "command", ssection.c_str(), section.c_str(), "general", nullptr);
@@ -375,6 +381,7 @@ public:
 		restart_delay_reset_interval = other.restart_delay_reset_interval;
 		deconfigured = other.deconfigured;
 		kill_on_configuration_change = other.kill_on_configuration_change;
+		requested_disable_config_kill = other.requested_disable_config_kill;
 
 		current_restart_delay = std::min<double>(max_restart_delay, current_restart_delay);
 		current_restart_delay = std::max<double>(initial_restart_delay, current_restart_delay);
