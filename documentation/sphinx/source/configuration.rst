@@ -269,7 +269,7 @@ Using the default parameters, a process will restart immediately if it fails and
     listen-address = public
     datadir = /var/lib/foundationdb/data/$ID
     logdir = /var/log/foundationdb
-    # logsize = 10MiB
+    # trace-roll-size = 10MiB
     # maxlogssize = 100MiB
     # class = 
     # memory = 8GiB
@@ -292,7 +292,7 @@ Contains default parameters for all fdbserver processes on this machine. These s
 * ``listen-address``: The IP:Port that the server socket should bind to. If ``public``, it will be the same as the public-address.
 * ``datadir``: A writable directory (by root or by the user set in the [fdbmonitor] section) where persistent data files will be stored.
 * ``logdir``: A writable directory (by root or by the user set in the [fdbmonitor] section) where FoundationDB will store log files.
-* ``logsize``: Roll over to a new log file after the current log file reaches the specified size. The default value is 10MiB.
+* ``trace-roll-size``: Roll over to a new log file after the current log file reaches the specified size. The default value is 10MiB.
 * ``maxlogssize``: Delete the oldest log file when the total size of all log files exceeds the specified size. If set to 0B, old log files will not be deleted. The default value is 100MiB.
 * ``class``: Process class specifying the roles that will be taken in the cluster. Recommended options are ``storage``, ``transaction``, ``stateless``. See :ref:`guidelines-process-class-config` for process class config recommendations.
 * ``memory``: Maximum resident memory used by the process. The default value is 8GiB. When specified without a unit, MiB is assumed. Setting to 0 means unlimited. This parameter does not change the memory allocation of the program. Rather, it sets a hard limit beyond which the process will kill itself and be restarted. The default value of 8GiB is double the intended memory usage in the default configuration (providing an emergency buffer to deal with memory leaks or similar problems). It is *not* recommended to decrease the value of this parameter below its default value. It may be *increased* if you wish to allocate a very large amount of storage engine memory or cache. In particular, when the ``storage-memory``  or ``cache-memory`` parameters are increased, the ``memory`` parameter should be increased by an equal amount.

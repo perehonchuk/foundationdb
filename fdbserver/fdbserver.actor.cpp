@@ -161,7 +161,7 @@ CSimpleOpt::SOption g_rgOptions[] = {
 	{ OPT_LOGFOLDER,             "-L",                          SO_REQ_SEP },
 	{ OPT_LOGFOLDER,             "--logdir",                    SO_REQ_SEP },
 	{ OPT_ROLLSIZE,              "-Rs",                         SO_REQ_SEP },
-	{ OPT_ROLLSIZE,              "--logsize",                   SO_REQ_SEP },
+	{ OPT_ROLLSIZE,              "--trace-roll-size",           SO_REQ_SEP },
 	{ OPT_MAXLOGS,               "--maxlogs",                   SO_REQ_SEP },
 	{ OPT_MAXLOGSSIZE,           "--maxlogssize",               SO_REQ_SEP },
 	{ OPT_LOGGROUP,              "--loggroup",                  SO_REQ_SEP },
@@ -663,8 +663,8 @@ static void printUsage(const char* name, bool devhelp) {
 	                 " Store data files in the given folder (must be unique for each"
 	                 " fdbserver instance on a given machine).");
 	printOptionUsage("-L PATH, --logdir PATH", " Store log files in the given folder (default is `.').");
-	printOptionUsage("--logsize SIZE",
-	                 "Roll over to a new log file after the current log file"
+	printOptionUsage("--trace-roll-size SIZE",
+	                 " Roll over to a new log file after the current log file"
 	                 " exceeds SIZE bytes. The default value is 10MiB.");
 	printOptionUsage("--maxlogs SIZE, --maxlogssize SIZE",
 	                 " Delete the oldest log file when the total size of all log"
@@ -1510,7 +1510,7 @@ private:
 				const char* a = args.OptionArg();
 				ti = parse_with_suffix(a);
 				if (!ti.present()) {
-					fprintf(stderr, "ERROR: Could not parse logsize `%s'\n", a);
+					fprintf(stderr, "ERROR: Could not parse trace roll size `%s'\n", a);
 					printHelpTeaser(argv[0]);
 					flushAndExit(FDB_EXIT_ERROR);
 				}
