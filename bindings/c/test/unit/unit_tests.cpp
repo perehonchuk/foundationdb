@@ -26,6 +26,7 @@
 #include <assert.h>
 #include <string.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <iostream>
 #include <map>
@@ -375,6 +376,29 @@ TEST_CASE("fdb_future_set_callback") {
 			continue;
 		}
 
+		break;
+	}
+}
+
+TEST_CASE("fdb_future_set_callback cancellation does not invoke callback") {
+	fdb::Transaction tr(db);
+	while (1) {
+		fdb::ValueFuture f1 = tr.get("foo", false);
+
+		std::atomic<bool> fired{false};
+		fdb_check(f1.set_callback(
+		    +[](FDBFuture*, void* param) {
+			    auto* flag = static_cast<std::atomic<bool>*>(param);
+			    flag->store(true, std::memory_order_relaxed);
+		    },
+		    &fired));
+
+		f1.cancel();
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		CHECK(!fired.load(std::memory_order_relaxed));
+
+		fdb_error_t err = wait_future(f1);
+		CHECK(err == 1101);
 		break;
 	}
 }

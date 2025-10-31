@@ -3165,6 +3165,10 @@ public:
 		delete this;
 	}
 	void error(const Error& e, int& userParam) override {
+		if (e.code() == error_code_operation_cancelled) {
+			delete this;
+			return;
+		}
 		(*callbackf)(f, userdata);
 		delete this;
 	}
