@@ -137,7 +137,7 @@ def create_tenant(db_or_tr, tenant_name):
     # Only perform the existence check when run using a database
     # Callers using a transaction are expected to check existence themselves if required
     existence_check_marker = (
-        [] if not isinstance(db_or_tr, _impl.TransactionRead) else [None]
+        [] if not isinstance(db_or_tr, _impl.TransactionView) else [None]
     )
     _create_tenant_impl(db_or_tr, tenant_name, existence_check_marker)
 
@@ -148,7 +148,7 @@ def delete_tenant(db_or_tr, tenant_name):
     # Only perform the existence check when run using a database
     # Callers using a transaction are expected to check existence themselves if required
     existence_check_marker = (
-        [] if not isinstance(db_or_tr, _impl.TransactionRead) else [None]
+        [] if not isinstance(db_or_tr, _impl.TransactionView) else [None]
     )
     _delete_tenant_impl(db_or_tr, tenant_name, existence_check_marker)
 

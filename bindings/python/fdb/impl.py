@@ -266,7 +266,7 @@ def transactional(*tr_args, **tr_kwargs):
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
-                if isinstance(args[index], TransactionRead):
+                if isinstance(args[index], TransactionView):
                     raise asyncio.Return((yield asyncio.From(func(*args, **kwargs))))
 
                 largs = list(args)
@@ -292,7 +292,7 @@ def transactional(*tr_args, **tr_kwargs):
                         "Generators can not be wrapped with fdb.transactional"
                     )
 
-                if isinstance(args[index], TransactionRead):
+                if isinstance(args[index], TransactionView):
                     return func(*args, **kwargs)
 
                 largs = list(args)
@@ -445,14 +445,14 @@ class FDBRange(object):
             yield result
 
 
-class TransactionRead(_FDBBase):
+class TransactionView(_FDBBase):
     def __init__(self, tpointer, db, snapshot):
         self.tpointer = tpointer
         self.db = db
         self._snapshot = snapshot
 
     def __del__(self):
-        # print("Destroying transactionread 0x%x" % self.tpointer)
+        # print("Destroying transaction view 0x%x" % self.tpointer)
         self.capi.fdb_transaction_destroy(self.tpointer)
 
     def get_read_version(self):
@@ -558,13 +558,20 @@ class TransactionRead(_FDBBase):
         )
 
 
-class Transaction(TransactionRead):
+class SnapshotTransaction(TransactionView):
+    """Read-only snapshot view over a transaction."""
+
+    def __init__(self, tpointer, db):
+        super(SnapshotTransaction, self).__init__(tpointer, db, True)
+
+
+class Transaction(TransactionView):
     """A modifiable snapshot of a Database."""
 
     def __init__(self, tpointer, db):
         super(Transaction, self).__init__(tpointer, db, False)
         self.options = _TransactionOptions(self)
-        self.__snapshot = self.snapshot = TransactionRead(tpointer, db, True)
+        self.__snapshot = self.snapshot = SnapshotTransaction(tpointer, db)
 
     def __del__(self):
         pass
