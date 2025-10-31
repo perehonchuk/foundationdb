@@ -21,6 +21,7 @@
 #include "boost/lexical_cast.hpp"
 #include "boost/algorithm/string.hpp"
 
+#include <algorithm>
 #include <string>
 #include <time.h>
 #include <msgpack.hpp>
@@ -1719,12 +1720,13 @@ ACTOR Future<Optional<std::string>> globalConfigCommitActor(GlobalConfigImpl* gl
 	state Transaction& tr = ryw->getTransaction();
 	ryw->setOption(FDBTransactionOptions::RAW_ACCESS);
 
-	// History should only contain three most recent updates. If it currently
-	// has three items, remove the oldest to make room for a new item.
+	// History should only contain the configured number of recent updates. If it currently
+	// has more entries than allowed (after adding the pending update), remove the oldest ones.
 	RangeResult history = wait(tr.getRange(globalConfigHistoryKeys, CLIENT_KNOBS->TOO_MANY));
-	constexpr int kGlobalConfigMaxHistorySize = 3;
-	if (history.size() > kGlobalConfigMaxHistorySize - 1) {
-		for (int i = 0; i < history.size() - (kGlobalConfigMaxHistorySize - 1); ++i) {
+	const int maxHistorySize = std::max(1, CLIENT_KNOBS->GLOBAL_CONFIG_MAX_HISTORY_SIZE);
+	const int allowedExistingEntries = std::max(0, maxHistorySize - 1);
+	if (history.size() > allowedExistingEntries) {
+		for (int i = 0; i < history.size() - allowedExistingEntries; ++i) {
 			tr.clear(history[i].key);
 		}
 	}

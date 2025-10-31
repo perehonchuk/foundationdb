@@ -210,10 +210,11 @@ void ClientKnobs::initialize(Randomize randomize) {
 	// Configuration
 	init( DEFAULT_AUTO_COMMIT_PROXIES,               3 );
 	init( DEFAULT_AUTO_GRV_PROXIES,                  1 );
-	init( DEFAULT_AUTO_RESOLVERS,                    1 );
-	init( DEFAULT_AUTO_LOGS,                         3 );
 	init( DEFAULT_COMMIT_GRV_PROXIES_RATIO,          3 );
 	init( DEFAULT_MAX_GRV_PROXIES,                   4 );
+	init( DEFAULT_AUTO_RESOLVERS,                    1 );
+	init( DEFAULT_AUTO_LOGS,                         3 );
+	init( GLOBAL_CONFIG_MAX_HISTORY_SIZE,            5 ); if (randomize && BUGGIFY_WITH_PROB(0.25)) GLOBAL_CONFIG_MAX_HISTORY_SIZE = deterministicRandom()->randomInt(1, 6);
 
 	init( GLOBAL_CONFIG_REFRESH_BACKOFF,           0.5 );
 	init( GLOBAL_CONFIG_REFRESH_MAX_BACKOFF,      60.0 );
