@@ -138,7 +138,7 @@ enum {
 	OPT_METRICSPREFIX, OPT_LOGGROUP, OPT_LOCALITY, OPT_IO_TRUST_SECONDS, OPT_IO_TRUST_WARN_ONLY, OPT_FILESYSTEM, OPT_PROFILER_RSS_SIZE, OPT_KVFILE,
 	OPT_TRACE_FORMAT, OPT_WHITELIST_BINPATH, OPT_BLOB_CREDENTIALS, OPT_PROXY, OPT_CONFIG_PATH, OPT_USE_TEST_CONFIG_DB, OPT_NO_CONFIG_DB, OPT_FAULT_INJECTION, OPT_PROFILER, OPT_PRINT_SIMTIME,
 	OPT_FLOW_PROCESS_NAME, OPT_FLOW_PROCESS_ENDPOINT, OPT_IP_TRUSTED_MASK, OPT_KMS_CONN_DISCOVERY_URL_FILE, OPT_KMS_CONNECTOR_TYPE, OPT_KMS_REST_ALLOW_NOT_SECURE_CONECTION, OPT_KMS_CONN_VALIDATION_TOKEN_DETAILS,
-	OPT_KMS_CONN_GET_ENCRYPTION_KEYS_ENDPOINT, OPT_KMS_CONN_GET_LATEST_ENCRYPTION_KEYS_ENDPOINT, OPT_KMS_CONN_GET_BLOB_METADATA_ENDPOINT, OPT_NEW_CLUSTER_KEY, OPT_AUTHZ_PUBLIC_KEY_FILE, OPT_USE_FUTURE_PROTOCOL_VERSION, OPT_CONSISTENCY_CHECK_URGENT_MODE
+	OPT_KMS_CONN_GET_ENCRYPTION_KEYS_ENDPOINT, OPT_KMS_CONN_GET_LATEST_ENCRYPTION_KEYS_ENDPOINT, OPT_KMS_CONN_GET_BLOB_METADATA_ENDPOINT, OPT_NEW_CLUSTER_KEY, OPT_AUTHZ_PUBLIC_KEY_FILE, OPT_USE_FUTURE_PROTOCOL_VERSION, OPT_CONSISTENCY_CHECK_URGENT_MODE, OPT_ALLOW_CONSISTENCYCHECK_ROLE
 };
 
 CSimpleOpt::SOption g_rgOptions[] = {
@@ -245,6 +245,7 @@ CSimpleOpt::SOption g_rgOptions[] = {
 	{ OPT_KMS_CONN_GET_BLOB_METADATA_ENDPOINT,   "--kms-conn-get-blob-metadata-endpoint",   SO_REQ_SEP },
 	{ OPT_USE_FUTURE_PROTOCOL_VERSION, 			 "--use-future-protocol-version",			SO_REQ_SEP },
 	{ OPT_CONSISTENCY_CHECK_URGENT_MODE, 		 "--consistency-check-urgent-mode",			SO_NONE },
+	{ OPT_ALLOW_CONSISTENCYCHECK_ROLE,           "--allow-consistencycheck-role",         SO_NONE },
 	TLS_OPTION_FLAGS,
 	SO_END_OF_OPTIONS
 };
@@ -772,6 +773,9 @@ static void printUsage(const char* name, bool devhelp) {
 		printOptionUsage("--metrics-prefix PREFIX",
 		                 " The prefix where this process will store its metric data."
 		                 " Must be specified if using a different database for metrics.");
+		printOptionUsage("--allow-consistencycheck-role",
+		                 " Require an explicit acknowledgement before running the manual"
+		                 " consistencycheck workload.");
 		printOptionUsage("--knob-KNOBNAME KNOBVALUE", " Changes a database knob. KNOBNAME should be lowercase.");
 		printOptionUsage("--io-trust-seconds SECONDS",
 		                 " Sets the time in seconds that a read or write operation is allowed to take"
@@ -1151,6 +1155,8 @@ struct CLIOptions {
 	int minTesterCount = 1;
 	bool testOnServers = false;
 	bool consistencyCheckUrgentMode = false;
+	bool allowManualConsistencyCheckRole = false;
+	bool manualConsistencyCheckRoleRequested = false;
 
 	TLSConfig tlsConfig = TLSConfig(TLSEndpointType::SERVER);
 	double fileIoTimeout = 0.0;
@@ -1401,8 +1407,10 @@ private:
 					role = ServerRole::KVFileGenerateIOLogChecksums;
 				else if (!strcmp(sRole, "kvfiledump"))
 					role = ServerRole::KVFileDump;
-				else if (!strcmp(sRole, "consistencycheck"))
+				else if (!strcmp(sRole, "consistencycheck")) {
 					role = ServerRole::ConsistencyCheck;
+					manualConsistencyCheckRoleRequested = true;
+				}
 				else if (!strcmp(sRole, "consistencycheckurgent"))
 					role = ServerRole::ConsistencyCheckUrgent;
 				else if (!strcmp(sRole, "unittests"))
@@ -1704,6 +1712,9 @@ private:
 			case OPT_CONSISTENCY_CHECK_URGENT_MODE:
 				consistencyCheckUrgentMode = true;
 				break;
+			case OPT_ALLOW_CONSISTENCYCHECK_ROLE:
+				allowManualConsistencyCheckRole = true;
+				break;
 			case OPT_METRICSCONNFILE:
 				metricsConnFile = args.OptionArg();
 				break;
@@ -1887,6 +1898,14 @@ private:
 				printHelpTeaser(argv[0]);
 				flushAndExit(FDB_EXIT_ERROR);
 			}
+		}
+
+		if (manualConsistencyCheckRoleRequested && !allowManualConsistencyCheckRole) {
+			fprintf(stderr,
+			        "ERROR: Manual consistency checking now requires an explicit acknowledgement via "
+			        "--allow-consistencycheck-role.\n");
+			printHelpTeaser(argv[0]);
+			flushAndExit(FDB_EXIT_ERROR);
 		}
 
 		setThreadLocalDeterministicRandomSeed(randomSeed);

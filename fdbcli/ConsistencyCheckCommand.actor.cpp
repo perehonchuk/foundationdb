@@ -64,6 +64,8 @@ CommandFactory consistencyCheckFactory(
         "consistencycheck [on|off]",
         "permits or prevents consistency checking",
         "Calling this command with `on' permits consistency check processes to run and `off' will halt their checking. "
-        "Calling this command with no arguments will display if consistency checking is currently allowed.\n"));
+        "Calling this command with no arguments will display if consistency checking is currently allowed.\n"
+        "Manual consistency check daemons must be started with "
+        "`fdbserver --allow-consistencycheck-role -r consistencycheck` to acknowledge their additional load.\n"));
 
 } // namespace fdb_cli
