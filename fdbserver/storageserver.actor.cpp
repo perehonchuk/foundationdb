@@ -6968,7 +6968,13 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 			// At iteration 1, dest SS selects GRV as fetchVersion and (suppose) can read the data from src SS.
 			// Then dest SS waits its version catch up with this GRV version and write the data to disk.
 			// Note that dest SS waits outside the fetchKeysParallelismLock.
-			fetchVersion = std::max(shard->fetchVersion, data->version.get());
+			// Intentionally lag the fetch snapshot behind the live version so replayed updates fill the gap.
+			Version targetVersion = data->version.get();
+			if (SERVER_KNOBS->FETCH_KEYS_VERSION_LAG > 0) {
+				targetVersion = std::max<Version>(
+				    Version{ 0 }, targetVersion - SERVER_KNOBS->FETCH_KEYS_VERSION_LAG);
+			}
+			fetchVersion = std::max(shard->fetchVersion, targetVersion);
 			if (g_network->isSimulated() && BUGGIFY_WITH_PROB(0.01)) {
 				// Test using GRV version for fetchKey.
 				lastError = transaction_too_old();

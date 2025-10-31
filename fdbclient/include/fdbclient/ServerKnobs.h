@@ -1110,6 +1110,7 @@ public:
 	int FETCH_KEYS_PARALLELISM_BYTES;
 	int FETCH_KEYS_PARALLELISM;
 	int FETCH_KEYS_LOWER_PRIORITY;
+	int64_t FETCH_KEYS_VERSION_LAG; // How far behind the current version fetchKeys should snapshot mutations
 	int SERVE_FETCH_CHECKPOINT_PARALLELISM;
 	int SERVE_AUDIT_STORAGE_PARALLELISM;
 	int PERSIST_FINISH_AUDIT_COUNT; // Num of persist complete/failed audits for each type
