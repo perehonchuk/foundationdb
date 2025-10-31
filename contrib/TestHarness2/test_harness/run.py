@@ -498,7 +498,7 @@ class TestRun:
         if Version.of_binary(self.binary) >= "7.1.0":
             command += ["-fi", "on" if self.fault_injection_enabled else "off"]
         if self.restarting:
-            command.append("--restarting")
+            command += ["--restart-phase", "2"]
         if self.buggify_enabled:
             command += ["-b", "on"]
         if config.crash_on_error and not is_negative(self.test_file):

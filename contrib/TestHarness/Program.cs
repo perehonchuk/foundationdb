@@ -463,7 +463,7 @@ namespace SummarizeTest
                         args = string.Format("-Rs 1GB -r {0} {1} -s {2} -f \"{3}\" -b {4} {5} {6} --crash",
                             role, IsRunningOnMono() ? "" : "-q", seed, testFile, buggify ? "on" : "off", faultInjectionArg, tlsPluginArg);
                     }
-                    if (restarting) args = args + " --restarting";
+                    if (restarting) args = args + " --restart-phase 2";
                     if (useValgrind)
                     {
                         valgrindOutputFile = string.Format("valgrind-{0}.xml", seed);

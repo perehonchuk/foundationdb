@@ -132,7 +132,7 @@ using namespace std::literals;
 // clang-format off
 enum {
 	OPT_CONNFILE, OPT_SEEDCONNFILE, OPT_SEEDCONNSTRING, OPT_ROLE, OPT_LISTEN, OPT_PUBLICADDR, OPT_DATAFOLDER, OPT_LOGFOLDER, OPT_PARENTPID, OPT_TRACER, OPT_NEWCONSOLE,
-	OPT_NOBOX, OPT_TESTFILE, OPT_RESTARTING, OPT_RESTORING, OPT_RANDOMSEED, OPT_KEY, OPT_MEMLIMIT, OPT_VMEMLIMIT, OPT_STORAGEMEMLIMIT, OPT_CACHEMEMLIMIT, OPT_MACHINEID,
+	OPT_NOBOX, OPT_TESTFILE, OPT_RESTART_PHASE, OPT_RESTORING, OPT_RANDOMSEED, OPT_KEY, OPT_MEMLIMIT, OPT_VMEMLIMIT, OPT_STORAGEMEMLIMIT, OPT_CACHEMEMLIMIT, OPT_MACHINEID,
 	OPT_DCID, OPT_MACHINE_CLASS, OPT_BUGGIFY, OPT_VERSION, OPT_BUILD_FLAGS, OPT_CRASHONERROR, OPT_HELP, OPT_NETWORKIMPL, OPT_NOBUFSTDOUT, OPT_BUFSTDOUTERR,
 	OPT_TRACECLOCK, OPT_NUMTESTERS, OPT_DEVHELP, OPT_PRINT_CODE_PROBES, OPT_ROLLSIZE, OPT_MAXLOGS, OPT_MAXLOGSSIZE, OPT_KNOB, OPT_UNITTESTPARAM, OPT_TESTSERVERS, OPT_TEST_ON_SERVERS, OPT_METRICSCONNFILE,
 	OPT_METRICSPREFIX, OPT_LOGGROUP, OPT_LOCALITY, OPT_IO_TRUST_SECONDS, OPT_IO_TRUST_WARN_ONLY, OPT_FILESYSTEM, OPT_PROFILER_RSS_SIZE, OPT_KVFILE,
@@ -176,8 +176,8 @@ CSimpleOpt::SOption g_rgOptions[] = {
 	{ OPT_KVFILE,                "--kvfile",                    SO_REQ_SEP },
 	{ OPT_TESTFILE,              "-f",                          SO_REQ_SEP },
 	{ OPT_TESTFILE,              "--testfile",                  SO_REQ_SEP },
-	{ OPT_RESTARTING,            "-R",                          SO_NONE },
-	{ OPT_RESTARTING,            "--restarting",                SO_NONE },
+	{ OPT_RESTART_PHASE,         "-R",                          SO_REQ_SEP },
+	{ OPT_RESTART_PHASE,         "--restart-phase",             SO_REQ_SEP },
 	{ OPT_RANDOMSEED,            "-s",                          SO_REQ_SEP },
 	{ OPT_RANDOMSEED,            "--seed",                      SO_REQ_SEP },
 	{ OPT_KEY,                   "-k",                          SO_REQ_SEP },
@@ -733,7 +733,9 @@ static void printUsage(const char* name, bool devhelp) {
 		printOptionUsage("-f TESTFILE, --testfile",
 		                 " Testfile to run, defaults to `tests/default.txt'.  If role is `unittests', specifies which "
 		                 "unit tests to run as a search prefix.");
-		printOptionUsage("-R, --restarting", " Restart a previous simulation that was cleanly shut down.");
+		printOptionUsage("-R PHASE, --restart-phase PHASE",
+		                 " Resume a previously captured simulation phase (e.g. `2' for the second half of a restarting "
+		                 "test).");
 		printOptionUsage("-s SEED, --seed SEED", " Random seed.");
 		printOptionUsage("-k KEY, --key KEY", "Target key for search role.");
 		printOptionUsage("--kvfile FILE",
@@ -1139,7 +1141,8 @@ struct CLIOptions {
 	               // SERVER_KNOBS->COMMIT_BATCHES_MEM_BYTES_HARD_LIMIT
 	uint64_t virtualMemLimit = 0; // unlimited
 	uint64_t storageMemLimit = 1LL << 30;
-	bool buggifyEnabled = false, faultInjectionEnabled = true, restarting = false;
+	bool buggifyEnabled = false, faultInjectionEnabled = true;
+	Optional<int> restartPhase;
 	Optional<Standalone<StringRef>> zoneId;
 	Optional<Standalone<StringRef>> dcId;
 	ProcessClass processClass = ProcessClass(ProcessClass::UnsetClass, ProcessClass::CommandLineSource);
@@ -1596,9 +1599,18 @@ private:
 			case OPT_KVFILE:
 				kvFile = args.OptionArg();
 				break;
-			case OPT_RESTARTING:
-				restarting = true;
+			case OPT_RESTART_PHASE: {
+				const char* a = args.OptionArg();
+				char* end;
+				int phase = strtol(a, &end, 10);
+				if (*end || phase <= 0) {
+					fprintf(stderr, "ERROR: Restart phase must be a positive integer, saw `%s'\n", a);
+					printHelpTeaser(argv[0]);
+					flushAndExit(FDB_EXIT_ERROR);
+				}
+				restartPhase = phase;
 				break;
+			}
 			case OPT_RANDOMSEED: {
 				char* end;
 				randomSeed = (uint32_t)strtoul(args.OptionArg(), &end, 0);
@@ -2050,7 +2062,7 @@ bool validateSimulationDataFiles(std::string const& dataFolder, bool isRestartin
 		}
 	} else if (isRestarting && files.empty()) {
 		TraceEvent(SevWarnAlways, "FileNotFound").detail("DataFolder", dataFolder);
-		printf("ERROR: Data folder `%s' is empty, but restarting option selected. Run Phase 1 test first\n",
+		printf("ERROR: Data folder `%s' is empty, but restart-phase option selected. Run Phase 1 test first\n",
 		       dataFolder.c_str());
 		return false;
 	}
@@ -2305,6 +2317,7 @@ int main(int argc, char* argv[]) {
 		    .detail("FaultInjectionEnabled", opts.faultInjectionEnabled)
 		    .detail("MemoryLimit", opts.memLimit)
 		    .detail("VirtualMemoryLimit", opts.virtualMemLimit)
+		    .detail("RestartPhase", opts.restartPhase.orDefault(0))
 		    .detail("ProtocolVersion", currentProtocolVersion())
 		    .trackLatest("ProgramStart");
 
@@ -2347,12 +2360,12 @@ int main(int argc, char* argv[]) {
 				}
 			}
 
-			if (!validateSimulationDataFiles(dataFolder, opts.restarting)) {
+			if (!validateSimulationDataFiles(dataFolder, opts.restartPhase.present())) {
 				flushAndExit(FDB_EXIT_ERROR);
 			}
 
 			int isRestoring = 0;
-			if (!opts.restarting) {
+			if (!opts.restartPhase.present()) {
 				platform::eraseDirectoryRecursive(dataFolder);
 				platform::createDirectory(dataFolder);
 			} else {
@@ -2451,7 +2464,7 @@ int main(int argc, char* argv[]) {
 				    KnobValue::create(ini.GetBoolValue("META", "enableShardEncodeLocationMetadata", false)));
 			}
 			simulationSetupAndRun(
-			    dataFolder, opts.testFile, opts.restarting, (isRestoring >= 1), opts.whitelistBinPaths);
+			    dataFolder, opts.testFile, opts.restartPhase.present(), (isRestoring >= 1), opts.whitelistBinPaths);
 			g_simulator->run();
 		} else if (role == ServerRole::FDBD) {
 			// Update the global blob credential files list so that both fast
