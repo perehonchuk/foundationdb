@@ -468,7 +468,13 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						}
 					}
 
-					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
+					const bool respectFirstInBatchHint = SERVER_KNOBS->RESPECT_FIRST_IN_BATCH_HINT;
+					const bool shouldFlushForHint = respectFirstInBatchHint && req.firstInBatch();
+					if (req.firstInBatch() && !respectFirstInBatchHint) {
+						++commitData->stats.txnFirstInBatchHintsIgnored;
+					}
+
+					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || shouldFlushForHint) &&
 					    batch.size()) {
 						commitData->triggerCommit.set(false);
 						out.send({ std::move(batch), batchBytes });
