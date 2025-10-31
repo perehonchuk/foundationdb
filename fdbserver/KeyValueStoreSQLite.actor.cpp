@@ -27,6 +27,7 @@
 #include "fdbserver/Knobs.h"
 #include "flow/Hash3.h"
 #include "flow/xxhash.h"
+#include <algorithm>
 
 // for unprintable
 #include "fdbclient/NativeAPI.actor.h"
@@ -1650,6 +1651,8 @@ public:
 	}
 
 private:
+	void maybeLogReadSaturation();
+
 	KeyValueStoreType type;
 	UID logID;
 	std::string filename;
@@ -1663,6 +1666,8 @@ private:
 	volatile SpringCleaningStats springCleaningStats;
 	volatile int64_t diskBytesUsed;
 	volatile int64_t freeListPages;
+	int configuredReadThreads;
+	bool readSaturationWarningEmitted;
 
 	std::vector<Reference<ReadCursor>> readCursors;
 	Reference<IAsyncFile> dbFile, walFile;
@@ -2162,7 +2167,7 @@ KeyValueStoreSQLite::KeyValueStoreSQLite(std::string const& filename,
                                          bool checkIntegrity)
   : type(storeType), logID(id), filename(filename), readThreads(CoroThreadPool::createThreadPool()),
     writeThread(CoroThreadPool::createThreadPool()), readsRequested(0), writesRequested(0), writesComplete(0),
-    diskBytesUsed(0), freeListPages(0) {
+    diskBytesUsed(0), freeListPages(0), configuredReadThreads(0), readSaturationWarningEmitted(false) {
 	TraceEvent(SevDebug, "KeyValueStoreSQLiteCreate").detail("Filename", filename);
 
 	stopOnErr = stopOnError(this);
@@ -2179,7 +2184,15 @@ KeyValueStoreSQLite::KeyValueStoreSQLite(std::string const& filename,
 	ASSERT(!vfsAsyncIsOpen(filename));
 	ASSERT(!vfsAsyncIsOpen(filename + "-wal"));
 
-	readCursors.resize(SERVER_KNOBS->SQLITE_READER_THREADS); //< number of read threads
+	const int requestedReaders = SERVER_KNOBS->SQLITE_READER_THREADS;
+	configuredReadThreads = std::max(1, requestedReaders);
+	if (configuredReadThreads != requestedReaders) {
+		TraceEvent(SevWarn, "SQLiteReadThreadsClamped", logID)
+		    .detail("Requested", requestedReaders)
+		    .detail("Applied", configuredReadThreads);
+	}
+	TraceEvent("SQLiteReadThreadConfiguration", logID).detail("Threads", configuredReadThreads);
+	readCursors.resize(configuredReadThreads); //< number of read threads
 
 	sqlite3_soft_heap_limit64(SERVER_KNOBS->SOFT_HEAP_LIMIT); // SOMEDAY: Is this a performance issue?  Should we drop
 	                                                          // the cache sizes for individual threads?
@@ -2219,6 +2232,24 @@ StorageBytes KeyValueStoreSQLite::getStorageBytes() const {
 	return StorageBytes(free, total, diskBytesUsed, free + _PAGE_SIZE * freeListPages);
 }
 
+void KeyValueStoreSQLite::maybeLogReadSaturation() {
+	if (readSaturationWarningEmitted) {
+		return;
+	}
+	if (configuredReadThreads <= 0) {
+		return;
+	}
+	const int64_t outstanding = readsRequested - static_cast<int64_t>(readsComplete);
+	if (outstanding <= configuredReadThreads) {
+		return;
+	}
+	readSaturationWarningEmitted = true;
+	TraceEvent(SevWarn, "SQLiteReadThreadsSaturated", logID)
+	    .detail("Outstanding", outstanding)
+	    .detail("ConfiguredThreads", configuredReadThreads)
+	    .detail("ReadsRequested", readsRequested);
+}
+
 void KeyValueStoreSQLite::startReadThreads() {
 	int nReadThreads = readCursors.size();
 	TaskPriority taskId = g_network->getCurrentTask();
@@ -2253,6 +2284,7 @@ Future<Void> KeyValueStoreSQLite::commit(bool sequential) {
 }
 Future<Optional<Value>> KeyValueStoreSQLite::readValue(KeyRef key, Optional<ReadOptions> options) {
 	++readsRequested;
+	maybeLogReadSaturation();
 	Optional<UID> debugID;
 	if (options.present()) {
 		debugID = options.get().debugID;
@@ -2264,6 +2296,7 @@ Future<Optional<Value>> KeyValueStoreSQLite::readValue(KeyRef key, Optional<Read
 }
 Future<Optional<Value>> KeyValueStoreSQLite::readValuePrefix(KeyRef key, int maxLength, Optional<ReadOptions> options) {
 	++readsRequested;
+	maybeLogReadSaturation();
 	Optional<UID> debugID;
 	if (options.present()) {
 		debugID = options.get().debugID;
@@ -2278,6 +2311,7 @@ Future<RangeResult> KeyValueStoreSQLite::readRange(KeyRangeRef keys,
                                                    int byteLimit,
                                                    Optional<ReadOptions> options) {
 	++readsRequested;
+	maybeLogReadSaturation();
 	auto p = new Reader::ReadRangeAction(keys, rowLimit, byteLimit);
 	auto f = p->result.getFuture();
 	readThreads->post(p);
