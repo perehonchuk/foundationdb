@@ -1371,6 +1371,7 @@ public:
 	int ENCRYPT_PROXY_MAX_DBG_TRACE_LENGTH;
 	double ENCRYPTION_LOGGING_INTERVAL;
 	double DISABLED_ENCRYPTION_PROBABILITY_SIM; // Probability that encryption is forced to be disabled in simulation
+	bool ALLOW_REDWOOD_ENCRYPTION; // Whether Redwood can serve encrypted storage
 
 	// Key Management Service (KMS) Connector
 	std::string KMS_CONNECTOR_TYPE;

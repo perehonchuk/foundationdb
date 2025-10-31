@@ -19,6 +19,7 @@
  */
 
 #include "fdbclient/GetEncryptCipherKeys.h"
+#include "fdbclient/ServerKnobs.h"
 #include "fdbserver/ServerDBInfo.actor.h"
 #include "fdbserver/IKeyValueStore.h"
 #include "flow/flow.h"
@@ -35,13 +36,16 @@ IKeyValueStore* openKVStore(KeyValueStoreType storeType,
                             Optional<EncryptionAtRestMode> encryptionMode,
                             int64_t pageCacheBytes,
                             Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
-	// Only Redwood support encryption currently.
-	if (encryptionMode.present() && encryptionMode.get().isEncryptionEnabled() &&
-	    storeType != KeyValueStoreType::SSD_REDWOOD_V1) {
-		TraceEvent(SevWarn, "KVStoreTypeNotSupportingEncryption")
-		    .detail("KVStoreType", storeType)
-		    .detail("EncryptionMode", encryptionMode);
-		throw encrypt_mode_mismatch();
+	const bool encryptionEnabled = encryptionMode.present() && encryptionMode.get().isEncryptionEnabled();
+	if (encryptionEnabled) {
+		const bool redwoodRequested = storeType == KeyValueStoreType::SSD_REDWOOD_V1;
+		if (!redwoodRequested || !SERVER_KNOBS->ALLOW_REDWOOD_ENCRYPTION) {
+			TraceEvent(SevWarn, "KVStoreTypeNotSupportingEncryption")
+			    .detail("KVStoreType", storeType)
+			    .detail("EncryptionMode", encryptionMode)
+			    .detail("RedwoodAllowed", SERVER_KNOBS->ALLOW_REDWOOD_ENCRYPTION);
+			throw encrypt_mode_mismatch();
+		}
 	}
 	if (openRemotely) {
 		return openRemoteKVStore(storeType, filename, logID, memoryLimit, checkChecksums, checkIntegrity);

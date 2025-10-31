@@ -1284,6 +1284,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	// encrypt key proxy
 	init( ENCRYPTION_LOGGING_INTERVAL,                           5.0 );
 	init( DISABLED_ENCRYPTION_PROBABILITY_SIM,                  0.95 );
+	init( ALLOW_REDWOOD_ENCRYPTION,                           false );
 
 	// KMS connector type
 	init( KMS_CONNECTOR_TYPE,                     "RESTKmsConnector" );
