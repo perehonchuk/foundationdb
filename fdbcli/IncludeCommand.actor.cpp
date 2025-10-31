@@ -105,7 +105,7 @@ ACTOR Future<Void> includeServers(Reference<IDatabase> db, std::vector<AddressEx
 }
 
 // Includes the servers that could be IP addresses or localities back to the cluster.
-ACTOR Future<bool> include(Reference<IDatabase> db, std::vector<StringRef> tokens) {
+ACTOR Future<bool> include(Reference<IDatabase> db, std::vector<StringRef> tokens, bool force) {
 	state std::vector<AddressExclusion> addresses;
 	state std::vector<std::string> localities;
 	state bool failed = false;
@@ -131,6 +131,13 @@ ACTOR Future<bool> include(Reference<IDatabase> db, std::vector<StringRef> token
 			addresses.push_back(a);
 		}
 	}
+	bool modifies = all || !addresses.empty() || !localities.empty();
+	if (modifies && !force) {
+		fprintf(stderr,
+		        "ERROR: include refuses to modify exclusions without --force.\n"
+		        "       Re-run with 'include --force ...' once the processes are ready to rejoin.\n");
+		return false;
+	}
 	if (all) {
 		std::vector<AddressExclusion> includeAll;
 		includeAll.push_back(AddressExclusion());
@@ -153,23 +160,33 @@ ACTOR Future<bool> include(Reference<IDatabase> db, std::vector<StringRef> token
 namespace fdb_cli {
 
 ACTOR Future<bool> includeCommandActor(Reference<IDatabase> db, std::vector<StringRef> tokens) {
-	if (tokens.size() < 2) {
+	bool force = false;
+	std::vector<StringRef> filtered;
+	filtered.reserve(tokens.size());
+	filtered.push_back(tokens[0]);
+	for (auto t = tokens.begin() + 1; t != tokens.end(); ++t) {
+		if (*t == "--force"_sr) {
+			force = true;
+		} else {
+			filtered.push_back(*t);
+		}
+	}
+	if (filtered.size() < 2) {
 		printUsage(tokens[0]);
 		return false;
-	} else {
-		bool result = wait(include(db, tokens));
-		return result;
 	}
+	bool result = wait(include(db, filtered, force));
+	return result;
 }
 
 CommandFactory includeFactory(
     "include",
     CommandHelp(
-        "include all|[<ADDRESS...>] [locality_dcid:<excludedcid>] [locality_zoneid:<excludezoneid>] "
+        "include [--force] all|[<ADDRESS...>] [locality_dcid:<excludedcid>] [locality_zoneid:<excludezoneid>] "
         "[locality_machineid:<excludemachineid>] [locality_processid:<excludeprocessid>] or any locality data",
         "permit previously-excluded servers and localities to rejoin the database",
         "If `all' is specified, the excluded servers and localities list is cleared.\n\nFor each IP address or IP:port "
         "pair in <ADDRESS...> or any LocalityData (like dcid, zoneid, machineid, processid), removes any "
-        "matching exclusions from the excluded servers and localities list. "
+        "matching exclusions from the excluded servers and localities list when invoked with `--force'. "
         "(A specified IP will match all IP:* exclusion entries)"));
 } // namespace fdb_cli

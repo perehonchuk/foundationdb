@@ -775,7 +775,12 @@ def exclude(logger):
         in output2
     )
     assert excluded_address in output2
-    run_fdbcli_command("include", excluded_address)
+    # include should now refuse to run without an explicit --force
+    include_error = run_fdbcli_command_and_get_error("include", excluded_address)
+    assert (
+        "include refuses to modify exclusions without --force." in include_error
+    ), include_error
+    run_fdbcli_command("include", "--force", excluded_address)
     # check the include is successful
     output4 = run_fdbcli_command("exclude")
     assert no_excluded_process_output in output4
