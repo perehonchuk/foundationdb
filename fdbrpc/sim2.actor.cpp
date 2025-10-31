@@ -1411,15 +1411,19 @@ public:
 	static void runLoop(Sim2* self) {
 		ISimulator::ProcessInfo* callingMachine = self->currentProcess;
 		ISimulator::isMainThread = true;
-		int lastPrintTime = 0;
 		while (!self->isStopped) {
 			if (self->taskQueue.canSleep()) {
 				double sleepTime = self->taskQueue.getSleepTime(self->time);
 				self->time +=
 				    sleepTime + FLOW_KNOBS->MAX_RUNLOOP_SLEEP_DELAY * pow(deterministicRandom()->random01(), 1000.0);
-				if (self->printSimTime && (int)self->time > lastPrintTime) {
-					printf("Time: %d\n", (int)self->time);
-					lastPrintTime = (int)self->time;
+				if (self->progressIntervalSeconds > 0 && self->time >= self->nextProgressPrint) {
+					do {
+						double reached = self->nextProgressPrint;
+						printf("Simulation progress (%d s interval): reached %.0f simulated seconds\n",
+						       self->progressIntervalSeconds,
+						       reached);
+						self->nextProgressPrint += self->progressIntervalSeconds;
+					} while (self->time >= self->nextProgressPrint);
 				}
 				self->timerTime = std::max(self->timerTime, self->time);
 			}
@@ -2567,9 +2571,10 @@ public:
 		return registerSimHTTPServerActor(this, hostname, service, requestHandler);
 	}
 
-	Sim2(bool printSimTime)
+	Sim2(int progressIntervalSeconds)
 	  : time(0.0), timerTime(0.0), currentTaskID(TaskPriority::Zero), yielded(false), yield_limit(0),
-	    printSimTime(printSimTime) {
+	    progressIntervalSeconds(progressIntervalSeconds),
+	    nextProgressPrint(progressIntervalSeconds > 0 ? progressIntervalSeconds : 0.0) {
 		// Not letting currentProcess be nullptr eliminates some annoying special cases
 		currentProcess =
 		    new ProcessInfo("NoMachine",
@@ -2670,7 +2675,8 @@ public:
 	// Whether or not yield has returned true during the current iteration of the run loop
 	bool yielded;
 	int yield_limit; // how many more times yield may return false before next returning true
-	bool printSimTime;
+	int progressIntervalSeconds;
+	double nextProgressPrint;
 
 private:
 	DNSCache mockDNS;
@@ -2879,10 +2885,10 @@ Future<Reference<IUDPSocket>> Sim2::createUDPSocket(bool isV6) {
 	return Reference<IUDPSocket>(new UDPSimSocket(localAddress, Optional<NetworkAddress>{}));
 }
 
-void startNewSimulator(bool printSimTime) {
+void startNewSimulator(int progressIntervalSeconds) {
 	ASSERT(!g_network);
 	ASSERT(!g_simulator);
-	g_network = g_simulator = new Sim2(printSimTime);
+	g_network = g_simulator = new Sim2(progressIntervalSeconds);
 	g_simulator->connectionFailuresDisableDuration =
 	    deterministicRandom()->coinflip() ? 0 : DISABLE_CONNECTION_FAILURE_FOREVER;
 }

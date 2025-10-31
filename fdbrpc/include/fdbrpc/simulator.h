@@ -454,7 +454,7 @@ private:
 
 extern ISimulator* g_simulator;
 
-void startNewSimulator(bool printSimTime);
+void startNewSimulator(int progressIntervalSeconds);
 
 // Parameters used to simulate disk performance
 struct DiskParameters : ReferenceCounted<DiskParameters> {

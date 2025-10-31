@@ -136,7 +136,7 @@ enum {
 	OPT_DCID, OPT_MACHINE_CLASS, OPT_BUGGIFY, OPT_VERSION, OPT_BUILD_FLAGS, OPT_CRASHONERROR, OPT_HELP, OPT_NETWORKIMPL, OPT_NOBUFSTDOUT, OPT_BUFSTDOUTERR,
 	OPT_TRACECLOCK, OPT_NUMTESTERS, OPT_DEVHELP, OPT_PRINT_CODE_PROBES, OPT_ROLLSIZE, OPT_MAXLOGS, OPT_MAXLOGSSIZE, OPT_KNOB, OPT_UNITTESTPARAM, OPT_TESTSERVERS, OPT_TEST_ON_SERVERS, OPT_METRICSCONNFILE,
 	OPT_METRICSPREFIX, OPT_LOGGROUP, OPT_LOCALITY, OPT_IO_TRUST_SECONDS, OPT_IO_TRUST_WARN_ONLY, OPT_FILESYSTEM, OPT_PROFILER_RSS_SIZE, OPT_KVFILE,
-	OPT_TRACE_FORMAT, OPT_WHITELIST_BINPATH, OPT_BLOB_CREDENTIALS, OPT_PROXY, OPT_CONFIG_PATH, OPT_USE_TEST_CONFIG_DB, OPT_NO_CONFIG_DB, OPT_FAULT_INJECTION, OPT_PROFILER, OPT_PRINT_SIMTIME,
+	OPT_TRACE_FORMAT, OPT_WHITELIST_BINPATH, OPT_BLOB_CREDENTIALS, OPT_PROXY, OPT_CONFIG_PATH, OPT_USE_TEST_CONFIG_DB, OPT_NO_CONFIG_DB, OPT_FAULT_INJECTION, OPT_PROFILER, OPT_SIM_PROGRESS_INTERVAL,
 	OPT_FLOW_PROCESS_NAME, OPT_FLOW_PROCESS_ENDPOINT, OPT_IP_TRUSTED_MASK, OPT_KMS_CONN_DISCOVERY_URL_FILE, OPT_KMS_CONNECTOR_TYPE, OPT_KMS_REST_ALLOW_NOT_SECURE_CONECTION, OPT_KMS_CONN_VALIDATION_TOKEN_DETAILS,
 	OPT_KMS_CONN_GET_ENCRYPTION_KEYS_ENDPOINT, OPT_KMS_CONN_GET_LATEST_ENCRYPTION_KEYS_ENDPOINT, OPT_KMS_CONN_GET_BLOB_METADATA_ENDPOINT, OPT_NEW_CLUSTER_KEY, OPT_AUTHZ_PUBLIC_KEY_FILE, OPT_USE_FUTURE_PROTOCOL_VERSION, OPT_CONSISTENCY_CHECK_URGENT_MODE
 };
@@ -230,7 +230,7 @@ CSimpleOpt::SOption g_rgOptions[] = {
 	{ OPT_FAULT_INJECTION,       "-fi",                         SO_REQ_SEP },
 	{ OPT_FAULT_INJECTION,       "--fault-injection",           SO_REQ_SEP },
 	{ OPT_PROFILER,	             "--profiler-",                 SO_REQ_SEP },
-	{ OPT_PRINT_SIMTIME,         "--print-sim-time",             SO_NONE },
+	{ OPT_SIM_PROGRESS_INTERVAL, "--sim-progress-interval",     SO_REQ_SEP },
 	{ OPT_FLOW_PROCESS_NAME,     "--process-name",              SO_REQ_SEP },
 	{ OPT_FLOW_PROCESS_ENDPOINT, "--process-endpoint",          SO_REQ_SEP },
 	{ OPT_IP_TRUSTED_MASK,       "--trusted-subnet-",           SO_REQ_SEP },
@@ -1170,7 +1170,7 @@ struct CLIOptions {
 	std::map<std::string, std::string> profilerConfig;
 	std::string flowProcessName;
 	Endpoint flowProcessEndpoint;
-	bool printSimTime = false;
+	int simProgressIntervalSeconds = 0;
 	IPAllowList allowList;
 
 	static CLIOptions parseArgs(int argc, char* argv[]) {
@@ -1787,9 +1787,23 @@ private:
 				}
 				break;
 			}
-			case OPT_PRINT_SIMTIME:
-				printSimTime = true;
+			case OPT_SIM_PROGRESS_INTERVAL: {
+				int interval = 0;
+				try {
+					interval = std::stoi(args.OptionArg());
+				} catch (std::exception&) {
+					fprintf(stderr,
+					        "ERROR: --sim-progress-interval requires an integer number of seconds (got '%s')\n",
+					        args.OptionArg());
+					flushAndExit(FDB_EXIT_ERROR);
+				}
+				if (interval <= 0) {
+					fprintf(stderr, "ERROR: --sim-progress-interval must be greater than zero\n");
+					flushAndExit(FDB_EXIT_ERROR);
+				}
+				simProgressIntervalSeconds = interval;
 				break;
+			}
 
 			case TLSConfig::OPT_TLS_PLUGIN:
 				args.OptionArg();
@@ -2161,7 +2175,7 @@ int main(int argc, char* argv[]) {
 		if (role == ServerRole::Simulation || role == ServerRole::CreateTemplateDatabase) {
 			// startOldSimulator();
 			opts.buildNetwork(argv[0]);
-			startNewSimulator(opts.printSimTime);
+			startNewSimulator(opts.simProgressIntervalSeconds);
 
 			if (SERVER_KNOBS->FLOW_WITH_SWIFT) {
 				// TODO (Swift): Make it TraceEvent
