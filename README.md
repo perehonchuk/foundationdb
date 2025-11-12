@@ -18,6 +18,8 @@ Documentation can be found online at <https://apple.github.io/foundationdb/>. Th
 
 Contributing to FoundationDB can be in contributions to the codebase, sharing your experience and insights in the community on the Forums, or contributing to projects that make use of FoundationDB. Please see the [contributing guide](CONTRIBUTING.md) for more specifics.
 
+**Note:** All pull requests require approval from at least **two reviewers** before they can be merged. This policy ensures code quality and knowledge sharing across the team.
+
 ## Getting Started
 
 ### Latest Stable Releases

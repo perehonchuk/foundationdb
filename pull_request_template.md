@@ -9,6 +9,7 @@ Please check each of the following things and check *all* boxes before accepting
 - [ ] The PR has a description, explaining both the problem and the solution.
 - [ ] The description mentions which forms of testing were done and the testing seems reasonable.
 - [ ] Every function/class/actor that was touched is reasonably well documented.
+- [ ] **This PR has been approved by at least TWO reviewers** (required for all PRs as of latest policy update)
 
 ## For Release-Branches
 
