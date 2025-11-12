@@ -2836,12 +2836,20 @@ ACTOR Future<Void> reply(CommitBatchContext* self) {
 	// Dynamic batching for commits
 	double target_latency =
 	    (now() - self->startTime) * SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_INTERVAL_LATENCY_FRACTION;
+	double previousBatchInterval = pProxyCommitData->commitBatchInterval;
 	pProxyCommitData->commitBatchInterval =
 	    std::max(SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_INTERVAL_MIN,
 	             std::min(SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_INTERVAL_MAX,
 	                      target_latency * SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_INTERVAL_SMOOTHER_ALPHA +
 	                          pProxyCommitData->commitBatchInterval *
 	                              (1 - SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_INTERVAL_SMOOTHER_ALPHA)));
+	if (std::abs(pProxyCommitData->commitBatchInterval - previousBatchInterval) > 0.001) {
+		TraceEvent("CommitBatchIntervalAdjusted", pProxyCommitData->dbgid)
+		    .detail("OldInterval", previousBatchInterval)
+		    .detail("NewInterval", pProxyCommitData->commitBatchInterval)
+		    .detail("TargetLatency", target_latency)
+		    .detail("BatchSize", self->trs.size());
+	}
 	pProxyCommitData->stats.commitBatchingWindowSize.addMeasurement(pProxyCommitData->commitBatchInterval);
 	pProxyCommitData->commitBatchesMemBytesCount -= self->currentBatchMemBytesCount;
 	ASSERT_ABORT(pProxyCommitData->commitBatchesMemBytesCount >= 0);

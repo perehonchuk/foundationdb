@@ -613,11 +613,19 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
 		// dynamic batching monitors reply latencies
 		when(double reply_latency = waitNext(normalGRVLatency)) {
 			double target_latency = reply_latency * SERVER_KNOBS->START_TRANSACTION_BATCH_INTERVAL_LATENCY_FRACTION;
+			double previousGRVBatchTime = *GRVBatchTime;
 			*GRVBatchTime = std::max(
 			    SERVER_KNOBS->START_TRANSACTION_BATCH_INTERVAL_MIN,
 			    std::min(SERVER_KNOBS->START_TRANSACTION_BATCH_INTERVAL_MAX,
 			             target_latency * SERVER_KNOBS->START_TRANSACTION_BATCH_INTERVAL_SMOOTHER_ALPHA +
 			                 *GRVBatchTime * (1 - SERVER_KNOBS->START_TRANSACTION_BATCH_INTERVAL_SMOOTHER_ALPHA)));
+			if (std::abs(*GRVBatchTime - previousGRVBatchTime) > 0.0005) {
+				TraceEvent("GRVBatchTimeAdjusted", grvProxyData->dbgid)
+				    .detail("OldBatchTime", previousGRVBatchTime)
+				    .detail("NewBatchTime", *GRVBatchTime)
+				    .detail("ReplyLatency", reply_latency)
+				    .detail("TargetLatency", target_latency);
+			}
 		}
 	}
 }
