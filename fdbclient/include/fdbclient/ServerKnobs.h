@@ -896,6 +896,11 @@ public:
 	bool RECORD_RECOVER_AT_IN_CSTATE;
 	bool TRACK_TLOG_RECOVERY;
 
+	// Process count monitoring knobs
+	int CC_RECOMMENDED_MAX_PROCESS_COUNT; // Maximum recommended number of processes per cluster
+	int CC_PROCESS_COUNT_WARN_THRESHOLD;  // Warning threshold for process count during migrations
+	double CC_PROCESS_COUNT_WARN_INTERVAL; // Interval between process count warnings
+
 	// Move Keys
 	double SHARD_READY_DELAY;
 	double SERVER_READY_QUORUM_INTERVAL;

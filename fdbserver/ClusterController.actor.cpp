@@ -2763,6 +2763,32 @@ ACTOR Future<Void> handleGetEncryptionAtRestMode(ClusterControllerData* self, Cl
 	}
 }
 
+// Monitor process count and emit periodic warnings if thresholds are exceeded
+ACTOR Future<Void> monitorProcessCount(ClusterControllerData* self) {
+	state double lastWarningTime = 0;
+	loop {
+		wait(delay(SERVER_KNOBS->CC_PROCESS_COUNT_WARN_INTERVAL));
+		int processCount = self->id_worker.size();
+		double currentTime = now();
+
+		if (processCount > SERVER_KNOBS->CC_RECOMMENDED_MAX_PROCESS_COUNT &&
+		    (currentTime - lastWarningTime) >= SERVER_KNOBS->CC_PROCESS_COUNT_WARN_INTERVAL) {
+			TraceEvent(SevWarnAlways, "ProcessCountPeriodicCheck", self->id)
+			    .detail("ProcessCount", processCount)
+			    .detail("RecommendedMax", SERVER_KNOBS->CC_RECOMMENDED_MAX_PROCESS_COUNT)
+			    .detail("SteadyStateRecommendation", SERVER_KNOBS->CC_PROCESS_COUNT_WARN_THRESHOLD);
+			lastWarningTime = currentTime;
+		} else if (processCount > SERVER_KNOBS->CC_PROCESS_COUNT_WARN_THRESHOLD &&
+		           (currentTime - lastWarningTime) >= SERVER_KNOBS->CC_PROCESS_COUNT_WARN_INTERVAL) {
+			TraceEvent(SevInfo, "ProcessCountNearingLimit", self->id)
+			    .detail("ProcessCount", processCount)
+			    .detail("WarnThreshold", SERVER_KNOBS->CC_PROCESS_COUNT_WARN_THRESHOLD)
+			    .detail("RecommendedMax", SERVER_KNOBS->CC_RECOMMENDED_MAX_PROCESS_COUNT);
+			lastWarningTime = currentTime;
+		}
+	}
+}
+
 ACTOR Future<Void> clusterControllerCore(ClusterControllerFullInterface interf,
                                          Future<Void> leaderFail,
                                          ServerCoordinators coordinators,
@@ -2809,6 +2835,7 @@ ACTOR Future<Void> clusterControllerCore(ClusterControllerFullInterface interf,
 	                                                               SERVER_KNOBS->STORAGE_LOGGING_DELAY,
 	                                                               self.id.toString() + "/ClusterControllerMetrics"));
 	self.addActor.send(traceRole(Role::CLUSTER_CONTROLLER, interf.id()));
+	self.addActor.send(monitorProcessCount(&self));
 	// printf("%s: I am the cluster controller\n", g_network->getLocalAddress().toString().c_str());
 	if (SERVER_KNOBS->CC_ENABLE_WORKER_HEALTH_MONITOR) {
 		self.addActor.send(workerHealthMonitor(&self));
@@ -2858,6 +2885,20 @@ ACTOR Future<Void> clusterControllerCore(ClusterControllerFullInterface interf,
 				}
 
 				workers.push_back(worker.details);
+			}
+
+			// Monitor total process count and warn if thresholds are exceeded
+			int totalProcessCount = self.id_worker.size();
+			if (totalProcessCount > SERVER_KNOBS->CC_RECOMMENDED_MAX_PROCESS_COUNT) {
+				TraceEvent(SevWarnAlways, "ProcessCountExceededMaxRecommended", self.id)
+				    .detail("ProcessCount", totalProcessCount)
+				    .detail("RecommendedMax", SERVER_KNOBS->CC_RECOMMENDED_MAX_PROCESS_COUNT)
+				    .detail("WarnThreshold", SERVER_KNOBS->CC_PROCESS_COUNT_WARN_THRESHOLD);
+			} else if (totalProcessCount > SERVER_KNOBS->CC_PROCESS_COUNT_WARN_THRESHOLD) {
+				TraceEvent(SevWarn, "ProcessCountExceededWarnThreshold", self.id)
+				    .detail("ProcessCount", totalProcessCount)
+				    .detail("WarnThreshold", SERVER_KNOBS->CC_PROCESS_COUNT_WARN_THRESHOLD)
+				    .detail("RecommendedMax", SERVER_KNOBS->CC_RECOMMENDED_MAX_PROCESS_COUNT);
 			}
 
 			req.reply.send(workers);

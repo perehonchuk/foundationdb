@@ -876,6 +876,11 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( RECORD_RECOVER_AT_IN_CSTATE,                         false ); if( randomize && BUGGIFY ) RECORD_RECOVER_AT_IN_CSTATE = deterministicRandom()->coinflip();
 	init( TRACK_TLOG_RECOVERY,                                  true ); if ( randomize && BUGGIFY ) TRACK_TLOG_RECOVERY = deterministicRandom()->coinflip();
 
+	// Process count monitoring
+	init( CC_RECOMMENDED_MAX_PROCESS_COUNT,                     2000 ); if( randomize && BUGGIFY ) CC_RECOMMENDED_MAX_PROCESS_COUNT = deterministicRandom()->randomInt(100, 500);
+	init( CC_PROCESS_COUNT_WARN_THRESHOLD,                      1000 ); if( randomize && BUGGIFY ) CC_PROCESS_COUNT_WARN_THRESHOLD = deterministicRandom()->randomInt(50, 250);
+	init( CC_PROCESS_COUNT_WARN_INTERVAL,                      300.0 ); if( randomize && BUGGIFY ) CC_PROCESS_COUNT_WARN_INTERVAL = 60.0;
+
 	//Move Keys
 	init( SHARD_READY_DELAY,                                    0.25 );
 	init( SERVER_READY_QUORUM_INTERVAL,                         std::min(1.0, std::min(MAX_READ_TRANSACTION_LIFE_VERSIONS, MAX_WRITE_TRANSACTION_LIFE_VERSIONS)/(5.0*VERSIONS_PER_SECOND)) );
