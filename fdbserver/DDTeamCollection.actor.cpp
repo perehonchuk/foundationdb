@@ -1949,6 +1949,9 @@ public:
 				healthChanged = IFailureMonitor::failureMonitor().onStateEqual(interf.waitFailure.getEndpoint(),
 				                                                               FailureStatus(false));
 			} else if (!inHealthyZone) {
+				TraceEvent(SevDebug, "SSFailureTrackerMonitoring", self->distributorId)
+				    .detail("ServerID", interf.id())
+				    .detail("FailureReactionTime", SERVER_KNOBS->DATA_DISTRIBUTION_FAILURE_REACTION_TIME);
 				healthChanged = waitFailureClientStrict(interf.waitFailure,
 				                                        SERVER_KNOBS->DATA_DISTRIBUTION_FAILURE_REACTION_TIME,
 				                                        TaskPriority::DataDistribution);
@@ -1956,6 +1959,12 @@ public:
 			choose {
 				when(wait(healthChanged)) {
 					status->isFailed = !status->isFailed;
+					if (status->isFailed) {
+						TraceEvent("StorageServerFailureDetected", self->distributorId)
+						    .detail("ServerID", interf.id())
+						    .detail("DetectionTimeout", SERVER_KNOBS->DATA_DISTRIBUTION_FAILURE_REACTION_TIME)
+						    .detail("IsTSS", interf.isTss());
+					}
 					if (status->isFailed && self->healthyZone.get().present()) {
 						if (self->healthyZone.get().get() == ignoreSSFailuresZoneString) {
 							// Ignore the failed storage server

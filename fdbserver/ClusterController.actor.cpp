@@ -806,6 +806,12 @@ ACTOR Future<Void> workerAvailabilityWatch(WorkerInterface worker,
 	// fails for the worker.
 	wait(delay(0));
 
+	TraceEvent("WorkerAvailabilityWatchStarted", cluster->id)
+	    .detail("ProcessId", worker.locality.processId())
+	    .detail("ProcessClass", startingClass.toString())
+	    .detail("Address", worker.address())
+	    .detail("FailureTimeout", SERVER_KNOBS->WORKER_FAILURE_TIME);
+
 	loop {
 		choose {
 			when(wait(IFailureMonitor::failureMonitor().onStateEqual(
@@ -830,7 +836,8 @@ ACTOR Future<Void> workerAvailabilityWatch(WorkerInterface worker,
 				TraceEvent("ClusterControllerWorkerFailed", cluster->id)
 				    .detail("ProcessId", worker.locality.processId())
 				    .detail("ProcessClass", failedWorkerInfo.details.processClass.toString())
-				    .detail("Address", worker.address());
+				    .detail("Address", worker.address())
+				    .detail("FailureTimeoutUsed", SERVER_KNOBS->WORKER_FAILURE_TIME);
 				cluster->removedDBInfoEndpoints.insert(worker.updateServerDBInfo.getEndpoint());
 				cluster->id_worker.erase(worker.locality.processId());
 				// Currently, only CC_ONLY_CONSIDER_INTRA_DC_LATENCY feature relies on addr_locality mapping. In the
