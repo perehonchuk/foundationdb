@@ -117,12 +117,12 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( KRM_GET_RANGE_LIMIT,                     1e5 ); if( randomize && BUGGIFY ) KRM_GET_RANGE_LIMIT = 10;
 	init( KRM_GET_RANGE_LIMIT_BYTES,               1e8 ); if( randomize && BUGGIFY ) KRM_GET_RANGE_LIMIT_BYTES = 10000; //This must be sufficiently larger than KEY_SIZE_LIMIT to ensure that at least two entries will be returned from an attempt to read a key range map
 
-	init( DEFAULT_MAX_OUTSTANDING_WATCHES,         1e4 );
-	init( ABSOLUTE_MAX_WATCHES,                    1e6 );
-	init( WATCH_POLLING_TIME,                      1.0 ); if( randomize && BUGGIFY ) WATCH_POLLING_TIME = 5.0;
-	init( NO_RECENT_UPDATES_DURATION,             20.0 ); if( randomize && BUGGIFY ) NO_RECENT_UPDATES_DURATION = 0.1;
-	init( FAST_WATCH_TIMEOUT,                     20.0 ); if( randomize && BUGGIFY ) FAST_WATCH_TIMEOUT = 1.0;
-	init( WATCH_TIMEOUT,                          30.0 ); if( randomize && BUGGIFY ) WATCH_TIMEOUT = 20.0;
+	init( DEFAULT_MAX_OUTSTANDING_WATCHES,         5e3 );
+	init( ABSOLUTE_MAX_WATCHES,                    5e5 );
+	init( WATCH_POLLING_TIME,                      2.5 ); if( randomize && BUGGIFY ) WATCH_POLLING_TIME = 5.0;
+	init( NO_RECENT_UPDATES_DURATION,             30.0 ); if( randomize && BUGGIFY ) NO_RECENT_UPDATES_DURATION = 0.1;
+	init( FAST_WATCH_TIMEOUT,                     15.0 ); if( randomize && BUGGIFY ) FAST_WATCH_TIMEOUT = 1.0;
+	init( WATCH_TIMEOUT,                          45.0 ); if( randomize && BUGGIFY ) WATCH_TIMEOUT = 20.0;
 
 	// Versions -- knobs that control 5s timeout
 	init( VERSIONS_PER_SECOND,                     1e6 ); // Must be the same as SERVER_KNOBS->VERSIONS_PER_SECOND

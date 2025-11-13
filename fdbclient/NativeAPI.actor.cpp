@@ -2187,6 +2187,7 @@ ACTOR Future<Version> watchValue(Database cx, Reference<const WatchParameters> p
 						CODE_PROBE(e.code() == error_code_watch_cancelled, "Too many watches on the storage server, poll for changes instead");
 						CODE_PROBE(e.code() == error_code_process_behind, "The storage servers are all behind", probe::decoration::rare);
 				// clang-format on
+				// Increased polling interval to reduce load on storage servers during watch saturation
 				wait(delay(CLIENT_KNOBS->WATCH_POLLING_TIME, parameters->taskID));
 			} else if (e.code() == error_code_timed_out) { // The storage server occasionally times out watches in case
 				// it was cancelled

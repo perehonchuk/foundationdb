@@ -1253,6 +1253,7 @@ DatabaseContext::DatabaseContext(Reference<AsyncVar<Reference<IClusterConnection
 	                : clientInfo->onChange();
 
 	metadataVersionCache.resize(CLIENT_KNOBS->METADATA_VERSION_CACHE_SIZE);
+	// Reduced default watch limit to lower memory footprint on clients
 	maxOutstandingWatches = CLIENT_KNOBS->DEFAULT_MAX_OUTSTANDING_WATCHES;
 
 	snapshotRywEnabled = apiVersion.hasSnapshotRYW() ? 1 : 0;

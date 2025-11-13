@@ -115,12 +115,13 @@ public:
 	int KRM_GET_RANGE_LIMIT_BYTES; // This must be sufficiently larger than KEY_SIZE_LIMIT to ensure that at least two
 	                               // entries will be returned from an attempt to read a key range map
 
-	int DEFAULT_MAX_OUTSTANDING_WATCHES;
+	// Watch system parameters - tuned to reduce memory footprint while maintaining reliability
+	int DEFAULT_MAX_OUTSTANDING_WATCHES; // Default limit on concurrent watches per database connection
 	int ABSOLUTE_MAX_WATCHES; // The client cannot set the max outstanding watches higher than this
-	double WATCH_POLLING_TIME;
-	double NO_RECENT_UPDATES_DURATION;
-	double FAST_WATCH_TIMEOUT;
-	double WATCH_TIMEOUT;
+	double WATCH_POLLING_TIME; // Fallback polling interval when watch registration fails
+	double NO_RECENT_UPDATES_DURATION; // Time before storage server considers itself idle
+	double FAST_WATCH_TIMEOUT; // Timeout for watches on recently-updated keys
+	double WATCH_TIMEOUT; // Timeout for watches on idle keys
 
 	double IS_ACCEPTABLE_DELAY;
 
