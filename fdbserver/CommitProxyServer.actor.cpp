@@ -468,14 +468,20 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						}
 					}
 
-					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
-					    batch.size()) {
+					bool shouldFlushBatch = (batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT) ||
+					                        (req.firstInBatch() && !SERVER_KNOBS->ALLOW_BATCHING_FIRST_IN_BATCH);
+					if (shouldFlushBatch && batch.size()) {
 						commitData->triggerCommit.set(false);
 						out.send({ std::move(batch), batchBytes });
 						lastBatch = now();
 						timeout = delayJittered(commitData->commitBatchInterval, TaskPriority::ProxyCommitBatcher);
 						batch.clear();
 						batchBytes = 0;
+					}
+
+					// Track FIRST_IN_BATCH transactions that are being batched with others
+					if (req.firstInBatch() && SERVER_KNOBS->ALLOW_BATCHING_FIRST_IN_BATCH && batch.size() > 0) {
+						++commitData->stats.txnFirstInBatchBatched;
 					}
 
 					batch.push_back(req);

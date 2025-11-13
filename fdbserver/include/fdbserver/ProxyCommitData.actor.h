@@ -61,6 +61,7 @@ struct ProxyStats {
 	Counter txnConflicts;
 	Counter txnRejectedForQueuedTooLong;
 	Counter commitBatchIn, commitBatchOut;
+	Counter txnFirstInBatchBatched; // Counts FIRST_IN_BATCH transactions that were batched with others
 	Counter mutationBytes;
 	Counter mutations;
 	Counter conflictRanges;
@@ -130,7 +131,8 @@ struct ProxyStats {
 	    txnCommitResolved("TxnCommitResolved", cc), txnCommitOut("TxnCommitOut", cc),
 	    txnCommitOutSuccess("TxnCommitOutSuccess", cc), txnCommitErrors("TxnCommitErrors", cc),
 	    txnConflicts("TxnConflicts", cc), txnRejectedForQueuedTooLong("TxnRejectedForQueuedTooLong", cc),
-	    commitBatchIn("CommitBatchIn", cc), commitBatchOut("CommitBatchOut", cc), mutationBytes("MutationBytes", cc),
+	    commitBatchIn("CommitBatchIn", cc), commitBatchOut("CommitBatchOut", cc),
+	    txnFirstInBatchBatched("TxnFirstInBatchBatched", cc), mutationBytes("MutationBytes", cc),
 	    mutations("Mutations", cc), conflictRanges("ConflictRanges", cc),
 	    keyServerLocationIn("KeyServerLocationIn", cc), keyServerLocationOut("KeyServerLocationOut", cc),
 	    keyServerLocationErrors("KeyServerLocationErrors", cc), tenantIdRequestIn("TenantIdRequestIn", cc),
