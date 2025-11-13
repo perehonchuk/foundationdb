@@ -575,6 +575,7 @@ struct LogData : NonCopyable, public ReferenceCounted<LogData> {
 	Counter nonEmptyPeeks;
 	Counter persistentDataUpdateBatches;
 	Counter dirtyTagsProcessed;
+	Counter tagLocalityInvariantViolations;
 	std::map<Tag, LatencySample> blockingPeekLatencies;
 	std::map<Tag, LatencySample> peekVersionCounts;
 
@@ -669,6 +670,7 @@ struct LogData : NonCopyable, public ReferenceCounted<LogData> {
 	    blockingPeeks("BlockingPeeks", cc), blockingPeekTimeouts("BlockingPeekTimeouts", cc),
 	    emptyPeeks("EmptyPeeks", cc), nonEmptyPeeks("NonEmptyPeeks", cc),
 	    persistentDataUpdateBatches("PersistentDataUpdateBatches", cc), dirtyTagsProcessed("DirtyTagsProcessed", cc),
+	    tagLocalityInvariantViolations("TagLocalityInvariantViolations", cc),
 	    logId(interf.id()), protocolVersion(protocolVersion), newPersistentDataVersion(invalidVersion),
 	    tLogData(tLogData), unrecoveredBefore(1), recoveredAt(1), recoveryTxnVersion(1),
 	    logSystem(new AsyncVar<Reference<ILogSystem>>()), remoteTag(remoteTag), isPrimary(isPrimary),
@@ -1548,6 +1550,42 @@ void commitMessages(TLogData* self,
 		DEBUG_TAGS_AND_MESSAGE("TLogCommitMessages", version, msg.getRawMessage(), logData->logId)
 		    .detail("DebugID", self->dbgid);
 		block.append(block.arena(), msg.message.begin(), msg.message.size());
+
+		// Invariant checking: verify that tags in mutations are valid for this TLog
+		if (SERVER_KNOBS->TLOG_ENABLE_TAG_LOCALITY_INVARIANT_CHECKING) {
+			for (auto tag : msg.tags) {
+				// Check that satellite TLogs only receive txs, logRouter, or txsTag mutations
+				if (logData->locality == tagLocalitySatellite) {
+					if (!(tag.locality == tagLocalityTxs || tag.locality == tagLocalityLogRouter || tag == txsTag)) {
+						logData->tagLocalityInvariantViolations += 1;
+						TraceEvent(SevError, "TLogInvariantViolation", logData->logId)
+						    .detail("Reason", "Satellite TLog received non-txs/logRouter tag")
+						    .detail("TagLocality", tag.locality)
+						    .detail("TagId", tag.id)
+						    .detail("TLogLocality", logData->locality)
+						    .detail("Version", version)
+						    .detail("DebugID", self->dbgid)
+						    .detail("TotalViolations", logData->tagLocalityInvariantViolations.getValue());
+						ASSERT(false); // Crash early to prevent data corruption
+					}
+				} else if (tag.locality >= 0) {
+					// For non-satellite TLogs, verify locality matches unless special or matching
+					if (!(logData->locality == tagLocalitySpecial || logData->locality == tag.locality)) {
+						logData->tagLocalityInvariantViolations += 1;
+						TraceEvent(SevError, "TLogInvariantViolation", logData->logId)
+						    .detail("Reason", "TLog received mutation with mismatched locality")
+						    .detail("TagLocality", tag.locality)
+						    .detail("TagId", tag.id)
+						    .detail("TLogLocality", logData->locality)
+						    .detail("Version", version)
+						    .detail("DebugID", self->dbgid)
+						    .detail("TotalViolations", logData->tagLocalityInvariantViolations.getValue());
+						ASSERT(false); // Crash early to prevent data corruption
+					}
+				}
+			}
+		}
+
 		for (auto tag : msg.tags) {
 			if (logData->locality == tagLocalitySatellite) {
 				if (!(tag.locality == tagLocalityTxs || tag.locality == tagLocalityLogRouter || tag == txsTag)) {
