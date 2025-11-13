@@ -84,6 +84,12 @@ public:
 	double CHANGE_FEED_CACHE_EXPIRE_TIME;
 	int64_t CHANGE_FEED_CACHE_LIMIT_BYTES;
 
+	// Value compression settings
+	bool ENABLE_VALUE_COMPRESSION;
+	int64_t VALUE_COMPRESSION_THRESHOLD;  // Minimum value size to trigger compression
+	int VALUE_COMPRESSION_LEVEL;           // ZSTD compression level (1-22)
+	bool VALUE_COMPRESSION_AUTO_DECOMPRESS; // Automatically decompress on read
+
 	int MAX_BATCH_SIZE;
 	double GRV_BATCH_TIMEOUT;
 	int BROADCAST_BATCH_SIZE;

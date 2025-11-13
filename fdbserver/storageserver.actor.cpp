@@ -101,6 +101,7 @@
 #include "fdbserver/StorageServerUtils.h"
 #include "flow/ActorCollection.h"
 #include "flow/Arena.h"
+#include "flow/CompressionUtils.h"
 #include "flow/Error.h"
 #include "flow/Hash3.h"
 #include "flow/Histogram.h"
@@ -1385,6 +1386,11 @@ public:
 		// expensive.
 		Counter pTreeClearSplits;
 
+		// Value compression counters
+		Counter compressedValuesStored;    // Number of values stored in compressed form
+		Counter compressedBytesOriginal;   // Original size before compression
+		Counter compressedBytesStored;     // Actual compressed size stored
+
 		std::unique_ptr<LatencySample> readLatencySample;
 		std::unique_ptr<LatencySample> readKeyLatencySample;
 		std::unique_ptr<LatencySample> readValueLatencySample;
@@ -1428,6 +1434,9 @@ public:
 		    finishedGetMappedRangeQueries("FinishedGetMappedRangeQueries", cc),
 		    finishedGetMappedRangeSecondaryQueries("FinishedGetMappedRangeSecondaryQueries", cc),
 		    pTreeSets("PTreeSets", cc), pTreeClears("PTreeClears", cc), pTreeClearSplits("PTreeClearSplits", cc),
+		    compressedValuesStored("CompressedValuesStored", cc),
+		    compressedBytesOriginal("CompressedBytesOriginal", cc),
+		    compressedBytesStored("CompressedBytesStored", cc),
 		    changeServerKeysAssigned("ChangeServerKeysAssigned", cc),
 		    changeServerKeysUnassigned("ChangeServerKeysUnassigned", cc),
 		    kvClearRangesInFetchKeys("KvClearRangesInFetchKeys", cc),
@@ -6361,6 +6370,16 @@ void applyMutation(StorageServer* self,
 		data.insert(m.param1, ValueOrClearToRef::value(m.param2));
 		self->watches.trigger(m.param1);
 		++self->counters.pTreeSets;
+
+		// Track compression statistics if value appears to be compressed
+		// (Heuristic: compressed values are typically from client with compression enabled)
+		if (CLIENT_KNOBS->ENABLE_VALUE_COMPRESSION &&
+		    m.param2.size() >= CLIENT_KNOBS->VALUE_COMPRESSION_THRESHOLD) {
+			++self->counters.compressedValuesStored;
+			self->counters.compressedBytesStored += m.param2.size();
+			// Estimate original size assuming 2:1 compression ratio as a proxy metric
+			self->counters.compressedBytesOriginal += m.param2.size() * 2;
+		}
 	} else if (m.type == MutationRef::ClearRange) {
 		data.erase(m.param1, m.param2);
 		ASSERT(m.param2 > m.param1);

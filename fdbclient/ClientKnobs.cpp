@@ -88,6 +88,12 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( CHANGE_FEED_CACHE_EXPIRE_TIME,          60.0 ); if( randomize && BUGGIFY ) CHANGE_FEED_CACHE_EXPIRE_TIME = 1.0;
 	init( CHANGE_FEED_CACHE_LIMIT_BYTES,        500000 ); if( randomize && BUGGIFY ) CHANGE_FEED_CACHE_LIMIT_BYTES = 50000;
 
+	// Value compression initialization
+	init( ENABLE_VALUE_COMPRESSION,               true ); // Enabled by default for values >= threshold
+	init( VALUE_COMPRESSION_THRESHOLD,            4096 ); // Compress values 4KB and larger
+	init( VALUE_COMPRESSION_LEVEL,                   3 ); // ZSTD compression level (balanced speed/ratio)
+	init( VALUE_COMPRESSION_AUTO_DECOMPRESS,      true ); // Automatically decompress on read
+
 	init( MAX_BATCH_SIZE,                         1000 ); if( randomize && BUGGIFY ) MAX_BATCH_SIZE = 1;
 	init( GRV_BATCH_TIMEOUT,                     0.005 ); if( randomize && BUGGIFY ) GRV_BATCH_TIMEOUT = 0.1;
 	init( BROADCAST_BATCH_SIZE,                     20 ); if( randomize && BUGGIFY ) BROADCAST_BATCH_SIZE = 1;

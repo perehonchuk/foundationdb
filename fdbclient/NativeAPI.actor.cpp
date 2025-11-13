@@ -79,6 +79,7 @@
 #include "fdbrpc/sim_validation.h"
 #include "flow/Arena.h"
 #include "flow/ActorCollection.h"
+#include "flow/CompressionUtils.h"
 #include "flow/DeterministicRandom.h"
 #include "flow/Error.h"
 #include "flow/FastRef.h"
@@ -4177,8 +4178,30 @@ void Transaction::set(const KeyRef& key, const ValueRef& value, AddConflictRange
 	auto& req = tr;
 	auto& t = req.transaction;
 	auto r = singleKeyRange(key, req.arena);
-	auto v = ValueRef(req.arena, value);
-	t.mutations.emplace_back(req.arena, MutationRef::SetValue, r.begin, v);
+
+	// Apply automatic value compression if enabled and value exceeds threshold
+	ValueRef finalValue;
+	if (CLIENT_KNOBS->ENABLE_VALUE_COMPRESSION &&
+	    value.size() >= CLIENT_KNOBS->VALUE_COMPRESSION_THRESHOLD) {
+		try {
+			finalValue = CompressionUtils::compress(
+				CompressionFilter::ZSTD,
+				value,
+				CLIENT_KNOBS->VALUE_COMPRESSION_LEVEL,
+				req.arena);
+			TraceEvent("ValueCompressed")
+			    .detail("OriginalSize", value.size())
+			    .detail("CompressedSize", finalValue.size())
+			    .detail("CompressionRatio", (double)value.size() / finalValue.size());
+		} catch (Error& e) {
+			// If compression fails, fall back to uncompressed value
+			finalValue = ValueRef(req.arena, value);
+		}
+	} else {
+		finalValue = ValueRef(req.arena, value);
+	}
+
+	t.mutations.emplace_back(req.arena, MutationRef::SetValue, r.begin, finalValue);
 	trState->totalCost += getWriteOperationCost(key.expectedSize() + value.expectedSize());
 
 	if (addConflictRange) {
