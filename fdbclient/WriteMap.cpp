@@ -473,13 +473,35 @@ RYWMutation WriteMap::coalesce(RYWMutation existingEntry, RYWMutation newEntry, 
 		default:
 			throw operation_failed();
 		}
+	} else if (newEntry.type == MutationRef::CompareAndSet) {
+		switch (existingEntry.type) {
+		case MutationRef::SetValue: {
+			Optional<ValueRef> result = doCompareAndSet(existingEntry.value, newEntry.value.get(), arena);
+			if (result.present()) {
+				return RYWMutation(result.get(), MutationRef::SetValue);
+			} else {
+				// Clear the key
+				return RYWMutation();
+			}
+		}
+		case MutationRef::CompareAndSet: {
+			Optional<ValueRef> result = doCompareAndSet(existingEntry.value, newEntry.value.get(), arena);
+			if (result.present()) {
+				return RYWMutation(result.get(), MutationRef::CompareAndSet);
+			} else {
+				return RYWMutation();
+			}
+		}
+		default:
+			throw operation_failed();
+		}
 	} else
 		throw operation_failed();
 }
 
 void WriteMap::coalesceOver(OperationStack& stack, RYWMutation newEntry, Arena& arena) {
 	RYWMutation existingEntry = stack.top();
-	if (existingEntry.type == newEntry.type && newEntry.type != MutationRef::CompareAndClear) {
+	if (existingEntry.type == newEntry.type && newEntry.type != MutationRef::CompareAndClear && newEntry.type != MutationRef::CompareAndSet) {
 		if (isNonAssociativeOp(existingEntry.type) && existingEntry.value.present() &&
 		    existingEntry.value.get().size() != newEntry.value.get().size()) {
 			stack.push(newEntry);

@@ -246,6 +246,39 @@ inline Optional<ValueRef> doCompareAndClear(const Optional<ValueRef>& existingVa
 	return existingValueOptional; // No change required.
 }
 
+inline Optional<ValueRef> doCompareAndSet(const Optional<ValueRef>& existingValueOptional,
+                                          const ValueRef& operand,
+                                          Arena& ar) {
+	// operand format: [expected_value_length (2 bytes)][expected_value][new_value]
+	if (operand.size() < 2) {
+		// Invalid operand format
+		return existingValueOptional;
+	}
+
+	uint16_t expectedValueLength = *(uint16_t*)operand.begin();
+	if (operand.size() < 2 + expectedValueLength) {
+		// Invalid operand format
+		return existingValueOptional;
+	}
+
+	ValueRef expectedValue(operand.begin() + 2, expectedValueLength);
+	ValueRef newValue(operand.begin() + 2 + expectedValueLength, operand.size() - 2 - expectedValueLength);
+
+	const ValueRef& existingValue = existingValueOptional.present() ? existingValueOptional.get() : StringRef();
+
+	if (existingValue == expectedValue) {
+		// Values match, update to new value
+		if (newValue.size() == 0) {
+			// Clear the key
+			return Optional<ValueRef>();
+		}
+		return newValue;
+	}
+
+	// No match, no change
+	return existingValueOptional;
+}
+
 static void placeVersionstamp(uint8_t* destination, Version version, uint16_t transactionNumber) {
 	version = bigEndian64(version);
 	transactionNumber = bigEndian16(transactionNumber);

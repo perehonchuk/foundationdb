@@ -6267,6 +6267,23 @@ bool convertAtomicOp(MutationRef& m, StorageServer::VersionedData const& data, U
 				return true;
 			}
 			return false;
+	case MutationRef::CompareAndSet: {
+		Optional<ValueRef> newVal = doCompareAndSet(oldVal, m.param2, ar);
+		if (!newVal.present()) {
+			// Clear the key
+			m.type = MutationRef::ClearRange;
+			m.param2 = keyAfter(m.param1, ar);
+			return true;
+		}
+		if (newVal != oldVal) {
+			// Value changed, set it
+			m.param2 = newVal.get();
+			m.type = MutationRef::SetValue;
+			return true;
+		}
+		// No change
+		return false;
+	}
 		}
 		m.type = MutationRef::SetValue;
 	}
@@ -9958,6 +9975,7 @@ ACTOR Future<Void> update(StorageServer* data, bool* pReceivedUpdate) {
 					++data->counters.mutations;
 					switch (msg.type) {
 					case MutationRef::SetValue:
+				case MutationRef::CompareAndSet:
 						++data->counters.setMutations;
 						break;
 					case MutationRef::ClearRange:
