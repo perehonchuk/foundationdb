@@ -2039,6 +2039,7 @@ private:
 			    .detail("WriteOps", wc - lastWritesComplete)
 			    .detail("ReadQueue", self->readsRequested - rc)
 			    .detail("WriteQueue", self->writesRequested - wc)
+			    .detail("ReadThreads", SERVER_KNOBS->SQLITE_READER_THREADS)
 			    .detail("GlobalSQLiteMemoryHighWater", (int64_t)sqlite3_memory_highwater(1));
 
 			TraceEvent("SpringCleaningMetrics", self->logID)
@@ -2181,6 +2182,11 @@ KeyValueStoreSQLite::KeyValueStoreSQLite(std::string const& filename,
 
 	readCursors.resize(SERVER_KNOBS->SQLITE_READER_THREADS); //< number of read threads
 
+	// Log the reader thread pool configuration for observability
+	TraceEvent("SQLiteStorageInit")
+	    .detail("ReaderThreads", SERVER_KNOBS->SQLITE_READER_THREADS)
+	    .detail("Filename", filename);
+
 	sqlite3_soft_heap_limit64(SERVER_KNOBS->SOFT_HEAP_LIMIT); // SOMEDAY: Is this a performance issue?  Should we drop
 	                                                          // the cache sizes for individual threads?
 	TaskPriority taskId = g_network->getCurrentTask();
@@ -2221,6 +2227,9 @@ StorageBytes KeyValueStoreSQLite::getStorageBytes() const {
 
 void KeyValueStoreSQLite::startReadThreads() {
 	int nReadThreads = readCursors.size();
+	TraceEvent("SQLiteReadPoolInit")
+	    .detail("ReadThreadCount", nReadThreads)
+	    .detail("LogID", logID);
 	TaskPriority taskId = g_network->getCurrentTask();
 	g_network->setCurrentTask(TaskPriority::DiskRead);
 	for (int i = 0; i < nReadThreads; i++) {
