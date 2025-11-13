@@ -411,6 +411,9 @@ ACTOR Future<Void> newSeedServers(Reference<ClusterRecoveryData> self,
 Future<Void> waitCommitProxyFailure(std::vector<CommitProxyInterface> const& commitProxies) {
 	std::vector<Future<Void>> failed;
 	failed.reserve(commitProxies.size());
+	TraceEvent("WaitCommitProxyFailureInit")
+	    .detail("ProxyCount", commitProxies.size())
+	    .detail("TlogTimeout", SERVER_KNOBS->TLOG_TIMEOUT);
 	for (auto commitProxy : commitProxies) {
 		failed.push_back(waitFailureClient(commitProxy.waitFailure,
 		                                   SERVER_KNOBS->TLOG_TIMEOUT,
@@ -424,6 +427,9 @@ Future<Void> waitCommitProxyFailure(std::vector<CommitProxyInterface> const& com
 Future<Void> waitGrvProxyFailure(std::vector<GrvProxyInterface> const& grvProxies) {
 	std::vector<Future<Void>> failed;
 	failed.reserve(grvProxies.size());
+	TraceEvent("WaitGrvProxyFailureInit")
+	    .detail("ProxyCount", grvProxies.size())
+	    .detail("TlogTimeout", SERVER_KNOBS->TLOG_TIMEOUT);
 	for (int i = 0; i < grvProxies.size(); i++)
 		failed.push_back(waitFailureClient(grvProxies[i].waitFailure,
 		                                   SERVER_KNOBS->TLOG_TIMEOUT,
@@ -436,6 +442,9 @@ Future<Void> waitGrvProxyFailure(std::vector<GrvProxyInterface> const& grvProxie
 Future<Void> waitResolverFailure(std::vector<ResolverInterface> const& resolvers) {
 	std::vector<Future<Void>> failed;
 	failed.reserve(resolvers.size());
+	TraceEvent("WaitResolverFailureInit")
+	    .detail("ResolverCount", resolvers.size())
+	    .detail("TlogTimeout", SERVER_KNOBS->TLOG_TIMEOUT);
 	for (auto resolver : resolvers) {
 		failed.push_back(waitFailureClient(resolver.waitFailure,
 		                                   SERVER_KNOBS->TLOG_TIMEOUT,

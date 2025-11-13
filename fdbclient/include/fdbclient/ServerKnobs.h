@@ -64,6 +64,7 @@ public:
 	// TLogs
 	bool PEEK_USING_STREAMING;
 	double TLOG_TIMEOUT; // tlog OR commit proxy failure - master's reaction time
+	                     // Also used for resolver and grv proxy failure detection
 	double TLOG_SLOW_REJOIN_WARN_TIMEOUT_SECS; // Warns if a tlog takes too long to rejoin
 	double TLOG_STORAGE_MIN_UPDATE_INTERVAL;
 	double BUGGIFY_TLOG_STORAGE_MIN_UPDATE_INTERVAL;
