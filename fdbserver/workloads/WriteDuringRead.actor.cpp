@@ -765,7 +765,7 @@ struct WriteDuringReadWorkload : TestWorkload {
 		if (type == MutationRef::SetValue)
 			return value;
 		else if (type == MutationRef::AddValue)
-			return doLittleEndianAdd(existingValue, value, arena);
+			return doBigEndianAdd(existingValue, value, arena);
 		else if (type == MutationRef::AppendIfFits)
 			return doAppendIfFits(existingValue, value, arena);
 		else if (type == MutationRef::And)

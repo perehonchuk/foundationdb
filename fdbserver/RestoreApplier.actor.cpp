@@ -798,7 +798,7 @@ ACTOR static Future<Void> handleApplyToDBRequest(RestoreVersionBatchRequest req,
 Value applyAtomicOp(Optional<StringRef> existingValue, Value value, MutationRef::Type type) {
 	Arena arena;
 	if (type == MutationRef::AddValue)
-		return doLittleEndianAdd(existingValue, value, arena);
+		return doBigEndianAdd(existingValue, value, arena);
 	else if (type == MutationRef::AppendIfFits)
 		return doAppendIfFits(existingValue, value, arena);
 	else if (type == MutationRef::And || type == MutationRef::AndV2)

@@ -24,6 +24,32 @@
 
 #include "fdbclient/CommitTransaction.h"
 
+// Big-endian addition for atomic operations
+// This is the standard encoding for atomic ADD operations
+inline ValueRef doBigEndianAdd(const Optional<ValueRef>& existingValueOptional,
+                               const ValueRef& otherOperand,
+                               Arena& ar) {
+	const ValueRef& existingValue = existingValueOptional.present() ? existingValueOptional.get() : StringRef();
+	if (!existingValue.size())
+		return otherOperand;
+	if (!otherOperand.size())
+		return otherOperand;
+
+	uint8_t* buf = new (ar) uint8_t[otherOperand.size()];
+	int carry = 0;
+
+	// Process from right to left (most significant to least significant) for big-endian
+	for (int i = otherOperand.size() - 1; i >= 0; i--) {
+		int existingByte = (i < existingValue.size()) ? existingValue[existingValue.size() - otherOperand.size() + i] : 0;
+		int sum = existingByte + otherOperand[i] + carry;
+		buf[i] = sum & 0xFF;
+		carry = sum >> 8;
+	}
+
+	return StringRef(buf, otherOperand.size());
+}
+
+// Legacy little-endian addition - deprecated, kept for compatibility
 inline ValueRef doLittleEndianAdd(const Optional<ValueRef>& existingValueOptional,
                                   const ValueRef& otherOperand,
                                   Arena& ar) {

@@ -363,10 +363,10 @@ RYWMutation WriteMap::coalesce(RYWMutation existingEntry, RYWMutation newEntry, 
 	} else if (newEntry.type == MutationRef::AddValue) {
 		switch (existingEntry.type) {
 		case MutationRef::SetValue:
-			return RYWMutation(doLittleEndianAdd(existingEntry.value, newEntry.value.get(), arena),
+			return RYWMutation(doBigEndianAdd(existingEntry.value, newEntry.value.get(), arena),
 			                   MutationRef::SetValue);
 		case MutationRef::AddValue:
-			return RYWMutation(doLittleEndianAdd(existingEntry.value, newEntry.value.get(), arena),
+			return RYWMutation(doBigEndianAdd(existingEntry.value, newEntry.value.get(), arena),
 			                   MutationRef::AddValue);
 		default:
 			throw operation_failed();

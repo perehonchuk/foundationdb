@@ -6228,7 +6228,7 @@ bool convertAtomicOp(MutationRef& m, StorageServer::VersionedData const& data, U
 
 		switch (m.type) {
 		case MutationRef::AddValue:
-			m.param2 = doLittleEndianAdd(oldVal, m.param2, ar);
+			m.param2 = doBigEndianAdd(oldVal, m.param2, ar);
 			break;
 		case MutationRef::And:
 			m.param2 = doAnd(oldVal, m.param2, ar);
