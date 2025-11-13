@@ -101,7 +101,7 @@ struct Profiler {
 	struct OutputBuffer {
 		std::vector<void*> output;
 
-		OutputBuffer() { output.reserve(100000); }
+		OutputBuffer() { output.reserve(250000); }
 		void clear() { output.clear(); }
 		void push(void* ptr) { // async signal safe!
 			if (output.size() < output.capacity())
@@ -276,14 +276,14 @@ void startProfiling(INetwork* network,
 		period = maybePeriod.get();
 	} else {
 		const char* periodEnv = getenv("FLOW_PROFILER_PERIOD");
-		period = (periodEnv ? atoi(periodEnv) : 2000);
+		period = (periodEnv ? atoi(periodEnv) : 5000);
 	}
 	std::string outputFile;
 	if (maybeOutputFile.present()) {
 		outputFile = std::string((const char*)maybeOutputFile.get().begin(), maybeOutputFile.get().size());
 	} else {
 		const char* outfn = getenv("FLOW_PROFILER_OUTPUT");
-		outputFile = (outfn ? outfn : "profile.bin");
+		outputFile = (outfn ? outfn : "fdbprof.data");
 	}
 	outputFile = findAndReplace(
 	    findAndReplace(

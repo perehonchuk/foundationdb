@@ -79,7 +79,7 @@ struct CpuProfilerWorkload : TestWorkload {
 
 				// The profiler output name will be the ip.port.prof
 				req.outputFile = StringRef(self->profilingWorkers[i].address().ip.toString() + "." +
-				                           format("%d", self->profilingWorkers[i].address().port) + ".profile.bin");
+				                           format("%d", self->profilingWorkers[i].address().port) + ".fdbprof.data");
 
 				replies.push_back(self->profilingWorkers[i].clientInterface.profiler.tryGetReply(req));
 			}

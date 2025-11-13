@@ -713,7 +713,8 @@ static void printUsage(const char* name, bool devhelp) {
 	                 "Set an actor profiler option. Supported options are:\n"
 	                 "  collector -- None or FluentD (FluentD requires collector_endpoint to be set)\n"
 	                 "  collector_endpoint -- IP:PORT of the fluentd server\n"
-	                 "  collector_protocol -- UDP or TCP (default is UDP)");
+	                 "  collector_protocol -- UDP or TCP (default is UDP)\n"
+	                 "  Note: Flow profiler defaults to 5ms sampling period and fdbprof.data output");
 	printf("%s", TLS_HELP);
 	printOptionUsage("-v, --version", "Print version information and exit.");
 	printOptionUsage("-h, -?, --help", "Display this help and exit.");

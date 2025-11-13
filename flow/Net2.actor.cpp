@@ -1596,9 +1596,12 @@ void Net2::run() {
 
 	timeOffsetLogger = logTimeOffset();
 	const char* flow_profiler_enabled = getenv("FLOW_PROFILER_ENABLED");
-	if (flow_profiler_enabled != nullptr && *flow_profiler_enabled != '\0') {
+	const char* flow_profiler_auto = getenv("FLOW_PROFILER_AUTO");
+	if ((flow_profiler_enabled != nullptr && *flow_profiler_enabled != '\0') ||
+	    (flow_profiler_auto != nullptr && *flow_profiler_auto != '\0')) {
 		// The empty string check is to allow running `FLOW_PROFILER_ENABLED= ./fdbserver` to force disabling flow
 		// profiling at startup.
+		// FLOW_PROFILER_AUTO is a new alternative activation method
 		startProfiling(this);
 	}
 
