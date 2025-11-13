@@ -1189,6 +1189,8 @@ public:
 
 	// Worker
 	double WORKER_LOGGING_INTERVAL;
+	int WORKER_REGISTRATION_BATCH_SIZE;  // Batch size for processing worker registrations
+	double WORKER_STATUS_UPDATE_RATE_LIMIT;  // Rate limit for worker status updates to CC
 	double HEAP_PROFILER_INTERVAL;
 	double UNKNOWN_CC_TIMEOUT;
 	double DEGRADED_RESET_INTERVAL;

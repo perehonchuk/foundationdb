@@ -2148,7 +2148,7 @@ ACTOR Future<Void> workerServer(Reference<IClusterConnectionRecord> connRecord,
 	state Future<Void> handleErrors = workerHandleErrors(errors.getFuture()); // Needs to be stopped last
 	state ActorCollection errorForwarders(false);
 	state Future<Void> loggingTrigger = Void();
-	state double loggingDelay = SERVER_KNOBS->WORKER_LOGGING_INTERVAL;
+	state double loggingDelay = SERVER_KNOBS->WORKER_LOGGING_INTERVAL;  // Increased interval to support larger clusters
 	// These two promises are destroyed after the "filesClosed" below to avoid broken_promise
 	state Promise<Void> rebootKVSPromise;
 	state Promise<Void> rebootKVSPromise2;

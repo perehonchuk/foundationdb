@@ -1137,7 +1137,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( WAIT_FAILURE_DELAY_LIMIT,                              1.0 ); if( randomize && BUGGIFY ) WAIT_FAILURE_DELAY_LIMIT = 5.0;
 
 	//Worker
-	init( WORKER_LOGGING_INTERVAL,                               5.0 );
+	init( WORKER_LOGGING_INTERVAL,                              10.0 );  // Increased to reduce cluster controller load in large clusters
+	init( WORKER_REGISTRATION_BATCH_SIZE,                        100 );  // Process worker registrations in batches
+	init( WORKER_STATUS_UPDATE_RATE_LIMIT,                       0.5 );  // Maximum status updates per second per worker
 	init( HEAP_PROFILER_INTERVAL,                               30.0 );
 	init( UNKNOWN_CC_TIMEOUT,                                  600.0 );
 	init( DEGRADED_RESET_INTERVAL,                          24*60*60 ); // FIXME: short interval causes false positive degraded state to flap, e.g. when everyone tries and fails to connect to dead coordinator: if ( randomize && BUGGIFY ) DEGRADED_RESET_INTERVAL = 10;
