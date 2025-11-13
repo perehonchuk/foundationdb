@@ -160,13 +160,16 @@ struct SystemFailureStatus {
 	constexpr static FileIdentifier file_identifier = 3194108;
 	NetworkAddressList addresses;
 	FailureStatus status;
+	Optional<Standalone<StringRef>> dcId; // Per-region failure tracking
 
 	SystemFailureStatus() {}
 	SystemFailureStatus(NetworkAddressList const& a, FailureStatus const& s) : addresses(a), status(s) {}
+	SystemFailureStatus(NetworkAddressList const& a, FailureStatus const& s, Optional<Standalone<StringRef>> const& dc)
+	  : addresses(a), status(s), dcId(dc) {}
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, addresses, status);
+		serializer(ar, addresses, status, dcId);
 	}
 };
 
@@ -179,6 +182,7 @@ struct FailureMonitoringReply {
 	int clientRequestIntervalMS, // after this many milliseconds, send another request
 	    considerServerFailedTimeoutMS; // after this many additional milliseconds, consider the ClusterController itself
 	                                   // to be failed
+	std::map<Standalone<StringRef>, int> regionFailureCounts; // Per-region failure statistics
 	Arena arena;
 
 	template <class Ar>
@@ -189,6 +193,7 @@ struct FailureMonitoringReply {
 		           allOthersFailed,
 		           clientRequestIntervalMS,
 		           considerServerFailedTimeoutMS,
+		           regionFailureCounts,
 		           arena);
 	}
 };

@@ -236,4 +236,16 @@ void SimpleFailureMonitor::reset() {
 	addressStatus = std::unordered_map<NetworkAddress, FailureStatus>();
 	failedEndpoints = std::unordered_map<Endpoint, FailedReason>();
 	endpointKnownFailed.resetNoWaiting();
+	regionAddresses.clear();
+}
+
+void SimpleFailureMonitor::updateRegionForAddress(NetworkAddress const& address,
+                                                   Optional<Standalone<StringRef>> const& dcId) {
+	if (dcId.present()) {
+		regionAddresses[dcId.get()].insert(address);
+		TraceEvent("PerRegionFailureMonitor")
+		    .detail("Address", address)
+		    .detail("Region", dcId.get().toString())
+		    .detail("RegionSize", regionAddresses[dcId.get()].size());
+	}
 }

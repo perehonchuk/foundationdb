@@ -1470,6 +1470,61 @@ ACTOR Future<Void> statusServer(FutureStream<StatusRequest> requests,
 	}
 }
 
+// Monitor per-region failure rates
+ACTOR Future<Void> monitorPerRegionFailures(ClusterControllerData* self) {
+	if (!SERVER_KNOBS->ENABLE_PER_REGION_FAILURE_MONITORING) {
+		return Void();
+	}
+
+	loop {
+		wait(delay(5.0)); // Check every 5 seconds
+
+		std::map<Standalone<StringRef>, int> regionFailureCounts;
+		std::map<Standalone<StringRef>, int> regionTotalCounts;
+
+		// Count workers per region and failures
+		for (const auto& [workerAddr, workerInfo] : self->id_worker) {
+			if (workerInfo->details.interf.locality.dcId().present()) {
+				auto dcId = workerInfo->details.interf.locality.dcId().get();
+				regionTotalCounts[dcId]++;
+
+				// Check if worker is failed
+				auto& monitor = IFailureMonitor::failureMonitor();
+				if (monitor.getState(workerAddr).isFailed()) {
+					regionFailureCounts[dcId]++;
+				}
+
+				// Update region mapping in failure monitor
+				if (auto* sfm = dynamic_cast<SimpleFailureMonitor*>(&monitor)) {
+					sfm->updateRegionForAddress(workerAddr, dcId);
+				}
+			}
+		}
+
+		// Log per-region failure statistics
+		for (const auto& [dcId, total] : regionTotalCounts) {
+			int failed = regionFailureCounts[dcId];
+			double failureRate = total > 0 ? (double)failed / total : 0.0;
+
+			if (total >= SERVER_KNOBS->MIN_WORKERS_PER_REGION_FOR_MONITORING &&
+			    failureRate >= SERVER_KNOBS->REGION_FAILURE_THRESHOLD_PERCENTAGE) {
+				TraceEvent(SevWarn, "RegionFailureThresholdExceeded")
+				    .detail("Region", dcId.toString())
+				    .detail("FailedWorkers", failed)
+				    .detail("TotalWorkers", total)
+				    .detail("FailureRate", failureRate)
+				    .detail("Threshold", SERVER_KNOBS->REGION_FAILURE_THRESHOLD_PERCENTAGE);
+			} else if (failed > 0) {
+				TraceEvent("RegionFailureStatus")
+				    .detail("Region", dcId.toString())
+				    .detail("FailedWorkers", failed)
+				    .detail("TotalWorkers", total)
+				    .detail("FailureRate", failureRate);
+			}
+		}
+	}
+}
+
 ACTOR Future<Void> monitorProcessClasses(ClusterControllerData* self) {
 
 	state ReadYourWritesTransaction trVer(self->db.db);
@@ -2788,6 +2843,7 @@ ACTOR Future<Void> clusterControllerCore(ClusterControllerFullInterface interf,
 	                                (configDBType == ConfigDBType::DISABLED) ? nullptr : &configBroadcaster));
 	self.addActor.send(timeKeeper(&self));
 	self.addActor.send(monitorProcessClasses(&self));
+	self.addActor.send(monitorPerRegionFailures(&self));
 	self.addActor.send(monitorServerInfoConfig(&self.db));
 	self.addActor.send(monitorStorageMetadata(&self));
 	self.addActor.send(monitorGlobalConfig(&self.db));

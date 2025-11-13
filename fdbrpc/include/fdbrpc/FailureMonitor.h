@@ -147,6 +147,10 @@ class SimpleFailureMonitor : public IFailureMonitor {
 public:
 	enum class FailedReason { NOT_FOUND, UNAUTHORIZED };
 	SimpleFailureMonitor();
+
+	// Per-region failure tracking
+	std::map<Standalone<StringRef>, std::set<NetworkAddress>> regionAddresses;
+	void updateRegionForAddress(NetworkAddress const& address, Optional<Standalone<StringRef>> const& dcId);
 	void setStatus(NetworkAddress const& address, FailureStatus const& status) override;
 	void endpointNotFound(Endpoint const&) override;
 	void unauthorizedEndpoint(Endpoint const&) override;
