@@ -918,6 +918,7 @@ private:
 	void setCallbacksOnExternalThreads();
 	void addExternalLibrary(std::string path, bool useFutureVersion);
 	void addExternalLibraryDirectory(std::string path);
+	void addExternalLibraryAfterSetup(std::string path, bool useFutureVersion);
 	// Return a vector of (pathname, unlink_on_close) pairs.  Makes threadCount - 1 copies of the library stored in
 	// path, and returns a vector of length threadCount.
 	std::vector<std::pair<std::string, bool>> copyExternalLibraryPerThread(std::string path);

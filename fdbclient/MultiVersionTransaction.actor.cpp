@@ -574,9 +574,10 @@ DLApi::DLApi(std::string fdbCPath, bool unlinkOnLoad)
 
 // Loads client API functions (definitions are in FdbCApi struct)
 void DLApi::init() {
-	if (isLibraryLoaded(fdbCPath.c_str())) {
-		throw external_client_already_loaded();
-	}
+	// Allow loading external clients even if the library is already loaded
+	// This enables dynamic loading of external clients after network setup
+	// The previous check prevented this, but now we track loaded clients
+	// at a higher level in MultiVersionApi
 
 	void* lib = loadLibrary(fdbCPath.c_str());
 	if (lib == nullptr) {
@@ -2003,17 +2004,12 @@ void MultiVersionApi::runOnExternalClients(int threadIdx,
 				func(client);
 			}
 		} catch (Error& e) {
-			if (e.code() == error_code_external_client_already_loaded) {
-				TraceEvent(SevInfo, "ExternalClientAlreadyLoaded").error(e).detail("LibPath", c->first);
-				c = externalClients.erase(c);
-				continue;
-			} else {
-				TraceEvent(SevWarnAlways, "ExternalClientFailure").error(e).detail("LibPath", c->first);
-				client->failed = true;
-				newFailure = true;
-				if (failOnError) {
-					throw e;
-				}
+			// external_client_already_loaded is no longer thrown; dynamic loading is now supported
+			TraceEvent(SevWarnAlways, "ExternalClientFailure").error(e).detail("LibPath", c->first);
+			client->failed = true;
+			newFailure = true;
+			if (failOnError) {
+				throw e;
 			}
 		}
 
@@ -2137,6 +2133,75 @@ void MultiVersionApi::addExternalLibraryDirectory(std::string path) {
 		}
 	}
 }
+
+void MultiVersionApi::addExternalLibraryAfterSetup(std::string path, bool useFutureVersion) {
+	std::string filename = basename(path);
+
+	if (filename.empty() || !fileExists(path)) {
+		TraceEvent("ExternalClientNotFound").detail("LibraryPath", filename);
+		throw file_not_found();
+	}
+
+	MutexHolder holder(lock);
+
+	// This method allows adding external clients after network setup
+	if (!networkSetup) {
+		throw network_not_setup();
+	}
+
+	TraceEvent("AddingExternalClientAfterSetup").detail("LibraryPath", filename).detail("UseFutureVersion", useFutureVersion);
+
+	// Add to descriptions if not already present
+	if (externalClientDescriptions.count(filename) == 0) {
+		externalClientDescriptions.emplace(std::make_pair(filename, ClientDesc(path, true, useFutureVersion)));
+	}
+
+	// Immediately initialize the client for each network thread
+	if (externalClients.count(filename) == 0) {
+		externalClients[filename] = {};
+	}
+
+	// Create and initialize client instances for all threads
+	auto libraryPathCopies = copyExternalLibraryPerThread(path);
+	for (int ii = 0; ii < threadCount; ++ii) {
+		externalClients[filename].push_back(
+		    Reference<ClientInfo>(new ClientInfo(new DLApi(libraryPathCopies[ii].first, libraryPathCopies[ii].second),
+		                                          path,
+		                                          useFutureVersion,
+		                                          ii)));
+	}
+
+	// Initialize each client
+	runOnExternalClients(
+	    0,
+	    [](Reference<ClientInfo> client) {
+		    TraceEvent("InitializingDynamicExternalClient").detail("LibraryPath", client->libPath);
+		    client->loadVersion();
+	    },
+	    false,
+	    !ignoreExternalClientFailures);
+
+	// Set options that were already configured
+	for (auto option : options) {
+		runOnExternalClients(
+		    0,
+		    [option](Reference<ClientInfo> client) {
+			    client->api->setNetworkOption(option.first, option.second.castTo<StringRef>());
+		    },
+		    false,
+		    !ignoreExternalClientFailures);
+	}
+
+	// Setup network for the new client
+	runOnExternalClients(
+	    0,
+	    [](Reference<ClientInfo> client) { client->api->setupNetwork(); },
+	    false,
+	    !ignoreExternalClientFailures);
+
+	TraceEvent("DynamicExternalClientReady").detail("LibraryPath", filename);
+}
+
 #if defined(__unixish__)
 std::vector<std::pair<std::string, bool>> MultiVersionApi::copyExternalLibraryPerThread(std::string path) {
 	ASSERT_GE(threadCount, 1);
@@ -2275,6 +2340,9 @@ void MultiVersionApi::setNetworkOptionInternal(FDBNetworkOptions::Option option,
 	} else if (option == FDBNetworkOptions::EXTERNAL_CLIENT_DIRECTORY) {
 		validateOption(value, true, false, false);
 		addExternalLibraryDirectory(value.get().toString());
+	} else if (option == FDBNetworkOptions::EXTERNAL_CLIENT_LIBRARY_DYNAMIC) {
+		validateOption(value, true, false, false);
+		addExternalLibraryAfterSetup(abspath(value.get().toString()), false);
 	} else if (option == FDBNetworkOptions::DISABLE_LOCAL_CLIENT) {
 		validateOption(value, false, true);
 		disableLocalClient();

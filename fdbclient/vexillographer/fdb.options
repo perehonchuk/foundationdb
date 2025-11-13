@@ -116,6 +116,9 @@ description is not currently required but encouraged.
     <Option name="external_client_directory" code="63"
             paramType="String" paramDescription="path to directory containing client libraries"
             description="Searches the specified path for dynamic libraries and adds them to the list of client libraries for use by the multi-version client API. Must be set before setting up the network." />
+    <Option name="external_client_library_dynamic" code="70"
+            paramType="String" paramDescription="path to client library"
+            description="Adds an external client library for use by the multi-version client API after the network has been set up. This allows dynamic loading of external clients at runtime." />
     <Option name="disable_local_client" code="64"
             description="Prevents connections through the local client, allowing only connections through externally loaded client libraries." />
     <Option name="client_threads_per_version" code="65"
