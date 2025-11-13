@@ -306,8 +306,8 @@ public:
 	double MAX_OPEN_TIME;
 	int64_t SIM_DISK_IOPS;
 	int64_t SIM_DISK_BANDWIDTH;
-	double MIN_NETWORK_LATENCY;
-	double FAST_NETWORK_LATENCY;
+	double MIN_NETWORK_LATENCY;  // Minimum RPC hop latency in seconds
+	double FAST_NETWORK_LATENCY; // Fast path RPC latency target
 	double SLOW_NETWORK_LATENCY;
 	double MAX_CLOGGING_LATENCY;
 	double MAX_BUGGIFIED_DELAY;

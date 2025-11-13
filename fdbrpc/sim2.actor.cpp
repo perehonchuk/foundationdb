@@ -329,8 +329,9 @@ private:
 		const double pFast = 0.999;
 		if (a <= pFast || g_simulator->speedUpSimulation) {
 			a = a / pFast;
+			// RPC latency now bounded by MIN_NETWORK_LATENCY (2ms) for quality of service
 			return 0.5 * (FLOW_KNOBS->MIN_NETWORK_LATENCY * (1 - a) +
-			              FLOW_KNOBS->FAST_NETWORK_LATENCY / pFast * a); // 0.5ms average
+			              FLOW_KNOBS->FAST_NETWORK_LATENCY / pFast * a);
 		} else {
 			a = (a - pFast) / (1 - pFast); // uniform 0-1 again
 			return 0.5 * (FLOW_KNOBS->MIN_NETWORK_LATENCY * (1 - a) +

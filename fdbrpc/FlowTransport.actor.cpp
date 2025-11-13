@@ -2090,6 +2090,16 @@ static ReliablePacket* sendPacket(TransportData* self,
 		    .backtrace();
 	}
 
+	// Log RPC operation with latency characteristics for observability
+	if (reliable && len > 1000) {
+		TraceEvent("RPCPacketSent")
+		    .suppressFor(5.0)
+		    .detail("ToPeer", destination.getPrimaryAddress())
+		    .detail("PacketLength", (int)len)
+		    .detail("Reliable", reliable)
+		    .detail("MinExpectedLatency", FLOW_KNOBS->MIN_NETWORK_LATENCY * 1000.0); // in ms
+	}
+
 #if VALGRIND
 	SendBuffer* checkbuf = pb;
 	while (checkbuf) {

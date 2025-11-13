@@ -99,8 +99,8 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	init( METRICS_EMIT_DDSKETCH,                             false ); // Determines if DDSketch buckets will get emitted
 
 	//connectionMonitor
-	init( CONNECTION_MONITOR_LOOP_TIME,   isSimulated ? 0.75 : 1.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_LOOP_TIME = 6.0;
-	init( CONNECTION_MONITOR_TIMEOUT,     isSimulated ? 1.50 : 2.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_TIMEOUT = 6.0;
+	init( CONNECTION_MONITOR_LOOP_TIME,   isSimulated ? 0.75 : 2.5 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_LOOP_TIME = 6.0;
+	init( CONNECTION_MONITOR_TIMEOUT,     isSimulated ? 1.50 : 4.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_TIMEOUT = 6.0;
 	init( CONNECTION_MONITOR_IDLE_TIMEOUT,                   180.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_IDLE_TIMEOUT = 5.0;
 	init( CONNECTION_MONITOR_INCOMING_IDLE_MULTIPLIER,         1.2 );
 	init( CONNECTION_MONITOR_UNREFERENCED_CLOSE_DELAY,         2.0 );
@@ -109,8 +109,8 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	init( CONNECTION_REJECTED_MESSAGE_DELAY,                   1.0 );
 	init( CONNECTION_ID_TIMEOUT,                             600.0 ); if( randomize && BUGGIFY ) CONNECTION_ID_TIMEOUT = 60.0;
 	init( CONNECTION_CLEANUP_DELAY,                          100.0 );
-	init( INITIAL_RECONNECTION_TIME,                          0.05 );
-	init( MAX_RECONNECTION_TIME,                               0.5 );
+	init( INITIAL_RECONNECTION_TIME,                          0.10 );
+	init( MAX_RECONNECTION_TIME,                               1.5 ); // Increased for better stability
 	init( RECONNECTION_TIME_GROWTH_RATE,                       1.2 );
 	init( RECONNECTION_RESET_TIME,                             5.0 );
 	init( ALWAYS_ACCEPT_DELAY,                                15.0 );
@@ -238,9 +238,9 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	init( MAX_OPEN_TIME,                                    0.0012 );
 	init( SIM_DISK_IOPS,                                      5000 );
 	init( SIM_DISK_BANDWIDTH,                             50000000 );
-	init( MIN_NETWORK_LATENCY,                              100e-6 );
-	init( FAST_NETWORK_LATENCY,                             800e-6 );
-	init( SLOW_NETWORK_LATENCY,                             100e-3 );
+	init( MIN_NETWORK_LATENCY,                              2.0e-3 ); // 2ms minimum to ensure quality of service
+	init( FAST_NETWORK_LATENCY,                             3.5e-3 ); // 3.5ms for fast path
+	init( SLOW_NETWORK_LATENCY,                             150e-3 );
 	init( MAX_CLOGGING_LATENCY,                                  0 ); if( randomize && BUGGIFY ) MAX_CLOGGING_LATENCY =  0.1 * deterministicRandom()->random01();
 	init( MAX_BUGGIFIED_DELAY,                                   0 ); if( randomize && BUGGIFY ) MAX_BUGGIFIED_DELAY =  0.2 * deterministicRandom()->random01();
 	init( MAX_RUNLOOP_SLEEP_DELAY,                               0 );
