@@ -295,7 +295,7 @@ public:
 			abort();
 		INSTRUMENT_ALLOCATE(typeid(Object).name());
 
-		if constexpr (sizeof(Object) <= 256) {
+		if constexpr (sizeof(Object) <= 2048) {
 			void* p = FastAllocator < sizeof(Object) <= 64 ? 64 : nextFastAllocatedSize(sizeof(Object)) > ::allocate();
 			return p;
 		} else {
@@ -307,7 +307,7 @@ public:
 	static void operator delete(void* s) {
 		INSTRUMENT_RELEASE(typeid(Object).name());
 
-		if constexpr (sizeof(Object) <= 256) {
+		if constexpr (sizeof(Object) <= 2048) {
 			FastAllocator<sizeof(Object) <= 64 ? 64 : nextFastAllocatedSize(sizeof(Object))>::release(s);
 		} else {
 			countedDelete(nextFastAllocatedSize(sizeof(Object)), s);
@@ -331,6 +331,12 @@ public:
 		return FastAllocator<128>::allocate();
 	if (size <= 256)
 		return FastAllocator<256>::allocate();
+	if (size <= 512)
+		return FastAllocator<512>::allocate();
+	if (size <= 1024)
+		return FastAllocator<1024>::allocate();
+	if (size <= 2048)
+		return FastAllocator<2048>::allocate();
 	return countedNew(size);
 }
 
@@ -347,6 +353,12 @@ inline void freeFast(int size, void* ptr) {
 		return FastAllocator<128>::release(ptr);
 	if (size <= 256)
 		return FastAllocator<256>::release(ptr);
+	if (size <= 512)
+		return FastAllocator<512>::release(ptr);
+	if (size <= 1024)
+		return FastAllocator<1024>::release(ptr);
+	if (size <= 2048)
+		return FastAllocator<2048>::release(ptr);
 	countedDelete(size, ptr);
 }
 

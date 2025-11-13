@@ -411,15 +411,15 @@ ArenaBlock* ArenaBlock::create(int dataSize, Reference<ArenaBlock>& next) {
 				b->bigSize = 256;
 				INSTRUMENT_ALLOCATE("Arena256");
 			} else if (reqSize <= 512) {
-				b = (ArenaBlock*)allocateAndMaybeKeepalive(512);
+				b = (ArenaBlock*)FastAllocator<512>::allocate();
 				b->bigSize = 512;
 				INSTRUMENT_ALLOCATE("Arena512");
 			} else if (reqSize <= 1024) {
-				b = (ArenaBlock*)allocateAndMaybeKeepalive(1024);
+				b = (ArenaBlock*)FastAllocator<1024>::allocate();
 				b->bigSize = 1024;
 				INSTRUMENT_ALLOCATE("Arena1024");
 			} else if (reqSize <= 2048) {
-				b = (ArenaBlock*)allocateAndMaybeKeepalive(2048);
+				b = (ArenaBlock*)FastAllocator<2048>::allocate();
 				b->bigSize = 2048;
 				INSTRUMENT_ALLOCATE("Arena2048");
 			} else if (reqSize <= 4096) {
@@ -535,13 +535,13 @@ void ArenaBlock::destroyLeaf() {
 			FastAllocator<256>::release(this);
 			INSTRUMENT_RELEASE("Arena256");
 		} else if (bigSize <= 512) {
-			freeOrMaybeKeepalive(this);
+			FastAllocator<512>::release(this);
 			INSTRUMENT_RELEASE("Arena512");
 		} else if (bigSize <= 1024) {
-			freeOrMaybeKeepalive(this);
+			FastAllocator<1024>::release(this);
 			INSTRUMENT_RELEASE("Arena1024");
 		} else if (bigSize <= 2048) {
-			freeOrMaybeKeepalive(this);
+			FastAllocator<2048>::release(this);
 			INSTRUMENT_RELEASE("Arena2048");
 		} else if (bigSize <= 4096) {
 			freeOrMaybeKeepalive(this);
