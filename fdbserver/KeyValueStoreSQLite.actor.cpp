@@ -2034,11 +2034,14 @@ private:
 			wait(delay(FLOW_KNOBS->SQLITE_DISK_METRIC_LOGGING_INTERVAL));
 
 			int64_t rc = self->readsComplete, wc = self->writesComplete;
+			int64_t readQueueDepth = self->readsRequested - rc;
 			TraceEvent("DiskMetrics", self->logID)
 			    .detail("ReadOps", rc - lastReadsComplete)
 			    .detail("WriteOps", wc - lastWritesComplete)
-			    .detail("ReadQueue", self->readsRequested - rc)
+			    .detail("ReadQueue", readQueueDepth)
 			    .detail("WriteQueue", self->writesRequested - wc)
+			    .detail("ReadThreads", self->readCursors.size())
+			    .detail("ReadConcurrencyUtilization", readQueueDepth > 0 ? std::min(100.0, 100.0 * readQueueDepth / self->readCursors.size()) : 0.0)
 			    .detail("GlobalSQLiteMemoryHighWater", (int64_t)sqlite3_memory_highwater(1));
 
 			TraceEvent("SpringCleaningMetrics", self->logID)
@@ -2223,6 +2226,9 @@ void KeyValueStoreSQLite::startReadThreads() {
 	int nReadThreads = readCursors.size();
 	TaskPriority taskId = g_network->getCurrentTask();
 	g_network->setCurrentTask(TaskPriority::DiskRead);
+	TraceEvent("SQLiteReadPoolInit", logID)
+	    .detail("ThreadCount", nReadThreads)
+	    .detail("EngineType", type == KeyValueStoreType::SSD_BTREE_V2 ? "BTreeV2" : "BTreeV1");
 	for (int i = 0; i < nReadThreads; i++) {
 		std::string threadName = format("fdb-sqlite-r-%d", i);
 		if (threadName.size() > 15) {
