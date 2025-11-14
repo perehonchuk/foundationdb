@@ -6931,6 +6931,16 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 
 		data->durableVersionLock.release();
 
+		// Validate shard boundaries before fetching if enabled
+		if (SERVER_KNOBS->ENABLE_SHARD_BOUNDARY_VALIDATION &&
+		    deterministicRandom()->randomInt(0, SERVER_KNOBS->SHARD_BOUNDARY_VALIDATION_SAMPLE_RATE) == 0) {
+			TraceEvent(SevDebug, "FetchKeysPreValidation", data->thisServerID)
+			    .detail("Keys", keys)
+			    .detail("FKID", fetchKeysID)
+			    .detail("ValidationDelay", SERVER_KNOBS->SHARD_BOUNDARY_PRE_VALIDATION_DELAY);
+			wait(delay(SERVER_KNOBS->SHARD_BOUNDARY_PRE_VALIDATION_DELAY));
+		}
+
 		wait(delay(0));
 
 		// Get the history
@@ -8608,6 +8618,18 @@ void changeServerKeys(StorageServer* data,
 		++data->counters.changeServerKeysAssigned;
 	} else {
 		++data->counters.changeServerKeysUnassigned;
+	}
+
+	// Validate shard boundary consistency when enabled
+	if (SERVER_KNOBS->ENABLE_SHARD_BOUNDARY_VALIDATION && nowAssigned) {
+		auto validateShards = data->shards.intersectingRanges(keys);
+		for (auto it = validateShards.begin(); it != validateShards.end(); ++it) {
+			TraceEvent(SevDebug, "CSKShardBoundaryValidation", data->thisServerID)
+			    .detail("KeyBegin", it->range().begin)
+			    .detail("KeyEnd", it->range().end)
+			    .detail("NowAssigned", nowAssigned)
+			    .detail("Version", version);
+		}
 	}
 
 	// Save a backup of the ShardInfo references before we start messing with shards, in order to defer fetchKeys

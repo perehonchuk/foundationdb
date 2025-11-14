@@ -1047,6 +1047,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( FETCH_KEYS_PARALLELISM_BYTES,                          4e6 ); if( randomize && BUGGIFY ) FETCH_KEYS_PARALLELISM_BYTES = 3e6;
 	init( FETCH_KEYS_PARALLELISM,                                  2 );
 	init( FETCH_KEYS_LOWER_PRIORITY,                               0 );
+	init( ENABLE_SHARD_BOUNDARY_VALIDATION,                     true ); if( randomize && BUGGIFY ) ENABLE_SHARD_BOUNDARY_VALIDATION = false;
+	init( SHARD_BOUNDARY_VALIDATION_SAMPLE_RATE,                  10 ); if( randomize && BUGGIFY ) SHARD_BOUNDARY_VALIDATION_SAMPLE_RATE = 1;
+	init( SHARD_BOUNDARY_PRE_VALIDATION_DELAY,                   0.1 ); if( randomize && BUGGIFY ) SHARD_BOUNDARY_PRE_VALIDATION_DELAY = 0.5;
 	init( SERVE_FETCH_CHECKPOINT_PARALLELISM,                      4 );
 	init( SERVE_AUDIT_STORAGE_PARALLELISM,                         1 );
 	init( PERSIST_FINISH_AUDIT_COUNT,                             10 ); if ( isSimulated ) PERSIST_FINISH_AUDIT_COUNT = deterministicRandom()->randomInt(1, PERSIST_FINISH_AUDIT_COUNT+1);

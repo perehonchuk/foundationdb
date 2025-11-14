@@ -1110,6 +1110,9 @@ public:
 	int FETCH_KEYS_PARALLELISM_BYTES;
 	int FETCH_KEYS_PARALLELISM;
 	int FETCH_KEYS_LOWER_PRIORITY;
+	bool ENABLE_SHARD_BOUNDARY_VALIDATION; // Enable strict validation of shard boundaries during data movement
+	int SHARD_BOUNDARY_VALIDATION_SAMPLE_RATE; // Sample rate for boundary validation (1 in N fetches)
+	double SHARD_BOUNDARY_PRE_VALIDATION_DELAY; // Delay before validating shard boundaries during fetch
 	int SERVE_FETCH_CHECKPOINT_PARALLELISM;
 	int SERVE_AUDIT_STORAGE_PARALLELISM;
 	int PERSIST_FINISH_AUDIT_COUNT; // Num of persist complete/failed audits for each type
