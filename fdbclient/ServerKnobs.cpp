@@ -634,6 +634,11 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( ROCKSDB_MEMTABLE_PROTECTION_BYTES_PER_KEY,               0 ); if ( randomize && BUGGIFY ) ROCKSDB_MEMTABLE_PROTECTION_BYTES_PER_KEY = 8; // Default: 0 (disabled). Supported values: 0, 1, 2, 4, 8.
 	// Block cache key-value checksum. Checksum is validated during read, so has non-trivial impact on read performance.
 	init( ROCKSDB_BLOCK_PROTECTION_BYTES_PER_KEY,                  0 ); if ( randomize && BUGGIFY ) ROCKSDB_BLOCK_PROTECTION_BYTES_PER_KEY = 8; // Default: 0 (disabled). Supported values: 0, 1, 2, 4, 8.
+	// RocksDB encryption at rest configuration
+	init( ROCKSDB_ENABLE_ENCRYPTION,                          false ); if ( randomize && BUGGIFY ) ROCKSDB_ENABLE_ENCRYPTION = true;
+	init( ROCKSDB_ENCRYPTION_CIPHER_MODE,            "AES-256-CTR" );
+	init( ROCKSDB_ENCRYPTION_KEY_ROTATION_PERIOD,              3600 ); // 1 hour default, configurable
+	init( ROCKSDB_ENCRYPTION_ENABLE_KEY_CACHE,                 true );
 	init( ROCKSDB_ENABLE_NONDETERMINISM,                      false );
 	init( SHARDED_ROCKSDB_ALLOW_MULTIPLE_RANGES,              false );
 	init( SHARDED_ROCKSDB_ALLOW_WRITE_STALL_ON_FLUSH,          false );	

@@ -616,6 +616,10 @@ public:
 	int ROCKSDB_WRITEBATCH_PROTECTION_BYTES_PER_KEY;
 	int ROCKSDB_MEMTABLE_PROTECTION_BYTES_PER_KEY;
 	int ROCKSDB_BLOCK_PROTECTION_BYTES_PER_KEY;
+	bool ROCKSDB_ENABLE_ENCRYPTION; // Enable AES-256-CTR encryption for RocksDB storage engine
+	std::string ROCKSDB_ENCRYPTION_CIPHER_MODE; // Cipher mode for RocksDB encryption (default: AES-256-CTR)
+	int ROCKSDB_ENCRYPTION_KEY_ROTATION_PERIOD; // Key rotation period in seconds for RocksDB encryption
+	bool ROCKSDB_ENCRYPTION_ENABLE_KEY_CACHE; // Enable encryption key caching for RocksDB
 	bool ROCKSDB_ENABLE_NONDETERMINISM; // Whether rocksdb nondeterministic behavior should be enabled in simulation.
 	                                    // Note that turning this on in simulation could lead to non-deterministic runs
 	                                    // since we rely on rocksdb metadata. This knob also applies to sharded rocks

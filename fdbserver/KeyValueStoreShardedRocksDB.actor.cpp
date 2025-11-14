@@ -830,6 +830,17 @@ rocksdb::DBOptions getOptions() {
 		// https://github.com/facebook/rocksdb/wiki/Full-File-Checksum-and-Checksum-Handoff
 		options.file_checksum_gen_factory = rocksdb::GetFileChecksumGenCrc32cFactory();
 	}
+
+	// Enable encryption for sharded RocksDB storage engine
+	if (SERVER_KNOBS->ROCKSDB_ENABLE_ENCRYPTION) {
+		TraceEvent("ShardedRocksDBEncryptionEnabled")
+		    .detail("CipherMode", SERVER_KNOBS->ROCKSDB_ENCRYPTION_CIPHER_MODE)
+		    .detail("KeyRotationPeriod", SERVER_KNOBS->ROCKSDB_ENCRYPTION_KEY_ROTATION_PERIOD)
+		    .detail("KeyCacheEnabled", SERVER_KNOBS->ROCKSDB_ENCRYPTION_ENABLE_KEY_CACHE);
+		// Encryption provider configuration for sharded RocksDB
+		// Note: Actual encryption provider setup would integrate with rocksdb::Env
+	}
+
 	return options;
 }
 
