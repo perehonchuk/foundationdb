@@ -1634,7 +1634,10 @@ public:
 	                    UID logID,
 	                    KeyValueStoreType type,
 	                    bool checkChecksums,
-	                    bool checkIntegrity);
+	                    bool checkIntegrity,
+	                    Reference<AsyncVar<ServerDBInfo> const> db = {},
+	                    Optional<EncryptionAtRestMode> encryptionMode = {},
+	                    Reference<GetEncryptCipherKeysMonitor> encryptionMonitor = {});
 	~KeyValueStoreSQLite() override;
 
 	struct SpringCleaningWorkPerformed {
@@ -1646,7 +1649,7 @@ public:
 	void startReadThreads();
 
 	Future<EncryptionAtRestMode> encryptionMode() override {
-		return EncryptionAtRestMode(EncryptionAtRestMode::DISABLED);
+		return encryptionAtRestMode;
 	}
 
 private:
@@ -1656,6 +1659,9 @@ private:
 	Reference<IThreadPool> readThreads, writeThread;
 	Promise<Void> stopped;
 	Future<Void> cleaning, logging, starting, stopOnErr;
+	Reference<AsyncVar<ServerDBInfo> const> db;
+	EncryptionAtRestMode encryptionAtRestMode;
+	Reference<GetEncryptCipherKeysMonitor> encryptionMonitor;
 
 	int64_t readsRequested, writesRequested;
 	ThreadSafeCounter readsComplete;
@@ -2122,8 +2128,11 @@ IKeyValueStore* keyValueStoreSQLite(std::string const& filename,
                                     UID logID,
                                     KeyValueStoreType storeType,
                                     bool checkChecksums,
-                                    bool checkIntegrity) {
-	return new KeyValueStoreSQLite(filename, logID, storeType, checkChecksums, checkIntegrity);
+                                    bool checkIntegrity,
+                                    Reference<AsyncVar<ServerDBInfo> const> db,
+                                    Optional<EncryptionAtRestMode> encryptionMode,
+                                    Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
+	return new KeyValueStoreSQLite(filename, logID, storeType, checkChecksums, checkIntegrity, db, encryptionMode, encryptionMonitor);
 }
 
 ACTOR Future<Void> cleanPeriodically(KeyValueStoreSQLite* self) {
@@ -2159,11 +2168,18 @@ KeyValueStoreSQLite::KeyValueStoreSQLite(std::string const& filename,
                                          UID id,
                                          KeyValueStoreType storeType,
                                          bool checkChecksums,
-                                         bool checkIntegrity)
+                                         bool checkIntegrity,
+                                         Reference<AsyncVar<ServerDBInfo> const> db,
+                                         Optional<EncryptionAtRestMode> encryptionMode,
+                                         Reference<GetEncryptCipherKeysMonitor> encryptionMonitor)
   : type(storeType), logID(id), filename(filename), readThreads(CoroThreadPool::createThreadPool()),
     writeThread(CoroThreadPool::createThreadPool()), readsRequested(0), writesRequested(0), writesComplete(0),
-    diskBytesUsed(0), freeListPages(0) {
-	TraceEvent(SevDebug, "KeyValueStoreSQLiteCreate").detail("Filename", filename);
+    diskBytesUsed(0), freeListPages(0), db(db),
+    encryptionAtRestMode(encryptionMode.present() ? encryptionMode.get() : EncryptionAtRestMode(EncryptionAtRestMode::DISABLED)),
+    encryptionMonitor(encryptionMonitor) {
+	TraceEvent(SevDebug, "KeyValueStoreSQLiteCreate")
+	    .detail("Filename", filename)
+	    .detail("EncryptionEnabled", encryptionAtRestMode.isEncryptionEnabled());
 
 	stopOnErr = stopOnError(this);
 

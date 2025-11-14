@@ -35,9 +35,11 @@ IKeyValueStore* openKVStore(KeyValueStoreType storeType,
                             Optional<EncryptionAtRestMode> encryptionMode,
                             int64_t pageCacheBytes,
                             Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
-	// Only Redwood support encryption currently.
+	// Redwood and SQLite storage engines support encryption.
 	if (encryptionMode.present() && encryptionMode.get().isEncryptionEnabled() &&
-	    storeType != KeyValueStoreType::SSD_REDWOOD_V1) {
+	    storeType != KeyValueStoreType::SSD_REDWOOD_V1 &&
+	    storeType != KeyValueStoreType::SSD_BTREE_V1 &&
+	    storeType != KeyValueStoreType::SSD_BTREE_V2) {
 		TraceEvent(SevWarn, "KVStoreTypeNotSupportingEncryption")
 		    .detail("KVStoreType", storeType)
 		    .detail("EncryptionMode", encryptionMode);
@@ -48,9 +50,9 @@ IKeyValueStore* openKVStore(KeyValueStoreType storeType,
 	}
 	switch (storeType) {
 	case KeyValueStoreType::SSD_BTREE_V1:
-		return keyValueStoreSQLite(filename, logID, KeyValueStoreType::SSD_BTREE_V1, false, checkIntegrity);
+		return keyValueStoreSQLite(filename, logID, KeyValueStoreType::SSD_BTREE_V1, false, checkIntegrity, db, encryptionMode, encryptionMonitor);
 	case KeyValueStoreType::SSD_BTREE_V2:
-		return keyValueStoreSQLite(filename, logID, KeyValueStoreType::SSD_BTREE_V2, checkChecksums, checkIntegrity);
+		return keyValueStoreSQLite(filename, logID, KeyValueStoreType::SSD_BTREE_V2, checkChecksums, checkIntegrity, db, encryptionMode, encryptionMonitor);
 	case KeyValueStoreType::MEMORY:
 		return keyValueStoreMemory(filename, logID, memoryLimit);
 	case KeyValueStoreType::SSD_REDWOOD_V1:

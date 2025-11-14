@@ -31,7 +31,10 @@ extern IKeyValueStore* keyValueStoreSQLite(std::string const& filename,
                                            UID logID,
                                            KeyValueStoreType storeType,
                                            bool checkChecksums = false,
-                                           bool checkIntegrity = false);
+                                           bool checkIntegrity = false,
+                                           Reference<AsyncVar<struct ServerDBInfo> const> db = {},
+                                           Optional<EncryptionAtRestMode> encryptionMode = {},
+                                           Reference<GetEncryptCipherKeysMonitor> encryptionMonitor = {});
 extern IKeyValueStore* keyValueStoreRedwoodV1(std::string const& filename,
                                               UID logID,
                                               Reference<AsyncVar<struct ServerDBInfo> const> db = {},
