@@ -2489,11 +2489,18 @@ ACTOR Future<bool> rebalanceReadLoad(DDQueue* self,
 	}
 	// check team difference
 	auto srcLoad = sourceTeam->getReadLoad(false), destLoad = destTeam->getReadLoad();
-	traceEvent->detail("SrcReadBandwidth", srcLoad).detail("DestReadBandwidth", destLoad);
+	double loadDifference = srcLoad - destLoad;
+	double loadRatio = srcLoad > 0 ? destLoad / srcLoad : 1.0;
+	traceEvent->detail("SrcReadBandwidth", srcLoad)
+	    .detail("DestReadBandwidth", destLoad)
+	    .detail("LoadDifference", loadDifference)
+	    .detail("LoadRatio", loadRatio)
+	    .detail("DiffThreshold", SERVER_KNOBS->READ_REBALANCE_DIFF_FRAC);
 
-	// read bandwidth difference is less than 30% of src load
+	// read bandwidth difference must exceed configured threshold (default 15% with new knob value)
 	if ((1.0 - SERVER_KNOBS->READ_REBALANCE_DIFF_FRAC) * srcLoad <= destLoad) {
-		traceEvent->detail("SkipReason", "TeamTooSimilar");
+		traceEvent->detail("SkipReason", "TeamTooSimilar")
+		    .detail("RequiredMinDiff", srcLoad * SERVER_KNOBS->READ_REBALANCE_DIFF_FRAC);
 		return false;
 	}
 	// randomly choose topK shards

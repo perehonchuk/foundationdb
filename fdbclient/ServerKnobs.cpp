@@ -213,14 +213,15 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
  	init( PHYSICAL_SHARD_METRICS_DELAY,                        300.0 ); // 300 seconds; for ENABLE_DD_PHYSICAL_SHARD
 	init( ANONYMOUS_PHYSICAL_SHARD_TRANSITION_TIME,            600.0 ); if( randomize && BUGGIFY )  ANONYMOUS_PHYSICAL_SHARD_TRANSITION_TIME = 0.0; // 600 seconds; for ENABLE_DD_PHYSICAL_SHARD
 	init( PHYSICAL_SHARD_MOVE_VERBOSE_TRACKING,                false );
-	init( READ_REBALANCE_CPU_THRESHOLD,                         15.0 );
-	init( READ_REBALANCE_SRC_PARALLELISM,                         20 );
+	init( READ_REBALANCE_CPU_THRESHOLD,                         10.0 ); // Lowered from 15.0 to trigger read balancing earlier
+	init( READ_REBALANCE_SRC_PARALLELISM,                         35 ); // Increased from 20 to allow more concurrent read rebalancing
 	init( READ_REBALANCE_SHARD_TOPK,  READ_REBALANCE_SRC_PARALLELISM * 2 );
-	init( READ_REBALANCE_DIFF_FRAC,                               0.3);
-	init( READ_REBALANCE_MAX_SHARD_FRAC,                          0.2); // FIXME: add buggify here when we have DD test, seems DD is pretty sensitive to this parameter
+	init( READ_REBALANCE_DIFF_FRAC,                               0.15); // Reduced from 0.3 to be more aggressive in balancing read load
+	init( READ_REBALANCE_MAX_SHARD_FRAC,                          0.3); // Increased from 0.2 to allow moving larger shards during read rebalancing
 
-	// TODO: now we set it to a large number  so that the shard average traffic can guard this change. Consider change it to a lower value in the future.
-	init( READ_REBALANCE_MIN_READ_BYTES_KS, std::numeric_limits<double>::max() );
+	// Changed from std::numeric_limits<double>::max() to enable active read-aware balancing
+	// Value represents minimum read bandwidth (bytes per KiloSecond) to consider for rebalancing
+	init( READ_REBALANCE_MIN_READ_BYTES_KS, 50000.0 ); // 50 KB/s minimum read traffic to trigger balancing
 	init( RETRY_RELOCATESHARD_DELAY,                             0.1 );
 	init( DATA_DISTRIBUTION_FAILURE_REACTION_TIME,              60.0 ); if( randomize && BUGGIFY ) DATA_DISTRIBUTION_FAILURE_REACTION_TIME = 1.0;
 	bool buggifySmallShards = randomize && BUGGIFY;
@@ -335,6 +336,10 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( DD_MERGE_LIMIT,                                       2000 ); if( randomize && BUGGIFY ) DD_MERGE_LIMIT = 2;
 	init( DD_SHARD_METRICS_TIMEOUT,                             60.0 ); if( randomize && BUGGIFY ) DD_SHARD_METRICS_TIMEOUT = 0.1;
 	init( DD_LOCATION_CACHE_SIZE,                            2000000 ); if( randomize && BUGGIFY ) DD_LOCATION_CACHE_SIZE = 3;
+	init( DD_ENABLE_READ_BALANCING,                             true ); if( randomize && BUGGIFY ) DD_ENABLE_READ_BALANCING = false;
+	init( DD_READ_BALANCING_ENFORCEMENT_DELAY,                 120.0 ); if( randomize && BUGGIFY ) DD_READ_BALANCING_ENFORCEMENT_DELAY = 10.0;
+	init( DD_READ_IMBALANCE_THRESHOLD,                           2.5 ); if( randomize && BUGGIFY ) DD_READ_IMBALANCE_THRESHOLD = 1.5;
+	init( DD_READ_SAMPLING_WINDOW,                               300 ); if( randomize && BUGGIFY ) DD_READ_SAMPLING_WINDOW = 30;
 	init( MOVEKEYS_LOCK_POLLING_DELAY,                           5.0 );
 	init( DEBOUNCE_RECRUITING_DELAY,                             5.0 );
 	init( DD_FAILURE_TIME,                                       1.0 ); if( randomize && BUGGIFY ) DD_FAILURE_TIME = 10.0;

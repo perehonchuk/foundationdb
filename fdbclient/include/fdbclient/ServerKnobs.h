@@ -325,6 +325,10 @@ public:
 	int DD_MERGE_LIMIT;
 	double DD_SHARD_METRICS_TIMEOUT;
 	int64_t DD_LOCATION_CACHE_SIZE;
+	bool DD_ENABLE_READ_BALANCING; // Enable read-aware load balancing for data distribution
+	double DD_READ_BALANCING_ENFORCEMENT_DELAY; // Delay before enforcing read-based balancing
+	double DD_READ_IMBALANCE_THRESHOLD; // Threshold ratio for read imbalance (e.g., 2.0 means 2x difference triggers rebalance)
+	int64_t DD_READ_SAMPLING_WINDOW; // Time window in seconds for read load sampling
 	double MOVEKEYS_LOCK_POLLING_DELAY;
 	double DEBOUNCE_RECRUITING_DELAY;
 	int REBALANCE_MAX_RETRIES;
