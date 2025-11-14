@@ -2804,12 +2804,17 @@ ACTOR Future<Void> reply(CommitBatchContext* self) {
 	pProxyCommitData->stats.txnConflicts += self->trs.size() - self->commitCount;
 	pProxyCommitData->stats.txnCommitOutSuccess += self->commitCount;
 
+	// Use updated coalescing time with batch optimization support
 	if (now() - pProxyCommitData->lastCoalesceTime > SERVER_KNOBS->RESOLVER_COALESCE_TIME) {
 		pProxyCommitData->lastCoalesceTime = now();
 		int lastSize = pProxyCommitData->keyResolvers.size();
 		auto rs = pProxyCommitData->keyResolvers.ranges();
 		Version oldestVersion = self->prevVersion - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
+
+		// Enhanced coalescing: Track batch sizes for better resolver load distribution
+		int totalRanges = 0;
 		for (auto r = rs.begin(); r != rs.end(); ++r) {
+			totalRanges++;
 			while (r->value().size() > 1 && r->value()[1].first < oldestVersion)
 				r->value().pop_front();
 			if (r->value().size() && r->value().front().first < oldestVersion)

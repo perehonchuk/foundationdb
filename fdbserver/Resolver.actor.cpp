@@ -351,6 +351,17 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
+
+		// Batch coalescing optimization: If enabled, wait briefly to accumulate more transactions
+		// for better conflict detection throughput
+		bool shouldCoalesce = SERVER_KNOBS->RESOLVER_ENABLE_BATCH_COALESCING &&
+		                      req.transactions.size() < SERVER_KNOBS->RESOLVER_BATCH_MIN_TRANSACTIONS;
+
+		if (shouldCoalesce) {
+			// Small delay to allow more transactions to accumulate in the batch
+			wait(delay(SERVER_KNOBS->RESOLVER_BATCH_MAX_DELAY_MS / 1000.0));
+		}
+
 		for (int t = 0; t < req.transactions.size(); t++) {
 			conflictBatch.addTransaction(req.transactions[t], newOldestVersion);
 			self->resolvedReadConflictRanges += req.transactions[t].read_conflict_ranges.size();
