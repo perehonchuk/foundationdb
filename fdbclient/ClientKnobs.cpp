@@ -158,11 +158,11 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( BACKUP_LOCK_BYTES,                       1e8 );
 	init( BACKUP_RANGE_TIMEOUT,   TASKBUCKET_TIMEOUT_VERSIONS/CORE_VERSIONSPERSECOND/2.0 );
 	init( BACKUP_RANGE_MINWAIT,   std::max(1.0, BACKUP_RANGE_TIMEOUT/2.0));
-	init( BACKUP_SNAPSHOT_DISPATCH_INTERVAL_SEC,  10 * 60 );  // 10 minutes
+	init( BACKUP_SNAPSHOT_DISPATCH_INTERVAL_SEC,  5 * 60 );  // 5 minutes
 	init( BACKUP_DEFAULT_SNAPSHOT_INTERVAL_SEC,   3600 * 24 * 10); // 10 days
-	init( BACKUP_SHARD_TASK_LIMIT,                1000 ); if( randomize && BUGGIFY ) BACKUP_SHARD_TASK_LIMIT = 4;
-	init( BACKUP_AGGREGATE_POLL_RATE_UPDATE_INTERVAL, 60);
-	init( BACKUP_AGGREGATE_POLL_RATE,              2.0 ); // polls per second target for all agents on the cluster
+	init( BACKUP_SHARD_TASK_LIMIT,                2500 ); if( randomize && BUGGIFY ) BACKUP_SHARD_TASK_LIMIT = 4;
+	init( BACKUP_AGGREGATE_POLL_RATE_UPDATE_INTERVAL, 30);
+	init( BACKUP_AGGREGATE_POLL_RATE,              5.0 ); // polls per second target for all agents on the cluster
 	init( BACKUP_LOG_WRITE_BATCH_MAX_SIZE,         1e6 ); //Must be much smaller than TRANSACTION_SIZE_LIMIT
 	init( BACKUP_MAX_LOG_RANGES,                    21 ); if( randomize && BUGGIFY ) BACKUP_MAX_LOG_RANGES = 4;
 	init( BACKUP_SIM_COPY_LOG_RANGES,              100 );
