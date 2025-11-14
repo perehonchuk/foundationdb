@@ -95,6 +95,15 @@ class Queue:
         index = self._getNextIndex(tr.snapshot, self._queueItem)
         self._pushAt(tr, self._encodeValue(value), index)
 
+    @fdb.transactional
+    def push_batch(self, tr, values):
+        """Push multiple items onto the queue in a single transaction.
+        This is more efficient than multiple push() calls when adding many items."""
+        index = self._getNextIndex(tr.snapshot, self._queueItem)
+        for i, value in enumerate(values):
+            self._pushAt(tr, self._encodeValue(value), index + i)
+        return len(values)
+
     def pop(self, db):
         """Pop the next item from the queue. Cannot be composed with other functions in a single transaction."""
 
@@ -107,6 +116,18 @@ class Queue:
             return result
 
         return self._decodeValue(result)
+
+    @fdb.transactional
+    def pop_batch(self, tr, count):
+        """Pop multiple items from the queue in a single transaction.
+        Returns a list of values. More efficient than multiple pop() calls.
+        Note: Only works in non-high-contention mode."""
+        items = []
+        r = self._queueItem.range()
+        for kv in tr.get_range(r.start, r.stop, count):
+            items.append(self._decodeValue(kv.value))
+            del tr[kv.key]
+        return items
 
     @fdb.transactional
     def empty(self, tr):

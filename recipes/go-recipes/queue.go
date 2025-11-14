@@ -66,6 +66,30 @@ func (q *Queue) Dequeue(trtr fdb.Transactor) (interface{}, error) {
 	return i, err
 }
 
+func (q *Queue) DequeueBatch(trtr fdb.Transactor, count int) ([]interface{}, error) {
+	result, err := trtr.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		r, err := tr.GetRange(q.QueueSS, fdb.RangeOptions{Limit: count}).GetSliceWithError()
+		if err != nil {
+			return nil, err
+		}
+		if len(r) == 0 {
+			return []interface{}{}, nil
+		}
+
+		items := make([]interface{}, len(r))
+		for i, kv := range r {
+			items[i] = kv.Value
+			tr.Clear(kv.Key)
+		}
+
+		return items, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]interface{}), nil
+}
+
 func (q *Queue) Enqueue(trtr fdb.Transactor, item interface{}) (interface{}, error) {
 	i, err := trtr.Transact(func(tr fdb.Transaction) (interface{}, error) {
 		index, err := q.LastIndex(tr)
@@ -81,6 +105,28 @@ func (q *Queue) Enqueue(trtr fdb.Transactor, item interface{}) (interface{}, err
 		tr.Set(q.QueueSS.Pack(tuple.Tuple{ki[0].(int64) + 1}), []byte(item.(string)))
 
 		return nil, nil
+	})
+	return i, err
+}
+
+func (q *Queue) EnqueueBatch(trtr fdb.Transactor, items []interface{}) (interface{}, error) {
+	i, err := trtr.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		index, err := q.LastIndex(tr)
+		if err != nil {
+			return nil, err
+		}
+
+		ki, err := q.QueueSS.Unpack(index.(fdb.Key))
+		if err != nil {
+			return nil, err
+		}
+
+		startIndex := ki[0].(int64)
+		for idx, item := range items {
+			tr.Set(q.QueueSS.Pack(tuple.Tuple{startIndex + int64(idx) + 1}), []byte(item.(string)))
+		}
+
+		return len(items), nil
 	})
 	return i, err
 }
@@ -124,16 +170,34 @@ func main() {
 	var q Queue
 	q.NewQueue(QueueDemoDir.Sub("Queue"))
 
+	// Test single enqueue/dequeue
 	q.Enqueue(db, "test")
 	q.Enqueue(db, "test1")
-	q.Enqueue(db, "test2")
-	q.Enqueue(db, "test3")
+
+	// Test batch enqueue - efficiently add multiple items in one transaction
+	batchItems := []interface{}{"batch1", "batch2", "batch3", "batch4", "batch5"}
+	count, err := q.EnqueueBatch(db, batchItems)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Enqueued %v items in batch\n", count)
+
+	// Test batch dequeue - efficiently retrieve multiple items in one transaction
+	items, err := q.DequeueBatch(db, 3)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Dequeued batch:")
+	for _, item := range items {
+		fmt.Println("  -", string(item.([]byte)))
+	}
+
+	// Dequeue remaining items one by one
 	for i := 0; i < 5; i++ {
 		item, err := q.Dequeue(db)
 		if err != nil {
 			log.Fatal(err)
 		}
-
 		fmt.Println(string(item.([]byte)))
 	}
 }
