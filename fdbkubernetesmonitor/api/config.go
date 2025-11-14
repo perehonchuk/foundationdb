@@ -72,6 +72,12 @@ type Argument struct {
 
 	// IPFamily provides the family to use for IPList type arguments.
 	IPFamily int `json:"ipFamily,omitempty"`
+
+	// Prefix provides an optional prefix to prepend to Hostname type arguments.
+	Prefix string `json:"prefix,omitempty"`
+
+	// Suffix provides an optional suffix to append to Hostname type arguments.
+	Suffix string `json:"suffix,omitempty"`
 }
 
 // ArgumentType defines the types for arguments.
@@ -95,6 +101,9 @@ const (
 	// IPListArgumentType defines an argument that is a comma-separated list of
 	// IP addresses, provided through an environment variable.
 	IPListArgumentType = "IPList"
+
+	// HostnameArgumentType defines an argument that uses the pod's hostname.
+	HostnameArgumentType = "Hostname"
 )
 
 // GenerateArgument processes an argument and generates its string representation.
@@ -123,6 +132,19 @@ func (argument Argument) GenerateArgument(processNumber int, env map[string]stri
 		return strconv.Itoa(number), nil
 	case EnvironmentArgumentType, IPListArgumentType:
 		return argument.LookupEnv(env)
+	case HostnameArgumentType:
+		hostname, err := os.Hostname()
+		if err != nil {
+			return "", fmt.Errorf("failed to get hostname: %w", err)
+		}
+		result := hostname
+		if argument.Prefix != "" {
+			result = argument.Prefix + result
+		}
+		if argument.Suffix != "" {
+			result = result + argument.Suffix
+		}
+		return result, nil
 	default:
 		return "", fmt.Errorf("unsupported argument type %s", argument.ArgumentType)
 	}

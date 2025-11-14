@@ -268,4 +268,22 @@ var _ = Describe("Testing FDB Kubernetes Monitor API", func() {
 			Expect(out).To(Equal("{\"version\":\"7.1.57\"}"))
 		})
 	})
+
+	When("generating a Hostname argument", func() {
+		var argument string
+		var err error
+
+		BeforeEach(func() {
+			arg := Argument{
+				ArgumentType: HostnameArgumentType,
+			}
+			argument, err = arg.GenerateArgument(1, nil)
+		})
+
+		It("should return the hostname", func() {
+			Expect(err).NotTo(HaveOccurred())
+			// We can't predict the exact hostname, but it should not be empty
+			Expect(argument).NotTo(BeEmpty())
+		})
+	})
 })
