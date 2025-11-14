@@ -124,7 +124,7 @@ public:
 
 	double IS_ACCEPTABLE_DELAY;
 
-	// Versions -- knobs that control 5s timeout
+	// Versions -- knobs that control transaction timeout
 	int64_t VERSIONS_PER_SECOND; // Copy of SERVER_KNOBS, as we can't link with it.
 	int64_t MAX_WRITE_TRANSACTION_LIFE_VERSIONS; // Copy of SERVER_KNOBS, as we can't link with it.
 

@@ -34,7 +34,7 @@ class SWIFT_CXX_IMMORTAL_SINGLETON_TYPE ServerKnobs : public KnobsImpl<ServerKno
 public:
 	bool ALLOW_DANGEROUS_KNOBS;
 
-	// Versions -- knobs that control 5s timeout
+	// Versions -- knobs that control transaction timeout
 	int64_t VERSIONS_PER_SECOND; // Mainly used to represent the rate at which the sequencer can increase the versions
 	int64_t MAX_READ_TRANSACTION_LIFE_VERSIONS; // Used in various roles (Blob*, DD, LR, RK, SC) but most importantly
 	                                            // used in CP and SS.
