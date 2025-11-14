@@ -631,6 +631,8 @@ ACTOR Future<Void> connectionMonitor(Reference<Peer> peer) {
 	state Endpoint remotePingEndpoint({ peer->destination }, Endpoint::wellKnownToken(WLTOKEN_PING_PACKET));
 	// set this to not immediately close the connection as idle if the peer already existed
 	peer->lastDataPacketSentTime = now();
+	state double adaptivePingInterval = FLOW_KNOBS->CONNECTION_MONITOR_LOOP_TIME;
+	state int consecutiveSuccessfulPings = 0;
 	loop {
 		if (!FlowTransport::isClient() && !peer->destination.isPublic() && peer->compatible) {
 			// Don't send ping messages to clients unless necessary. Instead monitor incoming client pings.
@@ -690,7 +692,12 @@ ACTOR Future<Void> connectionMonitor(Reference<Peer> peer) {
 			}
 		}
 
-		wait(delayJittered(FLOW_KNOBS->CONNECTION_MONITOR_LOOP_TIME, TaskPriority::ReadSocket));
+		// Adaptive ping interval: increase interval when connection is stable, decrease on timeout
+		if (FLOW_KNOBS->CONNECTION_MONITOR_ADAPTIVE_PING_ENABLED) {
+			wait(delayJittered(adaptivePingInterval, TaskPriority::ReadSocket));
+		} else {
+			wait(delayJittered(FLOW_KNOBS->CONNECTION_MONITOR_LOOP_TIME, TaskPriority::ReadSocket));
+		}
 
 		// TODO: Stop monitoring and close the connection with no onDisconnect requests outstanding
 		state PingRequest pingRequest;
@@ -707,6 +714,11 @@ ACTOR Future<Void> connectionMonitor(Reference<Peer> peer) {
 							peer->pingLatencies.addSample(now() - startTime);
 						}
 						TraceEvent("ConnectionTimeout").suppressFor(1.0).detail("WithAddr", peer->destination);
+						// Reset adaptive ping interval to minimum on timeout
+						if (FLOW_KNOBS->CONNECTION_MONITOR_ADAPTIVE_PING_ENABLED) {
+							adaptivePingInterval = FLOW_KNOBS->CONNECTION_MONITOR_ADAPTIVE_PING_MIN_INTERVAL;
+							consecutiveSuccessfulPings = 0;
+						}
 						throw connection_failed();
 					}
 					if (timeouts > 1) {
@@ -717,10 +729,24 @@ ACTOR Future<Void> connectionMonitor(Reference<Peer> peer) {
 					}
 					startingBytes = peer->bytesReceived;
 					timeouts++;
+					// Reduce interval on timeout
+					if (FLOW_KNOBS->CONNECTION_MONITOR_ADAPTIVE_PING_ENABLED) {
+						adaptivePingInterval = std::max(FLOW_KNOBS->CONNECTION_MONITOR_ADAPTIVE_PING_MIN_INTERVAL,
+						                                 adaptivePingInterval * 0.5);
+						consecutiveSuccessfulPings = 0;
+					}
 				}
 				when(wait(pingRequest.reply.getFuture())) {
 					if (peer->destination.isPublic()) {
 						peer->pingLatencies.addSample(now() - startTime);
+					}
+					// Increase interval on successful ping (up to maximum)
+					if (FLOW_KNOBS->CONNECTION_MONITOR_ADAPTIVE_PING_ENABLED) {
+						consecutiveSuccessfulPings++;
+						if (consecutiveSuccessfulPings >= 3) {
+							adaptivePingInterval = std::min(FLOW_KNOBS->CONNECTION_MONITOR_ADAPTIVE_PING_MAX_INTERVAL,
+							                                 adaptivePingInterval * 1.5);
+						}
 					}
 					break;
 				}

@@ -54,8 +54,8 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	init( DELAY_JITTER_OFFSET,                                 0.9 );
 	init( DELAY_JITTER_RANGE,                                  0.2 );
 	init( BUSY_WAIT_THRESHOLD,                                   0 ); // 1e100 == never sleep
-	init( CLIENT_REQUEST_INTERVAL,                             1.0 ); if( randomize && BUGGIFY ) CLIENT_REQUEST_INTERVAL = 2.0;
-	init( SERVER_REQUEST_INTERVAL,                             1.0 ); if( randomize && BUGGIFY ) SERVER_REQUEST_INTERVAL = 2.0;
+	init( CLIENT_REQUEST_INTERVAL,                             0.5 ); if( randomize && BUGGIFY ) CLIENT_REQUEST_INTERVAL = 1.0;
+	init( SERVER_REQUEST_INTERVAL,                             0.5 ); if( randomize && BUGGIFY ) SERVER_REQUEST_INTERVAL = 1.0;
 
 	init( REACTOR_FLAGS,                                         0 );
 
@@ -99,11 +99,14 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	init( METRICS_EMIT_DDSKETCH,                             false ); // Determines if DDSketch buckets will get emitted
 
 	//connectionMonitor
-	init( CONNECTION_MONITOR_LOOP_TIME,   isSimulated ? 0.75 : 1.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_LOOP_TIME = 6.0;
-	init( CONNECTION_MONITOR_TIMEOUT,     isSimulated ? 1.50 : 2.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_TIMEOUT = 6.0;
+	init( CONNECTION_MONITOR_LOOP_TIME,   isSimulated ? 0.5 : 0.75 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_LOOP_TIME = 6.0;
+	init( CONNECTION_MONITOR_TIMEOUT,     isSimulated ? 1.0 : 1.5 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_TIMEOUT = 6.0;
 	init( CONNECTION_MONITOR_IDLE_TIMEOUT,                   180.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_IDLE_TIMEOUT = 5.0;
 	init( CONNECTION_MONITOR_INCOMING_IDLE_MULTIPLIER,         1.2 );
 	init( CONNECTION_MONITOR_UNREFERENCED_CLOSE_DELAY,         2.0 );
+	init( CONNECTION_MONITOR_ADAPTIVE_PING_ENABLED,           true );
+	init( CONNECTION_MONITOR_ADAPTIVE_PING_MIN_INTERVAL,      0.25 );
+	init( CONNECTION_MONITOR_ADAPTIVE_PING_MAX_INTERVAL,       2.0 );
 
 	//FlowTransport
 	init( CONNECTION_REJECTED_MESSAGE_DELAY,                   1.0 );
