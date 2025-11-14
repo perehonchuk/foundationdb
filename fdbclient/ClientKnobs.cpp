@@ -218,6 +218,7 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( GLOBAL_CONFIG_REFRESH_BACKOFF,           0.5 );
 	init( GLOBAL_CONFIG_REFRESH_MAX_BACKOFF,      60.0 );
 	init( GLOBAL_CONFIG_REFRESH_TIMEOUT,          10.0 );
+	init( GLOBAL_CONFIG_MAX_HISTORY_SIZE,            5 );
 
 	init( IS_ACCEPTABLE_DELAY,                     1.5 );
 

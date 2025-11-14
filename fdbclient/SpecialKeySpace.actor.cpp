@@ -1719,12 +1719,17 @@ ACTOR Future<Optional<std::string>> globalConfigCommitActor(GlobalConfigImpl* gl
 	state Transaction& tr = ryw->getTransaction();
 	ryw->setOption(FDBTransactionOptions::RAW_ACCESS);
 
-	// History should only contain three most recent updates. If it currently
-	// has three items, remove the oldest to make room for a new item.
+	// History should contain the most recent updates as configured by knob.
+	// If history is at capacity, remove the oldest entries to make room for new updates.
 	RangeResult history = wait(tr.getRange(globalConfigHistoryKeys, CLIENT_KNOBS->TOO_MANY));
-	constexpr int kGlobalConfigMaxHistorySize = 3;
-	if (history.size() > kGlobalConfigMaxHistorySize - 1) {
-		for (int i = 0; i < history.size() - (kGlobalConfigMaxHistorySize - 1); ++i) {
+	int maxHistorySize = CLIENT_KNOBS->GLOBAL_CONFIG_MAX_HISTORY_SIZE;
+	if (history.size() > maxHistorySize - 1) {
+		int numToRemove = history.size() - (maxHistorySize - 1);
+		TraceEvent("GlobalConfigHistoryTrim")
+		    .detail("CurrentSize", history.size())
+		    .detail("MaxSize", maxHistorySize)
+		    .detail("Removing", numToRemove);
+		for (int i = 0; i < numToRemove; ++i) {
 			tr.clear(history[i].key);
 		}
 	}
