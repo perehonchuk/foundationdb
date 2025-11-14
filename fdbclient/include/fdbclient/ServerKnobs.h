@@ -50,8 +50,8 @@ public:
 	                                             // returning transaction_too_old.
 
 	// Versions -- other
-	int64_t MAX_VERSIONS_IN_FLIGHT;
-	int64_t MAX_VERSIONS_IN_FLIGHT_FORCED;
+	int64_t MAX_VERSIONS_IN_FLIGHT;         // Normal recovery fast-forwards by this many versions (120 seconds)
+	int64_t MAX_VERSIONS_IN_FLIGHT_FORCED;  // Force recovery fast-forwards by this many versions (1 week)
 	bool ENABLE_VERSION_VECTOR;
 	bool ENABLE_VERSION_VECTOR_TLOG_UNICAST;
 	bool ENABLE_VERSION_VECTOR_REPLY_RECOVERY;

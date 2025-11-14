@@ -1226,15 +1226,27 @@ ACTOR Future<Void> readTransactionSystemState(Reference<ClusterRecoveryData> sel
 	}
 
 	// Recover version info
+	// Recovery will fast-forward time by MAX_VERSIONS_IN_FLIGHT (normally 120 seconds worth of versions)
+	// to ensure in-progress client transactions get transaction_too_old errors during retry.
 	self->lastEpochEnd = oldLogSystem->getEnd() - 1;
 	if (self->lastEpochEnd == 0) {
 		self->recoveryTransactionVersion = 1;
 	} else {
+		Version versionJump = 0;
 		if (self->forceRecovery) {
-			self->recoveryTransactionVersion = self->lastEpochEnd + SERVER_KNOBS->MAX_VERSIONS_IN_FLIGHT_FORCED;
+			versionJump = SERVER_KNOBS->MAX_VERSIONS_IN_FLIGHT_FORCED;
+			self->recoveryTransactionVersion = self->lastEpochEnd + versionJump;
 		} else {
-			self->recoveryTransactionVersion = self->lastEpochEnd + SERVER_KNOBS->MAX_VERSIONS_IN_FLIGHT;
+			versionJump = SERVER_KNOBS->MAX_VERSIONS_IN_FLIGHT;
+			self->recoveryTransactionVersion = self->lastEpochEnd + versionJump;
 		}
+
+		TraceEvent("RecoveryVersionJump", self->dbgid)
+		    .detail("LastEpochEnd", self->lastEpochEnd)
+		    .detail("VersionJump", versionJump)
+		    .detail("VersionJumpSeconds", versionJump / SERVER_KNOBS->VERSIONS_PER_SECOND)
+		    .detail("RecoveryTxnVersion", self->recoveryTransactionVersion)
+		    .detail("ForceRecovery", self->forceRecovery);
 
 		if (self->recoveryTransactionVersion < minRequiredCommitVersion)
 			self->recoveryTransactionVersion = minRequiredCommitVersion;

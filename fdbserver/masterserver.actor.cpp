@@ -457,11 +457,14 @@ SWIFT_ACTOR Future<Void> updateRecoveryDataSwift(Reference<MasterData> self) {
 ACTOR Future<Void> updateRecoveryDataCxx(Reference<MasterData> self) {
 	loop {
 		UpdateRecoveryDataRequest req = waitNext(self->myInterface.updateRecoveryData.getFuture());
+		Version versionJump = req.recoveryTransactionVersion - req.lastEpochEnd;
 		TraceEvent("UpdateRecoveryData", self->dbgid)
 		    .detail("ReceivedRecoveryTxnVersion", req.recoveryTransactionVersion)
 		    .detail("ReceivedLastEpochEnd", req.lastEpochEnd)
 		    .detail("CurrentRecoveryTxnVersion", self->recoveryTransactionVersion)
 		    .detail("CurrentLastEpochEnd", self->lastEpochEnd)
+		    .detail("VersionJump", versionJump)
+		    .detail("VersionJumpSeconds", versionJump / SERVER_KNOBS->VERSIONS_PER_SECOND)
 		    .detail("NumCommitProxies", req.commitProxies.size())
 		    .detail("VersionEpoch", req.versionEpoch)
 		    .detail("PrimaryLocality", req.primaryLocality);
