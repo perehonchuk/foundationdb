@@ -72,6 +72,58 @@ NetworkAddressList g_currentDeliveryPeerAddress = NetworkAddressList();
 bool g_currentDeliverPeerAddressTrusted = false;
 Future<Void> g_currentDeliveryPeerDisconnect;
 
+// Adaptive failure detection state
+std::unordered_map<NetworkAddress, double> g_adaptiveFailureDetectionDelays;
+std::unordered_map<NetworkAddress, double> g_peerLatencyEstimates;
+
+// Compute adaptive failure detection delay based on peer latency
+double getAdaptiveFailureDetectionDelay(const NetworkAddress& addr, double baseLatency = 0.0) {
+	if (!FLOW_KNOBS->ENABLE_ADAPTIVE_FAILURE_DETECTION) {
+		return FLOW_KNOBS->FAILURE_DETECTION_DELAY;
+	}
+
+	auto it = g_adaptiveFailureDetectionDelays.find(addr);
+	if (it != g_adaptiveFailureDetectionDelays.end()) {
+		return it->second;
+	}
+
+	// Start with base failure detection delay
+	double adaptiveDelay = FLOW_KNOBS->FAILURE_DETECTION_DELAY;
+
+	// If we have latency info, adjust the delay
+	auto latencyIt = g_peerLatencyEstimates.find(addr);
+	if (latencyIt != g_peerLatencyEstimates.end() || baseLatency > 0.0) {
+		double latency = baseLatency > 0.0 ? baseLatency : latencyIt->second;
+		// Adaptive delay is base delay adjusted by smoothed latency
+		// Higher latency = longer failure detection timeout
+		adaptiveDelay = FLOW_KNOBS->FAILURE_DETECTION_DELAY + (latency * 3.0);
+		adaptiveDelay = std::max(FLOW_KNOBS->ADAPTIVE_FAILURE_DETECTION_MIN_DELAY,
+		                         std::min(adaptiveDelay, FLOW_KNOBS->ADAPTIVE_FAILURE_DETECTION_MAX_DELAY));
+	}
+
+	g_adaptiveFailureDetectionDelays[addr] = adaptiveDelay;
+	return adaptiveDelay;
+}
+
+// Update peer latency estimate using exponential smoothing
+void updatePeerLatencyEstimate(const NetworkAddress& addr, double latency) {
+	if (!FLOW_KNOBS->ENABLE_ADAPTIVE_FAILURE_DETECTION) {
+		return;
+	}
+
+	auto it = g_peerLatencyEstimates.find(addr);
+	if (it == g_peerLatencyEstimates.end()) {
+		g_peerLatencyEstimates[addr] = latency;
+	} else {
+		// Exponential moving average
+		double alpha = FLOW_KNOBS->ADAPTIVE_FAILURE_DETECTION_SMOOTHING_FACTOR;
+		it->second = alpha * latency + (1.0 - alpha) * it->second;
+	}
+
+	// Invalidate cached delay so it gets recomputed
+	g_adaptiveFailureDetectionDelays.erase(addr);
+}
+
 } // namespace
 
 // FIXME: stop referring to messages as "packets".  Packets are known
@@ -814,7 +866,7 @@ ACTOR Future<Void> connectionKeeper(Reference<Peer> self,
 					Future<Void> retryConnectF = Never();
 					if (retryConnect) {
 						retryConnectF = IFailureMonitor::failureMonitor().getState(self->destination).isAvailable()
-						                    ? delay(FLOW_KNOBS->FAILURE_DETECTION_DELAY)
+						                    ? delay(getAdaptiveFailureDetectionDelay(self->destination))
 						                    : delay(FLOW_KNOBS->SERVER_REQUEST_INTERVAL);
 					}
 
@@ -947,13 +999,13 @@ ACTOR Future<Void> connectionKeeper(Reference<Peer> self,
 			}
 
 			// Don't immediately mark connection as failed. To stay closed to earlier behaviour of centralized
-			// failure monitoring, wait until connection stays failed for FLOW_KNOBS->FAILURE_DETECTION_DELAY timeout.
+			// failure monitoring, wait until connection stays failed for adaptive failure detection timeout.
 			retryConnect = true;
 			if (e.code() == error_code_connection_failed) {
 				if (!self->destination.isPublic()) {
 					// Can't connect back to non-public addresses.
 					IFailureMonitor::failureMonitor().setStatus(self->destination, FailureStatus(true));
-				} else if (now() - firstConnFailedTime.get() > FLOW_KNOBS->FAILURE_DETECTION_DELAY) {
+				} else if (now() - firstConnFailedTime.get() > getAdaptiveFailureDetectionDelay(self->destination)) {
 					IFailureMonitor::failureMonitor().setStatus(self->destination, FailureStatus(true));
 				}
 			}

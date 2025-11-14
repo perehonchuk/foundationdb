@@ -315,6 +315,10 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 
 	// Health Monitor
 	init( FAILURE_DETECTION_DELAY,                             4.0 ); if( randomize && BUGGIFY ) FAILURE_DETECTION_DELAY = 1.0;
+	init( ENABLE_ADAPTIVE_FAILURE_DETECTION,                   true ); if( randomize && BUGGIFY ) ENABLE_ADAPTIVE_FAILURE_DETECTION = false;
+	init( ADAPTIVE_FAILURE_DETECTION_MIN_DELAY,                 2.0 );
+	init( ADAPTIVE_FAILURE_DETECTION_MAX_DELAY,                 8.0 );
+	init( ADAPTIVE_FAILURE_DETECTION_SMOOTHING_FACTOR,         0.15 );
 	init( HEALTH_MONITOR_MARK_FAILED_UNSTABLE_CONNECTIONS,    true );
 	init( HEALTH_MONITOR_CLIENT_REQUEST_INTERVAL_SECS,          30 );
 	init( HEALTH_MONITOR_CONNECTION_MAX_CLOSED,                  5 );
