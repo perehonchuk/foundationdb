@@ -693,6 +693,15 @@ int64_t getTotalUnusedAllocatedMemory() {
 	return unusedMemory;
 }
 
+void traceFastAllocatorChoice() {
+#ifdef USE_JEMALLOC
+	const char* allocator = "jemalloc";
+#else
+	const char* allocator = "system";
+#endif
+	TraceEvent("FastAllocatorChoice").detail("Allocator", allocator);
+}
+
 template class FastAllocator<16>;
 template class FastAllocator<32>;
 template class FastAllocator<64>;

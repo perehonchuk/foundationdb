@@ -38,12 +38,10 @@ if(USE_ASAN OR USE_VALGRIND OR USE_MSAN OR USE_TSAN OR USE_UBSAN)
   set(USE_SANITIZER ON)
 endif()
 
-set(jemalloc_default ON)
-# We don't want to use jemalloc on Windows
-# Nor on FreeBSD, where jemalloc is the default system allocator
-if(USE_SANITIZER OR WIN32 OR (CMAKE_SYSTEM_NAME STREQUAL "FreeBSD") OR APPLE)
-  set(jemalloc_default OFF)
-endif()
+set(jemalloc_default OFF)
+# Jemalloc is now opt-in rather than opt-out to improve compatibility
+# with various system configurations and memory analysis tools
+# Users must explicitly enable it with -DUSE_JEMALLOC=ON
 env_set(USE_JEMALLOC ${jemalloc_default} BOOL "Link with jemalloc")
 env_set(USE_CUSTOM_JEMALLOC OFF BOOL "Manually download and build jemalloc")
 

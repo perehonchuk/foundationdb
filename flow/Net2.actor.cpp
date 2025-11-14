@@ -22,6 +22,7 @@
 #include "boost/asio/ip/address.hpp"
 #include "boost/system/system_error.hpp"
 #include "flow/Arena.h"
+#include "flow/FastAlloc.h"
 #include "flow/Knobs.h"
 #include "flow/Platform.h"
 #include "flow/Trace.h"
@@ -1585,6 +1586,7 @@ ActorLineageSet& Net2::getActorLineageSet() {
 void Net2::run() {
 	TraceEvent::setNetworkThread();
 	TraceEvent("Net2Running").log();
+	traceFastAllocatorChoice();
 	thread_network = this;
 
 	unsigned int tasksSinceReact = 0;

@@ -392,4 +392,7 @@ inline void freeFast4kAligned(int size, void* ptr) {
 	aligned_free(ptr);
 }
 
+// Trace which allocator is being used at startup
+void traceFastAllocatorChoice();
+
 #endif
