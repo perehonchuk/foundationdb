@@ -676,6 +676,24 @@ public:
 	// binary-searchable.
 	std::deque<std::pair<Version, Tree>> roots;
 
+	// Range query result cache: caches the results of recent range queries to avoid
+	// repeated tree traversals for the same range. This is particularly beneficial when
+	// clearRange mutations are present, as it eliminates the need for double traversal
+	// (once to establish end bounds, and once again during the merge step).
+	struct RangeQueryCacheEntry {
+		K startKey;
+		K endKey;
+		Version version;
+		std::vector<std::pair<K, T>> cachedResults;
+		double cacheTime;
+
+		RangeQueryCacheEntry(K const& start, K const& end, Version v)
+			: startKey(start), endKey(end), version(v), cacheTime(now()) {}
+	};
+
+	static constexpr int RANGE_QUERY_CACHE_SIZE = 16;
+	mutable std::deque<RangeQueryCacheEntry> rangeQueryCache;
+
 	struct rootsComparator {
 		bool operator()(const std::pair<Version, Tree>& value, const Version& key) { return (value.first < key); }
 		bool operator()(const Version& key, const std::pair<Version, Tree>& value) { return (key < value.first); }
@@ -756,6 +774,39 @@ public:
 		return deferredCleanupActor(toFree, taskID);
 	}
 
+	// Invalidate cache entries that overlap with the given key range
+	void invalidateRangeCache(const K& begin, const K& end) const {
+		rangeQueryCache.erase(
+			std::remove_if(rangeQueryCache.begin(), rangeQueryCache.end(),
+				[&](const RangeQueryCacheEntry& entry) {
+					// Check if ranges overlap: (begin < entry.endKey) && (end > entry.startKey)
+					return (::compare(begin, entry.endKey) < 0) && (::compare(end, entry.startKey) > 0);
+				}),
+			rangeQueryCache.end());
+	}
+
+	// Check if a range query result is cached
+	bool lookupRangeCache(const K& begin, const K& end, Version v, std::vector<std::pair<K, T>>& results) const {
+		for (const auto& entry : rangeQueryCache) {
+			if (entry.version == v &&
+				::compare(entry.startKey, begin) == 0 &&
+				::compare(entry.endKey, end) == 0) {
+				results = entry.cachedResults;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Cache a range query result
+	void cacheRangeQuery(const K& begin, const K& end, Version v, const std::vector<std::pair<K, T>>& results) const {
+		if (rangeQueryCache.size() >= RANGE_QUERY_CACHE_SIZE) {
+			rangeQueryCache.pop_front(); // Remove oldest entry
+		}
+		rangeQueryCache.emplace_back(begin, end, v);
+		rangeQueryCache.back().cachedResults = results;
+	}
+
 public:
 	void createNewVersion(Version version) { // following sets and erases are into the given version, which may now be
 		                                     // passed to at().  Must be called in monotonically increasing order.
@@ -772,10 +823,15 @@ public:
 	void insert(const K& k, const T& t, Version insertAt) {
 		PTreeImpl::insert(
 		    roots.back().second, latestVersion, MapPair<K, std::pair<T, Version>>(k, std::make_pair(t, insertAt)));
+		invalidateRangeCache(k, k);
 	}
-	void erase(const K& begin, const K& end) { PTreeImpl::remove(roots.back().second, latestVersion, begin, end); }
+	void erase(const K& begin, const K& end) {
+		PTreeImpl::remove(roots.back().second, latestVersion, begin, end);
+		invalidateRangeCache(begin, end);
+	}
 	void erase(const K& key) { // key must be present
 		PTreeImpl::remove(roots.back().second, latestVersion, key);
+		invalidateRangeCache(key, key);
 	}
 	void erase(iterator const& item) { // iterator must be in latest version!
 		ASSERT_EQ(item.at, latestVersion);
