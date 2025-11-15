@@ -1041,6 +1041,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( FUTURE_VERSION_DELAY,                                  1.0 );
 	init( STORAGE_LIMIT_BYTES,                                500000 );
 	init( BUGGIFY_LIMIT_BYTES,                                  1000 );
+	init( ENABLE_VALUE_COMPRESSION,                             true ); // Enable automatic value compression by default
+	init( VALUE_COMPRESSION_THRESHOLD,                          8192 ); // Compress values larger than 8KB
+	init( VALUE_COMPRESSION_LEVEL,                                 3 ); // Default ZSTD compression level
 	init( FETCH_USING_STREAMING,                               false ); if( randomize && isSimulated && BUGGIFY ) FETCH_USING_STREAMING = true; //Determines if fetch keys uses streaming reads
 	init( FETCH_USING_BLOB,                                    false );
 	init( FETCH_BLOCK_BYTES,                                     2e6 );

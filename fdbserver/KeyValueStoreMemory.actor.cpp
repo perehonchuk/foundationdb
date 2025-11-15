@@ -23,6 +23,7 @@
 #include "fdbclient/Knobs.h"
 #include "fdbclient/Notified.h"
 #include "fdbclient/SystemData.h"
+#include "fdbclient/ServerKnobs.h"
 #include "fdbserver/ServerDBInfo.actor.h"
 #include "fdbserver/DeltaTree.h"
 #include "fdbclient/GetEncryptCipherKeys.h"
@@ -32,6 +33,7 @@
 #include "fdbserver/RadixTree.h"
 #include "fdbserver/TransactionStoreMutationTracking.h"
 #include "flow/ActorCollection.h"
+#include "flow/CompressionUtils.h"
 #include "flow/EncryptUtils.h"
 #include "flow/Knobs.h"
 #include "flow/actorcompiler.h" // This must be the last #include.
@@ -126,10 +128,23 @@ public:
 		if (getAvailableSize() <= 0)
 			return;
 
+		// Apply automatic value compression for large values
+		KeyValueRef actualKeyValue = keyValue;
+		Arena compressionArena;
+		if (SERVER_KNOBS->ENABLE_VALUE_COMPRESSION &&
+		    keyValue.value.size() > SERVER_KNOBS->VALUE_COMPRESSION_THRESHOLD) {
+			StringRef compressedValue = CompressionUtils::compress(
+				CompressionFilter::ZSTD,
+				keyValue.value,
+				SERVER_KNOBS->VALUE_COMPRESSION_LEVEL,
+				compressionArena);
+			actualKeyValue = KeyValueRef(keyValue.key, compressedValue);
+		}
+
 		if (transactionIsLarge) {
-			data.insert(keyValue.key, keyValue.value);
+			data.insert(actualKeyValue.key, actualKeyValue.value);
 		} else {
-			queue.set(keyValue, arena);
+			queue.set(actualKeyValue, arena);
 			if (recovering.isReady() && !disableSnapshot) {
 				semiCommit();
 			}

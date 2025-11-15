@@ -22,9 +22,11 @@
 #define SQLITE_THREADSAFE 0 // also in sqlite3.amalgamation.c!
 #include "fmt/format.h"
 #include "crc32/crc32c.h"
+#include "fdbclient/ServerKnobs.h"
 #include "fdbserver/IKeyValueStore.h"
 #include "fdbserver/CoroFlow.h"
 #include "fdbserver/Knobs.h"
+#include "flow/CompressionUtils.h"
 #include "flow/Hash3.h"
 #include "flow/xxhash.h"
 
@@ -2238,7 +2240,21 @@ void KeyValueStoreSQLite::startReadThreads() {
 
 void KeyValueStoreSQLite::set(KeyValueRef keyValue, const Arena* arena) {
 	++writesRequested;
-	writeThread->post(new Writer::SetAction(keyValue));
+
+	// Apply automatic value compression for large values
+	if (SERVER_KNOBS->ENABLE_VALUE_COMPRESSION &&
+	    keyValue.value.size() > SERVER_KNOBS->VALUE_COMPRESSION_THRESHOLD) {
+		Arena compressionArena;
+		StringRef compressedValue = CompressionUtils::compress(
+			CompressionFilter::ZSTD,
+			keyValue.value,
+			SERVER_KNOBS->VALUE_COMPRESSION_LEVEL,
+			compressionArena);
+		KeyValue compressedKV(keyValue.key, compressedValue, compressionArena);
+		writeThread->post(new Writer::SetAction(compressedKV));
+	} else {
+		writeThread->post(new Writer::SetAction(keyValue));
+	}
 }
 void KeyValueStoreSQLite::clear(KeyRangeRef range, const Arena* arena) {
 	++writesRequested;

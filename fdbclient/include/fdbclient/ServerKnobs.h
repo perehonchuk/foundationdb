@@ -1104,6 +1104,9 @@ public:
 	double FUTURE_VERSION_DELAY;
 	int STORAGE_LIMIT_BYTES;
 	int BUGGIFY_LIMIT_BYTES;
+	bool ENABLE_VALUE_COMPRESSION; // Enable automatic compression of large values
+	int VALUE_COMPRESSION_THRESHOLD; // Compress values larger than this threshold (bytes)
+	int VALUE_COMPRESSION_LEVEL; // ZSTD compression level (1-22)
 	bool FETCH_USING_STREAMING;
 	bool FETCH_USING_BLOB;
 	int FETCH_BLOCK_BYTES;
