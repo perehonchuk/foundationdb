@@ -73,7 +73,7 @@ void validateEncryptHeaderAlgoHeaderVersion(const EncryptCipherMode cipherMode,
                                             const EncryptAuthTokenMode authMode,
                                             const EncryptAuthTokenAlgo authAlgo,
                                             const int version) {
-	if (cipherMode != ENCRYPT_CIPHER_MODE_AES_256_CTR) {
+	if (cipherMode != ENCRYPT_CIPHER_MODE_AES_256_CTR && cipherMode != ENCRYPT_CIPHER_MODE_AES_256_GCM) {
 		TraceEvent("EncryptHeaderUnsupportedEncryptCipherMode")
 		    .detail("MaxSupportedVersion", CLIENT_KNOBS->ENCRYPT_HEADER_FLAGS_VERSION)
 		    .detail("CipherMode", cipherMode);
@@ -81,7 +81,16 @@ void validateEncryptHeaderAlgoHeaderVersion(const EncryptCipherMode cipherMode,
 	}
 
 	int maxSupportedVersion = -1;
-	if (authMode == ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE) {
+	if (cipherMode == ENCRYPT_CIPHER_MODE_AES_256_GCM) {
+		// GCM mode has built-in authentication, only no-auth mode is supported
+		if (authMode != ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE) {
+			TraceEvent("EncryptHeaderInvalidGcmAuthMode")
+			    .detail("CipherMode", cipherMode)
+			    .detail("AuthMode", authMode);
+			throw not_implemented();
+		}
+		maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_NO_AUTH_VERSION;
+	} else if (authMode == ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE) {
 		maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_NO_AUTH_VERSION;
 	} else {
 		ASSERT_EQ(authMode, ENCRYPT_HEADER_AUTH_TOKEN_MODE_SINGLE);
@@ -125,19 +134,21 @@ uint32_t BlobCipherEncryptHeaderRef::getHeaderSize(const int flagVersion,
 
 	uint32_t total = sizeof(BlobCipherEncryptHeaderFlagsV1) + 2; // 2 bytes of std::variant index
 
-	if (cipherMode != ENCRYPT_CIPHER_MODE_AES_256_CTR) {
-		throw not_implemented();
-	}
-
-	if (authMode == ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE) {
-		total += AesCtrNoAuth::getSize();
-	} else {
-		if (authAlgo == ENCRYPT_HEADER_AUTH_TOKEN_ALGO_HMAC_SHA) {
-			total += AesCtrWithHmac::getSize();
+	if (cipherMode == ENCRYPT_CIPHER_MODE_AES_256_CTR) {
+		if (authMode == ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE) {
+			total += AesCtrNoAuth::getSize();
 		} else {
-			ASSERT_EQ(authAlgo, ENCRYPT_HEADER_AUTH_TOKEN_ALGO_AES_CMAC);
-			total += AesCtrWithCmac::getSize();
+			if (authAlgo == ENCRYPT_HEADER_AUTH_TOKEN_ALGO_HMAC_SHA) {
+				total += AesCtrWithHmac::getSize();
+			} else {
+				ASSERT_EQ(authAlgo, ENCRYPT_HEADER_AUTH_TOKEN_ALGO_AES_CMAC);
+				total += AesCtrWithCmac::getSize();
+			}
 		}
+	} else if (cipherMode == ENCRYPT_CIPHER_MODE_AES_256_GCM) {
+		total += AesGcmNoAuth::getSize();
+	} else {
+		throw not_implemented();
 	}
 	return total;
 }

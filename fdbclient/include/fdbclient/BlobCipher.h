@@ -458,6 +458,96 @@ struct AesCtrNoAuth {
 	}
 };
 
+// AES-256-GCM mode structures
+// GCM provides built-in authentication, eliminating need for separate auth tokens
+#define AES_256_GCM_TAG_LENGTH 16
+
+struct AesGcmNoAuthV1 {
+	// Serializable fields
+
+	// Text cipher encryption information
+	BlobCipherDetails cipherTextDetails;
+	// Text cipher Key Check Value
+	EncryptCipherKeyCheckValue textKCV;
+	// Initialization vector (nonce for GCM)
+	uint8_t iv[AES_256_IV_LENGTH];
+	// GCM authentication tag
+	uint8_t tag[AES_256_GCM_TAG_LENGTH];
+
+	AesGcmNoAuthV1() = default;
+	AesGcmNoAuthV1(const BlobCipherDetails& textDetails,
+	               const EncryptCipherKeyCheckValue tKCV,
+	               const uint8_t* ivBuf,
+	               const int ivLen)
+	  : cipherTextDetails(textDetails), textKCV(tKCV) {
+		ASSERT_EQ(ivLen, AES_256_IV_LENGTH);
+		memcpy(&iv[0], ivBuf, ivLen);
+		memset(&tag[0], 0, AES_256_GCM_TAG_LENGTH);
+	}
+
+	bool operator==(const AesGcmNoAuthV1& o) const {
+		return cipherTextDetails == o.cipherTextDetails && textKCV == o.textKCV &&
+		       memcmp(&iv[0], &o.iv[0], AES_256_IV_LENGTH) == 0 &&
+		       memcmp(&tag[0], &o.tag[0], AES_256_GCM_TAG_LENGTH) == 0;
+	}
+
+	static uint32_t getSize() {
+		return BlobCipherDetails::getSize() + sizeof(EncryptCipherKeyCheckValue) + AES_256_IV_LENGTH +
+		       AES_256_GCM_TAG_LENGTH;
+	}
+
+	template <class Ar>
+	void serialize(Ar& ar) {
+		serializer(ar, cipherTextDetails, textKCV);
+		ar.serializeBytes(iv, AES_256_IV_LENGTH);
+		ar.serializeBytes(tag, AES_256_GCM_TAG_LENGTH);
+	}
+};
+
+struct AesGcmNoAuth {
+	// Serializable fields
+
+	// Algorithm header version
+	uint8_t version = 1;
+	// List of supported versions.
+	union {
+		AesGcmNoAuthV1 v1;
+	};
+
+	AesGcmNoAuth() {
+		// Only V1 is supported
+		ASSERT_EQ(1, CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_NO_AUTH_VERSION);
+	}
+
+	AesGcmNoAuth(AesGcmNoAuthV1& v) : v1(v) {
+		// Only V1 is supported
+		ASSERT_EQ(1, CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_NO_AUTH_VERSION);
+	}
+
+	static uint32_t getSize() { return AesGcmNoAuthV1::getSize() + 1; }
+
+	static Standalone<StringRef> toStringRef(const AesGcmNoAuth& algoHeader) {
+		BinaryWriter wr(AssumeVersion(ProtocolVersion::withEncryptionAtRest()));
+		wr << algoHeader;
+		return wr.toValue();
+	}
+
+	template <class Ar>
+	void serialize(Ar& ar) {
+		if (ar.isSerializing) {
+			ASSERT_EQ(1, version);
+		}
+		serializer(ar, version);
+		if (ar.isDeserializing && version != 1) {
+			TraceEvent(SevWarn, "BlobCipherEncryptHeaderUnsupportedAlgoHeaderVersion")
+			    .detail("HeaderType", "AesGcmNoAuth")
+			    .detail("Version", version);
+			throw not_implemented();
+		}
+		serializer(ar, v1);
+	}
+};
+
 struct EncryptHeaderCipherKCVs {
 	EncryptCipherKeyCheckValue textKCV;
 	Optional<EncryptCipherKeyCheckValue> headerKCV;
@@ -471,7 +561,7 @@ struct EncryptHeaderCipherKCVs {
 struct BlobCipherEncryptHeaderRef {
 	// Serializable fields
 	std::variant<BlobCipherEncryptHeaderFlagsV1> flags;
-	std::variant<AesCtrNoAuth, AesCtrWithHmac, AesCtrWithCmac> algoHeader;
+	std::variant<AesCtrNoAuth, AesCtrWithHmac, AesCtrWithCmac, AesGcmNoAuth> algoHeader;
 
 	BlobCipherEncryptHeaderRef() = default;
 	BlobCipherEncryptHeaderRef(const BlobCipherEncryptHeaderRef& src) = default;

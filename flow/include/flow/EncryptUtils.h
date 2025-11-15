@@ -70,7 +70,8 @@ static const std::unordered_set<EncryptCipherDomainId> ENCRYPT_CIPHER_DETAULT_DO
 typedef enum {
 	ENCRYPT_CIPHER_MODE_NONE = 0,
 	ENCRYPT_CIPHER_MODE_AES_256_CTR = 1,
-	ENCRYPT_CIPHER_MODE_LAST = 2
+	ENCRYPT_CIPHER_MODE_AES_256_GCM = 2,
+	ENCRYPT_CIPHER_MODE_LAST = 3
 } EncryptCipherMode;
 
 static_assert(EncryptCipherMode::ENCRYPT_CIPHER_MODE_LAST <= std::numeric_limits<uint8_t>::max(),
