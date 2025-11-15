@@ -320,7 +320,8 @@ public:
 	int MAX_TEAMS_PER_SERVER;
 	int64_t DD_SHARD_SIZE_GRANULARITY;
 	int64_t DD_SHARD_SIZE_GRANULARITY_SIM;
-	int DD_MOVE_KEYS_PARALLELISM;
+	int DD_MOVE_KEYS_PARALLELISM; // Controls concurrent moveKeys operations
+	int DD_RELOCATE_SHARD_PARALLELISM; // Controls maximum concurrent shard relocations
 	int DD_FETCH_SOURCE_PARALLELISM;
 	int DD_MERGE_LIMIT;
 	double DD_SHARD_METRICS_TIMEOUT;

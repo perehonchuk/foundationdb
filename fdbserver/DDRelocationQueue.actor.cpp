@@ -623,6 +623,7 @@ DDQueue::DDQueue(DDQueueInitParams const& params)
     startMoveKeysParallelismLock(SERVER_KNOBS->DD_MOVE_KEYS_PARALLELISM),
     finishMoveKeysParallelismLock(SERVER_KNOBS->DD_MOVE_KEYS_PARALLELISM),
     cleanUpDataMoveParallelismLock(SERVER_KNOBS->DD_MOVE_KEYS_PARALLELISM),
+    relocateShardParallelismLock(SERVER_KNOBS->DD_RELOCATE_SHARD_PARALLELISM),
     fetchSourceLock(new FlowLock(SERVER_KNOBS->DD_FETCH_SOURCE_PARALLELISM)), activeRelocations(0),
     queuedRelocations(0), bytesWritten(0), teamSize(params.teamSize), singleRegionTeamSize(params.singleRegionTeamSize),
     output(params.relocationProducer), input(params.relocationConsumer), getShardMetrics(params.getShardMetrics),
@@ -1528,6 +1529,10 @@ ACTOR Future<Void> dataDistributionRelocator(DDQueue* self,
 	// We will decide doBulkLoading after prevCleanup completes.
 	// rd.bulkLoadTask.present() is just the default value.
 	state bool doBulkLoading = rd.bulkLoadTask.present();
+
+	// Acquire the relocate shard parallelism lock to throttle concurrent relocations
+	wait(self->relocateShardParallelismLock.take(TaskPriority::DataDistributionLaunch));
+	state FlowLock::Releaser relocateLockReleaser(self->relocateShardParallelismLock);
 
 	try {
 		if (now() - self->lastInterval < 1.0) {

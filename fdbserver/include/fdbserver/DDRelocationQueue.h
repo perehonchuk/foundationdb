@@ -251,6 +251,7 @@ public:
 	FlowLock startMoveKeysParallelismLock;
 	FlowLock finishMoveKeysParallelismLock;
 	FlowLock cleanUpDataMoveParallelismLock;
+	FlowLock relocateShardParallelismLock; // Throttles concurrent shard relocations
 	Reference<FlowLock> fetchSourceLock;
 
 	int activeRelocations;
