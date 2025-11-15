@@ -45,7 +45,7 @@ namespace PTreeImpl {
 template <class T>
 struct PTree : public ReferenceCounted<PTree<T>>, FastAllocated<PTree<T>>, NonCopyable {
 	uint32_t priority;
-	Reference<PTree> pointer[3];
+	Reference<PTree> pointer[4]; // Added 4th pointer for parent navigation optimization
 	Version lastUpdateVersion;
 	bool updated;
 	bool replacedPointer;
@@ -59,14 +59,25 @@ struct PTree : public ReferenceCounted<PTree<T>>, FastAllocated<PTree<T>>, NonCo
 	}
 	const Reference<PTree>& left(Version at) const { return child(false, at); }
 	const Reference<PTree>& right(Version at) const { return child(true, at); }
+	const Reference<PTree>& parent() const { return pointer[3]; }
+	void setParent(const Reference<PTree>& p) { pointer[3] = p; }
 
 	PTree(const T& data, Version ver) : lastUpdateVersion(ver), updated(false), data(data) {
 		priority = deterministicRandom()->randomUInt32();
+		pointer[3] = Reference<PTree>(); // Initialize parent pointer to null
 	}
 	PTree(uint32_t pri, T const& data, Reference<PTree> const& left, Reference<PTree> const& right, Version ver)
 	  : priority(pri), lastUpdateVersion(ver), updated(false), data(data) {
 		pointer[0] = left;
 		pointer[1] = right;
+		pointer[3] = Reference<PTree>(); // Initialize parent pointer to null
+		// Set parent pointers for children
+		if (left) {
+			const_cast<PTree*>(left.getPtr())->pointer[3] = Reference<PTree>::addRef(this);
+		}
+		if (right) {
+			const_cast<PTree*>(right.getPtr())->pointer[3] = Reference<PTree>::addRef(this);
+		}
 	}
 
 private:
@@ -149,25 +160,43 @@ static Reference<PTree<T>> update(Reference<PTree<T>> const& node,
 			else
 				r = makeReference<PTree<T>>(node->priority, node->data, ptr, node->child(1, at), at);
 			node->pointer[2].clear();
+			// Update parent pointer for new child
+			if (ptr) {
+				const_cast<PTree<T>*>(ptr.getPtr())->pointer[3] = r;
+			}
 			return r;
 		} else {
 			if (node->updated)
 				node->pointer[2] = ptr;
 			else
 				node->pointer[which] = ptr;
+			// Update parent pointer for new child
+			if (ptr) {
+				const_cast<PTree<T>*>(ptr.getPtr())->pointer[3] = node;
+			}
 			return node;
 		}
 	}
 	if (node->updated) {
+		Reference<PTree<T>> r;
 		if (which)
-			return makeReference<PTree<T>>(node->priority, node->data, node->child(0, at), ptr, at);
+			r = makeReference<PTree<T>>(node->priority, node->data, node->child(0, at), ptr, at);
 		else
-			return makeReference<PTree<T>>(node->priority, node->data, ptr, node->child(1, at), at);
+			r = makeReference<PTree<T>>(node->priority, node->data, ptr, node->child(1, at), at);
+		// Update parent pointer for new child
+		if (ptr) {
+			const_cast<PTree<T>*>(ptr.getPtr())->pointer[3] = r;
+		}
+		return r;
 	} else {
 		node->lastUpdateVersion = at;
 		node->replacedPointer = which;
 		node->pointer[2] = ptr;
 		node->updated = true;
+		// Update parent pointer for new child
+		if (ptr) {
+			const_cast<PTree<T>*>(ptr.getPtr())->pointer[3] = node;
+		}
 		return node;
 	}
 }
@@ -287,7 +316,10 @@ void insert(Reference<PTree<T>>& p, Version at, const T& x) {
 	} else {
 		int c = ::compare(x, p->data);
 		if (c == 0) {
-			p = makeReference<PTree<T>>(p->priority, x, p->left(at), p->right(at), at);
+			auto newNode = makeReference<PTree<T>>(p->priority, x, p->left(at), p->right(at), at);
+			// Preserve parent pointer from old node
+			newNode->pointer[3] = p->pointer[3];
+			p = newNode;
 		} else {
 			const bool direction = !(c < 0);
 			Reference<PTree<T>> child = p->child(direction, at);
@@ -535,7 +567,13 @@ void split(Reference<PTree<T>> p, const X& x, Reference<PTree<T>>& left, Referen
 template <class T>
 void rotate(Reference<PTree<T>>& n, Version at, bool right) {
 	auto l = n->child(!right, at);
+	// Save parent pointer before rotation
+	auto parentPtr = n->pointer[3];
 	n = update(l, right, update(n, !right, l->child(right, at), at), at);
+	// Restore parent pointer after rotation
+	if (n) {
+		const_cast<PTree<T>*>(n.getPtr())->pointer[3] = parentPtr;
+	}
 	// Diagram for right = true
 	//   n      l
 	//  /        \
@@ -609,6 +647,18 @@ void check(const Reference<PTree<T>>& p) {
 	}
 }
 
+// Traverse upward using parent pointers to find root - enables efficient bottom-up operations
+template <class T>
+Reference<PTree<T>> findRoot(const Reference<PTree<T>>& node) {
+	if (!node)
+		return Reference<PTree<T>>();
+	Reference<PTree<T>> current = node;
+	while (current->parent()) {
+		current = current->parent();
+	}
+	return current;
+}
+
 // Remove pointers to any child nodes that have been updated at or before the given version
 // This essentially gets rid of node versions that will never be read (beyond 5s worth of versions)
 // TODO look into making this per-version compaction. (We could keep track of updated nodes at each version for example)
@@ -625,6 +675,10 @@ void compact(Reference<PTree<T>>& p, Version newOldestVersion) {
 		p->pointer[which] = p->pointer[2];
 		p->updated = false;
 		p->pointer[2] = Reference<PTree<T>>();
+		// Update parent pointer for the replaced child
+		if (p->pointer[which]) {
+			const_cast<PTree<T>*>(p->pointer[which].getPtr())->pointer[3] = p;
+		}
 		// p->pointer[which] = Reference<PTree<T>>();
 	}
 	Reference<PTree<T>> left = p->left(newOldestVersion);
