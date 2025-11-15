@@ -1122,7 +1122,8 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	// Read priority definitions in the form of a list of their relative concurrency share weights
 	init( STORAGESERVER_READ_PRIORITIES,           "120,10,20,40,60" );
 	// The total concurrency which will be shared by active priorities according to their relative weights
-	init( STORAGE_SERVER_READ_CONCURRENCY,                        70 );
+	// Increased from 70 to 96 to improve throughput for high-concurrency read workloads
+	init( STORAGE_SERVER_READ_CONCURRENCY,                        96 );
 	// The priority number which each ReadType maps to in enumeration order
 	// This exists for flexibility but assigning each ReadType to its own unique priority number makes the most sense
 	// The enumeration is currently: eager, fetch, low, normal, high

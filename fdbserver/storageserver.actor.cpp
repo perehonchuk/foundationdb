@@ -2312,7 +2312,16 @@ ACTOR Future<Void> getValueQ(StorageServer* data, GetValueRequest req) {
 
 		// Track time from requestTime through now as read queueing wait time
 		state double queueWaitEnd = g_network->timer();
-		data->counters.readQueueWaitSample->addMeasurement(queueWaitEnd - req.requestTime());
+		double lockWaitTime = queueWaitEnd - req.requestTime();
+		data->counters.readQueueWaitSample->addMeasurement(lockWaitTime);
+
+		// Log when read lock acquisition takes longer than expected, which may indicate read concurrency saturation
+		if (lockWaitTime > 0.1) {
+			TraceEvent(SevWarn, "StorageServerReadConcurrencySaturation", data->thisServerID)
+			    .detail("LockWaitTimeSeconds", lockWaitTime)
+			    .detail("MaxConcurrency", SERVER_KNOBS->STORAGE_SERVER_READ_CONCURRENCY)
+			    .detail("Key", req.key);
+		}
 
 		if (req.options.present() && req.options.get().debugID.present())
 			g_traceBatch.addEvent("GetValueDebug",
@@ -12760,7 +12769,8 @@ ACTOR Future<Void> storageServer(IKeyValueStore* persistentData,
 		    .detail("EngineType", self.storage.getKeyValueStoreType().toString())
 		    .detail("Version", self.version.get())
 		    .detail("SeedTag", seedTag.toString())
-		    .detail("TssPair", ssi.isTss() ? ssi.tssPairID.get().toString() : "");
+		    .detail("TssPair", ssi.isTss() ? ssi.tssPairID.get().toString() : "")
+		    .detail("ReadConcurrency", SERVER_KNOBS->STORAGE_SERVER_READ_CONCURRENCY);
 		InitializeStorageReply rep;
 		rep.interf = ssi;
 		rep.addedVersion = self.version.get();
