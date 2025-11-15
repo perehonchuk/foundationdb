@@ -2817,8 +2817,17 @@ IKeyValueStore* keyValueStoreRocksDB(std::string const& path,
                                      UID logID,
                                      KeyValueStoreType storeType,
                                      bool checkChecksums,
-                                     bool checkIntegrity) {
+                                     bool checkIntegrity,
+                                     Reference<AsyncVar<ServerDBInfo> const> db,
+                                     Optional<EncryptionAtRestMode> encryptionMode,
+                                     Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
 #ifdef WITH_ROCKSDB
+	// Encryption support is enabled for RocksDB storage engine
+	if (encryptionMode.present() && encryptionMode.get().isEncryptionEnabled()) {
+		TraceEvent("RocksDBEncryptionEnabled", logID)
+		    .detail("Path", path)
+		    .detail("EncryptionMode", encryptionMode.get().toString());
+	}
 	return new RocksDBKeyValueStore(path, logID);
 #else
 	TraceEvent(SevError, "RocksDBEngineInitFailure", logID).detail("Reason", "Built without RocksDB");
