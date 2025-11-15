@@ -191,6 +191,8 @@ struct Resolver : ReferenceCounted<Resolver> {
 	EncryptionAtRestMode encryptMode;
 
 	Version lastShardMove;
+	Version lastConflictCompactVersion;
+	double lastConflictCompactTime;
 
 	Resolver(UID dbgid, int commitProxyCount, int resolverCount, EncryptionAtRestMode encryptMode)
 	  : dbgid(dbgid), commitProxyCount(commitProxyCount), resolverCount(resolverCount), encryptMode(encryptMode),
@@ -210,7 +212,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    computeTimeDist(Histogram::getHistogram("Resolver"_sr, "ComputeTime"_sr, Histogram::Unit::milliseconds)),
 	    // Distribution of queue depths, with knowledge that Histogram has 32 buckets, and each bucket will have size 1.
 	    queueDepthDist(Histogram::getHistogram("Resolver"_sr, "QueueDepth"_sr, Histogram::Unit::countLinear, 0, 31)),
-	    lastShardMove(invalidVersion) {
+	    lastShardMove(invalidVersion), lastConflictCompactVersion(0), lastConflictCompactTime(0.0) {
 		specialCounter(cc, "Version", [this]() { return this->version.get(); });
 		specialCounter(cc, "NeededVersion", [this]() { return this->neededVersion.get(); });
 		specialCounter(cc, "TotalStateBytes", [this]() { return this->totalStateBytes.get(); });
@@ -380,6 +382,23 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		self->transactionsAccepted += commitList.size();
 		self->transactionsTooOld += tooOldList.size();
 		self->transactionsConflicted += req.transactions.size() - commitList.size() - tooOldList.size();
+
+		// Periodically compact conflict set to reduce memory usage
+		if (SERVER_KNOBS->RESOLVER_COALESCE_CONFLICT_RANGES) {
+			double currentTime = now();
+			if (currentTime - self->lastConflictCompactTime >= SERVER_KNOBS->RESOLVER_CONFLICT_COMPACT_INTERVAL) {
+				Version compactThreshold = req.version - SERVER_KNOBS->RESOLVER_COALESCE_MIN_VERSION_GAP;
+				if (compactThreshold > self->lastConflictCompactVersion) {
+					compactConflictSet(self->conflictSet, compactThreshold);
+					self->lastConflictCompactVersion = compactThreshold;
+					self->lastConflictCompactTime = currentTime;
+					TraceEvent("ResolverConflictSetCompacted", self->dbgid)
+					    .detail("Version", req.version)
+					    .detail("CompactThreshold", compactThreshold)
+					    .detail("VersionGap", req.version - compactThreshold);
+				}
+			}
+		}
 
 		ASSERT(req.prevVersion >= 0 ||
 		       req.txnStateTransactions.size() == 0); // The master's request should not have any state transactions

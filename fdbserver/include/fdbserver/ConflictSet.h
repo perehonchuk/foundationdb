@@ -31,6 +31,7 @@
 struct ConflictSet;
 ConflictSet* newConflictSet();
 void clearConflictSet(ConflictSet*, Version);
+void compactConflictSet(ConflictSet*, Version minVersionToKeep);
 void destroyConflictSet(ConflictSet*);
 
 struct ConflictBatch {

@@ -799,6 +799,12 @@ ConflictSet* newConflictSet() {
 void clearConflictSet(ConflictSet* cs, Version v) {
 	SkipList(v).swap(cs->versionHistory);
 }
+void compactConflictSet(ConflictSet* cs, Version minVersionToKeep) {
+	if (cs->oldestVersion < minVersionToKeep) {
+		cs->versionHistory.removeBefore(minVersionToKeep);
+		cs->oldestVersion = minVersionToKeep;
+	}
+}
 void destroyConflictSet(ConflictSet* cs) {
 	delete cs;
 }

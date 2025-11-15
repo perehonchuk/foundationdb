@@ -1138,6 +1138,12 @@ ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 	for (int r = 0; r < pProxyCommitData->resolvers.size(); r++) {
 		requests.requests[r].debugID = self->debugID;
 		requests.requests[r].writtenTags = self->writtenTagsPreResolution;
+		if (SERVER_KNOBS->RESOLVER_COALESCE_CONFLICT_RANGES && r == 0) {
+			TraceEvent("ProxySendingToResolver")
+			    .detail("Resolver", r)
+			    .detail("Transactions", requests.requests[r].transactions.size())
+			    .detail("Version", self->commitVersion);
+		}
 		replies.push_back(trackResolutionMetrics(pProxyCommitData->stats.resolverDist[r],
 		                                         brokenPromiseToNever(pProxyCommitData->resolvers[r].resolve.getReply(
 		                                             requests.requests[r], TaskPriority::ProxyResolverReply))));

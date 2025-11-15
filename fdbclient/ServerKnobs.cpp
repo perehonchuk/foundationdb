@@ -785,6 +785,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( SAMPLE_EXPIRATION_TIME,                                1.0 );
 	init( SAMPLE_POLL_TIME,                                      0.1 );
 	init( RESOLVER_STATE_MEMORY_LIMIT,                           1e6 );
+	init( RESOLVER_COALESCE_CONFLICT_RANGES,                    true );
+	init( RESOLVER_COALESCE_MIN_VERSION_GAP,        2 * VERSIONS_PER_SECOND );
+	init( RESOLVER_CONFLICT_COMPACT_INTERVAL,                    0.5 );
 	init( LAST_LIMITED_RATIO,                                    2.0 );
 
 	// Backup Worker

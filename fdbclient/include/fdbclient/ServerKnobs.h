@@ -757,6 +757,9 @@ public:
 	double SAMPLE_EXPIRATION_TIME;
 	double SAMPLE_POLL_TIME;
 	int64_t RESOLVER_STATE_MEMORY_LIMIT;
+	bool RESOLVER_COALESCE_CONFLICT_RANGES;
+	int64_t RESOLVER_COALESCE_MIN_VERSION_GAP;
+	double RESOLVER_CONFLICT_COMPACT_INTERVAL;
 
 	// Backup Worker
 	double BACKUP_TIMEOUT; // master's reaction time for backup failure
