@@ -466,6 +466,7 @@ public:
 	Counter transactionGetValueRequests;
 	Counter transactionGetRangeRequests;
 	Counter transactionGetMappedRangeRequests;
+	Counter transactionSnapshotMappedReads; // getMappedRange calls with snapshot isolation
 	Counter transactionGetRangeStreamRequests;
 	Counter transactionWatchRequests;
 	Counter transactionGetAddressesForKeyRequests;

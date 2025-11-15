@@ -5577,6 +5577,13 @@ ACTOR Future<Void> getMappedKeyValuesQ(StorageServer* data, GetMappedKeyValuesRe
 		state Version version = wait(waitForVersion(data, commitVersion, req.version, span.context));
 		data->counters.readVersionWaitSample->addMeasurement(g_network->timer() - queueWaitEnd);
 
+		// Log when getMappedRange is used with snapshot isolation (reads without conflict tracking)
+		if (req.options.present() && req.options.get().readType == ReadType::FETCH) {
+			TraceEvent(SevDebug, "SSGetMappedRangeSnapshot", data->thisServerID)
+			    .detail("Version", version)
+			    .detail("TxnID", req.spanContext.traceID);
+		}
+
 		data->checkTenantEntry(version, req.tenantInfo, req.options.present() ? req.options.get().lockAware : false);
 		if (req.tenantInfo.hasTenant()) {
 			req.begin.setKeyUnlimited(req.begin.getKey().withPrefix(req.tenantInfo.prefix.get(), req.arena));

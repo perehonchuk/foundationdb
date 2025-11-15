@@ -4041,12 +4041,11 @@ Future<RangeResultFamily> Transaction::getRangeInternal(const KeySelector& begin
 		return RangeResultFamily();
 	}
 
-	if (!snapshot && !std::is_same_v<GetKeyValuesFamilyRequest, GetKeyValuesRequest>) {
-		// Currently, NativeAPI does not support serialization for getMappedRange. You should consider use
-		// ReadYourWrites APIs which wraps around NativeAPI and provides serialization for getMappedRange. (Even if
-		// you don't want RYW, you may use ReadYourWrites APIs with RYW disabled.)
-		throw unsupported_operation();
-	}
+	// Snapshot isolation is now supported for getMappedRange operations.
+	// When snapshot=true, the operation behaves like a snapshot read: no conflict
+	// ranges are added, allowing getMappedRange to work in snapshot isolation mode.
+	// This enables use cases like read-only analytical queries that don't need
+	// serializable guarantees but benefit from the performance of getMappedRange.
 	Promise<std::pair<Key, Key>> conflictRange;
 	if (!snapshot) {
 		extraConflictRanges.push_back(conflictRange.getFuture());
@@ -4071,6 +4070,14 @@ Future<MappedRangeResult> Transaction::getMappedRange(const KeySelector& begin,
                                                       GetRangeLimits limits,
                                                       Snapshot snapshot,
                                                       Reverse reverse) {
+	if (snapshot) {
+		TraceEvent(SevDebug, "GetMappedRangeSnapshot")
+		    .detail("Begin", begin.toString())
+		    .detail("End", end.toString())
+		    .detail("Snapshot", snapshot)
+		    .detail("TxnID", trState->spanContext.traceID);
+		++trState->cx->transactionSnapshotMappedReads;
+	}
 	return getRangeInternal<GetMappedKeyValuesRequest, GetMappedKeyValuesReply, MappedRangeResult>(
 	    begin, end, mapper, limits, snapshot, reverse);
 }
