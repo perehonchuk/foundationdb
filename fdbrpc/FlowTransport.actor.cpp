@@ -631,6 +631,10 @@ ACTOR Future<Void> connectionMonitor(Reference<Peer> peer) {
 	state Endpoint remotePingEndpoint({ peer->destination }, Endpoint::wellKnownToken(WLTOKEN_PING_PACKET));
 	// set this to not immediately close the connection as idle if the peer already existed
 	peer->lastDataPacketSentTime = now();
+	TraceEvent("ConnectionMonitorStart")
+	    .detail("PeerAddr", peer->destination)
+	    .detail("LoopTime", FLOW_KNOBS->CONNECTION_MONITOR_LOOP_TIME)
+	    .detail("Timeout", FLOW_KNOBS->CONNECTION_MONITOR_TIMEOUT);
 	loop {
 		if (!FlowTransport::isClient() && !peer->destination.isPublic() && peer->compatible) {
 			// Don't send ping messages to clients unless necessary. Instead monitor incoming client pings.
@@ -706,7 +710,11 @@ ACTOR Future<Void> connectionMonitor(Reference<Peer> peer) {
 						if (peer->destination.isPublic()) {
 							peer->pingLatencies.addSample(now() - startTime);
 						}
-						TraceEvent("ConnectionTimeout").suppressFor(1.0).detail("WithAddr", peer->destination);
+						TraceEvent("ConnectionTimeout")
+						    .suppressFor(1.0)
+						    .detail("WithAddr", peer->destination)
+						    .detail("TimeoutDuration", FLOW_KNOBS->CONNECTION_MONITOR_TIMEOUT)
+						    .detail("PingsSent", timeouts + 1);
 						throw connection_failed();
 					}
 					if (timeouts > 1) {
@@ -719,9 +727,14 @@ ACTOR Future<Void> connectionMonitor(Reference<Peer> peer) {
 					timeouts++;
 				}
 				when(wait(pingRequest.reply.getFuture())) {
+					double pingDuration = now() - startTime;
 					if (peer->destination.isPublic()) {
-						peer->pingLatencies.addSample(now() - startTime);
+						peer->pingLatencies.addSample(pingDuration);
 					}
+					TraceEvent("ConnectionPingSuccess")
+					    .detail("PeerAddr", peer->destination)
+					    .detail("Duration", pingDuration)
+					    .detail("LoopTime", FLOW_KNOBS->CONNECTION_MONITOR_LOOP_TIME);
 					break;
 				}
 				when(wait(peer->resetPing.onTrigger())) {

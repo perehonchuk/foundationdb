@@ -168,8 +168,8 @@ public:
 	double SATURATION_PROFILING_LOG_BACKOFF;
 
 	// connectionMonitor
-	double CONNECTION_MONITOR_LOOP_TIME;
-	double CONNECTION_MONITOR_TIMEOUT;
+	double CONNECTION_MONITOR_LOOP_TIME; // Interval between connection health checks and ping messages
+	double CONNECTION_MONITOR_TIMEOUT; // Maximum time to wait for ping response before marking connection as failed
 	double CONNECTION_MONITOR_IDLE_TIMEOUT;
 	double CONNECTION_MONITOR_INCOMING_IDLE_MULTIPLIER;
 	double CONNECTION_MONITOR_UNREFERENCED_CLOSE_DELAY;
