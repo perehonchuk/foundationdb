@@ -753,6 +753,16 @@ public:
 
 		roots.erase(roots.begin(), newBegin);
 		oldestVersion = newOldestVersion;
+
+		// Log when significant amounts of version history are being cleared from the storage queue
+		if (toFree.size() > 100) {
+			TraceEvent("VersionedMapForgetVersions")
+			    .detail("NewOldestVersion", newOldestVersion)
+			    .detail("LatestVersion", latestVersion)
+			    .detail("VersionRange", latestVersion - newOldestVersion)
+			    .detail("TreesFreed", toFree.size());
+		}
+
 		return deferredCleanupActor(toFree, taskID);
 	}
 

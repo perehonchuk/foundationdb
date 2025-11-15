@@ -48,6 +48,9 @@ public:
 	                                             // proxies/resolvers refuse to commit a transaction whose read version
 	                                             // is more than this many versions behind the current commit version,
 	                                             // returning transaction_too_old.
+	int64_t STORAGE_QUEUE_VERSION_WINDOW; // Number of versions of data to retain in storage queue (PTree).
+	                                      // This controls how much versioned mutation history is kept in memory
+	                                      // before being forgotten. Affects memory usage and queryable history.
 
 	// Versions -- other
 	int64_t MAX_VERSIONS_IN_FLIGHT;
