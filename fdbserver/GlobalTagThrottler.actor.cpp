@@ -184,6 +184,8 @@ class GlobalTagThrottlerImpl {
 	std::unordered_map<UID, StorageServerInfo> ssInfos;
 	std::unordered_map<TransactionTag, PerTagStatistics> tagStatistics;
 	ServerThroughputTracker throughputTracker;
+	std::unordered_map<TransactionTag, int64_t> perTagSizeLimits;
+	std::unordered_map<TransactionTag, int> perTagOperationLimits;
 
 	// For transactions with the provided tag, returns the average cost of all transactions
 	// across the cluster. The minimum cost is one page. If the transaction rate is too low,
@@ -470,6 +472,22 @@ public:
 	}
 
 	uint32_t tagsTracked() const { return tagStatistics.size(); }
+
+	Optional<int64_t> getTagTransactionSizeLimit(TransactionTag tag) {
+		auto it = perTagSizeLimits.find(tag);
+		if (it != perTagSizeLimits.end()) {
+			return it->second;
+		}
+		return Optional<int64_t>();
+	}
+
+	Optional<int> getTagOperationLimit(TransactionTag tag) {
+		auto it = perTagOperationLimits.find(tag);
+		if (it != perTagOperationLimits.end()) {
+			return it->second;
+		}
+		return Optional<int>();
+	}
 };
 
 GlobalTagThrottler::GlobalTagThrottler(Database db, UID id, int maxFallingBehind, double limitingThreshold)
@@ -521,6 +539,14 @@ void GlobalTagThrottler::removeQuota(TransactionTagRef tag) {
 
 uint32_t GlobalTagThrottler::tagsTracked() const {
 	return impl->tagsTracked();
+}
+
+Optional<int64_t> GlobalTagThrottler::getTagTransactionSizeLimit(TransactionTag tag) {
+	return impl->getTagTransactionSizeLimit(tag);
+}
+
+Optional<int> GlobalTagThrottler::getTagOperationLimit(TransactionTag tag) {
+	return impl->getTagOperationLimit(tag);
 }
 
 void GlobalTagThrottler::removeExpiredTags() {

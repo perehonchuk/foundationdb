@@ -30,6 +30,8 @@ class TagThrottlerImpl {
 	uint64_t throttledTagChangeId{ 0 };
 	bool autoThrottlingEnabled{ false };
 	Future<Void> expiredTagThrottleCleanup;
+	std::unordered_map<TransactionTag, int64_t> perTagSizeLimits;
+	std::unordered_map<TransactionTag, int> perTagOperationLimits;
 
 	ACTOR static Future<Void> monitorThrottlingChanges(TagThrottlerImpl* self) {
 		state bool committed = false;
@@ -201,6 +203,22 @@ public:
 		return waitForAll(futures);
 	}
 
+	Optional<int64_t> getTagTransactionSizeLimit(TransactionTag tag) {
+		auto it = perTagSizeLimits.find(tag);
+		if (it != perTagSizeLimits.end()) {
+			return it->second;
+		}
+		return Optional<int64_t>();
+	}
+
+	Optional<int> getTagOperationLimit(TransactionTag tag) {
+		auto it = perTagOperationLimits.find(tag);
+		if (it != perTagOperationLimits.end()) {
+			return it->second;
+		}
+		return Optional<int>();
+	}
+
 }; // class TagThrottlerImpl
 
 TagThrottler::TagThrottler(Database db, UID id) : impl(PImpl<TagThrottlerImpl>::create(db, id)) {}
@@ -234,4 +252,10 @@ bool TagThrottler::isAutoThrottlingEnabled() const {
 }
 Future<Void> TagThrottler::tryUpdateAutoThrottling(StorageQueueInfo const& ss) {
 	return impl->tryUpdateAutoThrottling(ss);
+}
+Optional<int64_t> TagThrottler::getTagTransactionSizeLimit(TransactionTag tag) {
+	return impl->getTagTransactionSizeLimit(tag);
+}
+Optional<int> TagThrottler::getTagOperationLimit(TransactionTag tag) {
+	return impl->getTagOperationLimit(tag);
 }

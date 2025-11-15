@@ -44,6 +44,12 @@ public:
 	// (to be shared across all GRV proxies)
 	virtual TransactionTagMap<double> getProxyRates(int numProxies) = 0;
 
+	// Get per-tag maximum transaction size limit (in bytes)
+	virtual Optional<int64_t> getTagTransactionSizeLimit(TransactionTag tag) = 0;
+
+	// Get per-tag maximum operation count per transaction
+	virtual Optional<int> getTagOperationLimit(TransactionTag tag) = 0;
+
 	virtual int64_t autoThrottleCount() const = 0;
 	virtual uint32_t busyReadTagCount() const = 0;
 	virtual uint32_t busyWriteTagCount() const = 0;
@@ -70,6 +76,8 @@ public:
 	uint64_t getThrottledTagChangeId() const override;
 	PrioritizedTransactionTagMap<ClientTagThrottleLimits> getClientRates() override;
 	TransactionTagMap<double> getProxyRates(int numProxies) override { throw not_implemented(); }
+	Optional<int64_t> getTagTransactionSizeLimit(TransactionTag tag) override;
+	Optional<int> getTagOperationLimit(TransactionTag tag) override;
 	int64_t autoThrottleCount() const override;
 	uint32_t busyReadTagCount() const override;
 	uint32_t busyWriteTagCount() const override;
@@ -100,6 +108,8 @@ public:
 	void updateThrottling(Map<UID, StorageQueueInfo> const&) override;
 	PrioritizedTransactionTagMap<ClientTagThrottleLimits> getClientRates() override;
 	TransactionTagMap<double> getProxyRates(int numProxies) override;
+	Optional<int64_t> getTagTransactionSizeLimit(TransactionTag tag) override;
+	Optional<int> getTagOperationLimit(TransactionTag tag) override;
 
 	// Testing only:
 public:
