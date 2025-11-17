@@ -35,7 +35,7 @@ public:
 	bool ALLOW_DANGEROUS_KNOBS;
 
 	// Versions -- knobs that control 5s timeout
-	int64_t VERSIONS_PER_SECOND; // Mainly used to represent the rate at which the sequencer can increase the versions
+	int64_t VERSIONS_PER_SECOND; // Mainly used to represent the rate at which the sequencer can increase the versions (2 million per second)
 	int64_t MAX_READ_TRANSACTION_LIFE_VERSIONS; // Used in various roles (Blob*, DD, LR, RK, SC) but most importantly
 	                                            // used in CP and SS.
 	                                            // In SS, this governs how long versioned data stays readable. In other

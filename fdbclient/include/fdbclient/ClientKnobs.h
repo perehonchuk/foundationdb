@@ -125,11 +125,11 @@ public:
 	double IS_ACCEPTABLE_DELAY;
 
 	// Versions -- knobs that control 5s timeout
-	int64_t VERSIONS_PER_SECOND; // Copy of SERVER_KNOBS, as we can't link with it.
+	int64_t VERSIONS_PER_SECOND; // Copy of SERVER_KNOBS, as we can't link with it. (2 million per second)
 	int64_t MAX_WRITE_TRANSACTION_LIFE_VERSIONS; // Copy of SERVER_KNOBS, as we can't link with it.
 
 	// Core
-	int64_t CORE_VERSIONSPERSECOND; // This is defined within the server but used for knobs based on server value
+	int64_t CORE_VERSIONSPERSECOND; // This is defined within the server but used for knobs based on server value (2 million per second)
 	int LOG_RANGE_BLOCK_SIZE;
 	int MUTATION_BLOCK_SIZE;
 	double MAX_VERSION_CACHE_LAG; // The upper bound in seconds for OK amount of staleness when using a cached RV

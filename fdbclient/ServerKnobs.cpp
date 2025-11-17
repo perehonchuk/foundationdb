@@ -44,7 +44,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( ALLOW_DANGEROUS_KNOBS,                               isSimulated );
 	
 	// Versions -- knobs that control 5s timeout
-	init( VERSIONS_PER_SECOND,                                   1e6 );
+	init( VERSIONS_PER_SECOND,                                   2e6 );
 	init( MAX_READ_TRANSACTION_LIFE_VERSIONS,      5 * VERSIONS_PER_SECOND ); if (isSimulated) MAX_READ_TRANSACTION_LIFE_VERSIONS = randomTxnTimeoutSeconds() * VERSIONS_PER_SECOND;
 	init( MAX_WRITE_TRANSACTION_LIFE_VERSIONS,     5 * VERSIONS_PER_SECOND ); if (randomize && BUGGIFY) MAX_WRITE_TRANSACTION_LIFE_VERSIONS=std::max<int>(1, 1 * VERSIONS_PER_SECOND);
 	

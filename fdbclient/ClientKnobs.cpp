@@ -125,11 +125,11 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( WATCH_TIMEOUT,                          30.0 ); if( randomize && BUGGIFY ) WATCH_TIMEOUT = 20.0;
 
 	// Versions -- knobs that control 5s timeout
-	init( VERSIONS_PER_SECOND,                     1e6 ); // Must be the same as SERVER_KNOBS->VERSIONS_PER_SECOND
+	init( VERSIONS_PER_SECOND,                     2e6 ); // Must be the same as SERVER_KNOBS->VERSIONS_PER_SECOND
 	init( MAX_WRITE_TRANSACTION_LIFE_VERSIONS,     5 * VERSIONS_PER_SECOND);  // Must be the same as SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS
 
 	// Core
-	init( CORE_VERSIONSPERSECOND,		           1e6 );
+	init( CORE_VERSIONSPERSECOND,		           2e6 );
 	init( LOG_RANGE_BLOCK_SIZE, CORE_VERSIONSPERSECOND );
 	init( MUTATION_BLOCK_SIZE,	            	  10000);
 	init( MAX_VERSION_CACHE_LAG,                    0.1 );
