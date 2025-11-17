@@ -297,12 +297,14 @@ private:
 			MutationRef privatized = m;
 			privatized.clearChecksumAndAccumulativeIndex();
 			privatized.param1 = m.param1.withPrefix(systemKeys.begin, arena);
+			// Note: Shard boundary changes now use a three-mutation protocol (begin, end, confirmation)
 			TraceEvent(SevDebug, "SendingPrivateMutation", dbgid)
 			    .detail("Original", m)
 			    .detail("Privatized", privatized)
 			    .detail("Server", serverKeysDecodeServer(m.param1))
 			    .detail("TagKey", serverTagKeyFor(serverKeysDecodeServer(m.param1)))
-			    .detail("Tag", tag.toString());
+			    .detail("Tag", tag.toString())
+			    .detail("ThreeMutationProtocol", true);
 
 			if (acsBuilder != nullptr) {
 				updateMutationWithAcsAndAddMutationToAcsBuilder(

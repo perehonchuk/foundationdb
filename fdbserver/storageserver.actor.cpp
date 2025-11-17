@@ -9189,10 +9189,10 @@ class StorageUpdater {
 public:
 	StorageUpdater()
 	  : currentVersion(invalidVersion), fromVersion(invalidVersion), restoredVersion(invalidVersion),
-	    processedStartKey(false), processedCacheStartKey(false) {}
+	    processedStartKey(false), processedEndKey(false), processedCacheStartKey(false) {}
 	StorageUpdater(Version fromVersion, Version restoredVersion)
 	  : currentVersion(fromVersion), fromVersion(fromVersion), restoredVersion(restoredVersion),
-	    processedStartKey(false), processedCacheStartKey(false) {}
+	    processedStartKey(false), processedEndKey(false), processedCacheStartKey(false) {}
 
 	void applyMutation(StorageServer* data,
 	                   MutationRef const& m,
@@ -9231,12 +9231,14 @@ private:
 	Version restoredVersion;
 
 	KeyRef startKey;
+	KeyRef endKey;
 	bool nowAssigned;
 	bool emptyRange;
 	EnablePhysicalShardMove enablePSM = EnablePhysicalShardMove::False;
 	DataMovementReason dataMoveReason = DataMovementReason::INVALID;
 	UID dataMoveId;
 	bool processedStartKey;
+	bool processedEndKey;
 	ConductBulkLoad conductBulkLoad = ConductBulkLoad::False;
 
 	KeyRef cacheStartKey;
@@ -9245,12 +9247,11 @@ private:
 	void applyPrivateData(StorageServer* data, Version ver, MutationRef const& m) {
 		TraceEvent(SevDebug, "SSPrivateMutation", data->thisServerID).detail("Mutation", m).detail("Version", ver);
 
-		if (processedStartKey) {
-			// Because of the implementation of the krm* functions, we expect changes in pairs, [begin,end)
-			// We can also ignore clearRanges, because they are always accompanied by such a pair of sets with the
-			// same keys
-			ASSERT(m.type == MutationRef::SetValue && m.param1.startsWith(data->sk));
-			KeyRangeRef keys(startKey.removePrefix(data->sk), m.param1.removePrefix(data->sk));
+		// Check if this is the confirmation mutation (third mutation in the protocol)
+		if (processedStartKey && processedEndKey && m.param1.endsWith("$confirm"_sr)) {
+			// This is the confirmation mutation, now we can process the shard boundary change
+			ASSERT(m.type == MutationRef::SetValue);
+			KeyRangeRef keys(startKey.removePrefix(data->sk), endKey.removePrefix(data->sk));
 
 			// ignore data movements for tss in quarantine
 			if (!data->isTSSInQuarantine()) {
@@ -9284,9 +9285,18 @@ private:
 			}
 
 			processedStartKey = false;
+			processedEndKey = false;
+		} else if (processedStartKey && !processedEndKey) {
+			// This is the second mutation (end key)
+			// Because of the implementation of the krm* functions, we expect changes in triplets now
+			// We can also ignore clearRanges, because they are always accompanied by such a triplet of sets with the
+			// same keys
+			ASSERT(m.type == MutationRef::SetValue && m.param1.startsWith(data->sk));
+			endKey = m.param1;
+			processedEndKey = true;
 		} else if (m.type == MutationRef::SetValue && m.param1.startsWith(data->sk)) {
-			// Because of the implementation of the krm* functions, we expect changes in pairs, [begin,end)
-			// We can also ignore clearRanges, because they are always accompanied by such a pair of sets with the same
+			// Because of the implementation of the krm* functions, we expect changes in triplets, [begin,end,confirm)
+			// We can also ignore clearRanges, because they are always accompanied by such a triplet of sets with the same
 			// keys
 			startKey = m.param1;
 			DataMoveType dataMoveType = DataMoveType::LOGICAL;

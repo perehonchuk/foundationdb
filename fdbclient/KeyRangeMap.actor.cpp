@@ -299,6 +299,10 @@ static Future<Void> krmSetRangeCoalescing_(Transaction* tr,
 	ASSERT(value != endValue || endKey == maxWithPrefix.end);
 	tr->set(beginKey, value);
 	tr->set(endKey, endValue);
+	// Add confirmation mutation to complete the three-mutation protocol for shard boundary changes
+	// This third mutation signals to storage servers that both begin and end keys have been set
+	Key confirmKey = withPrefix.begin.withSuffix("$confirm"_sr);
+	tr->set(confirmKey, "confirmed"_sr);
 
 	return Void();
 }
