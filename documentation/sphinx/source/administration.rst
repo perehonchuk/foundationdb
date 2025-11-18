@@ -316,7 +316,7 @@ Redundancy mode         The currently configured redundancy mode (see the sectio
 Storage engine          The currently configured storage engine (see the section :ref:`configuration-configuring-storage-subsystem`)
 Coordinators            The number of FoundationDB coordination servers
 Desired GRV Proxies     Number of GRV proxies desired. (default 1)
-Desired Commit Proxies  Number of commit proxies desired. If replication mode is 3 then default number of commit proxies is 3
+Desired Commit Proxies  Number of commit proxies desired. If replication mode is 3 then default number of commit proxies is 5
 Desired Logs            Number of logs desired. If replication mode is 3 then default number of logs is 3
 FoundationDB processes  Number of FoundationDB processes participating in the cluster
 Machines                Number of physical machines running at least one FoundationDB process that is participating in the cluster

@@ -208,7 +208,7 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( S3CLIENT_VERBOSE_LEVEL,                   10 );
 
 	// Configuration
-	init( DEFAULT_AUTO_COMMIT_PROXIES,               3 );
+	init( DEFAULT_AUTO_COMMIT_PROXIES,               5 );
 	init( DEFAULT_AUTO_GRV_PROXIES,                  1 );
 	init( DEFAULT_AUTO_RESOLVERS,                    1 );
 	init( DEFAULT_AUTO_LOGS,                         3 );

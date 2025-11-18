@@ -831,7 +831,7 @@ The recommended minimum number of ``class=transaction`` (log server) processes i
   fdb> configure grv_proxies=4
   fdb> configure logs=8
 
-.. note:: In the present release, the default value for commit proxies and log servers is 3 and for GRV proxies and resolvers is 1. You should not set the value of a process type to less than its default.
+.. note:: In the present release, the default value for commit proxies is 5, log servers is 3, and for GRV proxies and resolvers is 1. You should not set the value of a process type to less than its default.
 
 .. warning:: The conflict-resolution algorithm used by FoundationDB is conservative: it guarantees that no conflicting transactions will be committed, but it may fail to commit some transactions that theoretically could have been. The effects of this conservatism may increase as you increase the number of resolvers. It is therefore important to employ the recommended techniques for :ref:`minimizing conflicts <developer-guide-transaction-conflicts>` when increasing the number of resolvers.
 

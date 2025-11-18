@@ -869,7 +869,7 @@
                "locality":"locality_processid:e9816ca4a89ff64ddb7ba2a5ec10b75b"
             }
          ],
-         "auto_commit_proxies":3,
+         "auto_commit_proxies":5,
          "auto_grv_proxies":1,
          "auto_resolvers":1,
          "auto_logs":3,

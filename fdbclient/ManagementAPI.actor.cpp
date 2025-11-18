@@ -899,7 +899,7 @@ ConfigureAutoResult parseConfig(StatusObject const& status) {
 		resolverCount = result.old_resolvers;
 	}
 
-	result.desired_commit_proxies = std::max(std::min(12, processCount / 15), 1);
+	result.desired_commit_proxies = std::max(std::min(16, processCount / 10), 1);
 	int proxyCount;
 	if (!statusObjConfig.get("commit_proxies", result.old_commit_proxies)) {
 		result.old_commit_proxies = CLIENT_KNOBS->DEFAULT_AUTO_COMMIT_PROXIES;
