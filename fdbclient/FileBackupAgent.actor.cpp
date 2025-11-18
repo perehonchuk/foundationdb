@@ -3020,6 +3020,7 @@ struct BackupSnapshotDispatchTask : BackupTaskFuncBase {
 			nextDispatchVersion =
 			    recentReadVersion + CLIENT_KNOBS->CORE_VERSIONSPERSECOND * (snapshotIntervalSeconds / 5.0);
 		else
+			// Dispatch interval reduced to 5 minutes for faster DR convergence and HA failover
 			nextDispatchVersion = recentReadVersion + CLIENT_KNOBS->CORE_VERSIONSPERSECOND *
 			                                              CLIENT_KNOBS->BACKUP_SNAPSHOT_DISPATCH_INTERVAL_SEC;
 
@@ -3719,6 +3720,7 @@ struct BackupLogsDispatchTask : BackupTaskFuncBase {
 			}
 		} else {
 			// Skip mutation copy and erase backup mutations. Just check back periodically.
+			// Poll interval reduced to 5 seconds for faster backup progress monitoring
 			Version scheduledVersion = tr->getReadVersion().get() +
 			                           CLIENT_KNOBS->BACKUP_POLL_PROGRESS_SECONDS * CLIENT_KNOBS->VERSIONS_PER_SECOND;
 			wait(success(BackupLogsDispatchTask::addTask(tr,
