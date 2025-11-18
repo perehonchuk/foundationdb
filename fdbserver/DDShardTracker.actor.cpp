@@ -879,7 +879,8 @@ ACTOR Future<Void> shardSplitter(DataDistributionTracker* self,
 	splitMetrics.bytesWrittenPerKSecond =
 	    keys.begin >= keyServersKeys.begin ? splitMetrics.infinity : SERVER_KNOBS->SHARD_SPLIT_BYTES_PER_KSEC;
 	splitMetrics.iosPerKSecond = splitMetrics.infinity;
-	splitMetrics.bytesReadPerKSecond = splitMetrics.infinity; // Don't split by readBandwidthSec
+	// Enable read-based splitting for hot shards
+	splitMetrics.bytesReadPerKSecond = SERVER_KNOBS->SHARD_SPLIT_BYTES_PER_KSEC;
 
 	state Standalone<VectorRef<KeyRef>> splitKeys =
 	    wait(self->db->splitStorageMetrics(keys, splitMetrics, metrics, SERVER_KNOBS->MIN_SHARD_BYTES));
@@ -900,6 +901,7 @@ ACTOR Future<Void> shardSplitter(DataDistributionTracker* self,
 	            : bandwidthStatus == BandwidthStatusNormal ? "Normal"
 	                                                       : "Low")
 	    .detail("BytesWrittenPerKSec", metrics.bytesWrittenPerKSecond)
+	    .detail("BytesReadPerKSecond", metrics.bytesReadPerKSecond)
 	    .detail("NumShards", numShards);
 
 	if (numShards > 1) {

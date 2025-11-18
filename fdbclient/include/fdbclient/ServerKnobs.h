@@ -275,6 +275,7 @@ public:
 	double SHARD_MAX_READ_DENSITY_RATIO;
 	int64_t SHARD_READ_HOT_BANDWIDTH_MIN_PER_KSECONDS;
 	double SHARD_MAX_BYTES_READ_PER_KSEC_JITTER;
+	double DD_READ_BALANCE_PENALTY_FACTOR; // Multiplier for read load when calculating team load for distribution
 	double STORAGE_METRIC_TIMEOUT;
 	double METRIC_DELAY;
 	double ALL_DATA_REMOVED_DELAY;

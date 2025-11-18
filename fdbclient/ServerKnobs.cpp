@@ -251,6 +251,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 		Shard with a read bandwidth smaller than this value will never be too busy to handle the reads.
 	*/
 	init( SHARD_MAX_BYTES_READ_PER_KSEC_JITTER,     0.1 );
+	init( DD_READ_BALANCE_PENALTY_FACTOR,         100.0 ); // Convert read bandwidth (KB/s) to effective bytes for balancing
 	bool buggifySmallBandwidthSplit = randomize && BUGGIFY;
 	init( SHARD_MAX_BYTES_PER_KSEC,                 1LL*1000000*1000 ); if( buggifySmallBandwidthSplit ) SHARD_MAX_BYTES_PER_KSEC = 1LL*100000*1000;
 	/* 1*1MB/sec * 1000sec/ksec

@@ -479,7 +479,11 @@ int64_t TCTeamInfo::getLoadBytes(bool includeInFlight, double inflightPenalty) c
 		TraceEvent(SevWarn, "DiskNearCapacity").suppressFor(1.0).detail("AvailableSpaceRatio", minAvailableSpaceRatio);
 	}
 
-	return (physicalBytes + (inflightPenalty * inFlightBytes)) * availableSpaceMultiplier;
+	// Factor in read load for better distribution of hot reads across teams
+	double readLoad = getReadLoad(includeInFlight, inflightPenalty);
+	int64_t readLoadPenalty = static_cast<int64_t>(readLoad * SERVER_KNOBS->DD_READ_BALANCE_PENALTY_FACTOR);
+
+	return (physicalBytes + (inflightPenalty * inFlightBytes) + readLoadPenalty) * availableSpaceMultiplier;
 }
 
 // average read bandwidth within a team
