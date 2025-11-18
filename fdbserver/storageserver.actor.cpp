@@ -7000,8 +7000,8 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 			    .detail("FKID", interval.pairID)
 			    .detail("Version", fetchVersion);
 
-			while (!shard->updates.empty() && shard->updates[0].version <= fetchVersion)
-				shard->updates.pop_front();
+			// No need to pop updates since they are now applied eagerly
+			ASSERT(shard->updates.empty());
 			tr.setVersion(fetchVersion);
 
 			state PromiseStream<RangeResult> results;
@@ -7224,7 +7224,8 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 					continue;
 				}
 				if (blockBegin < keys.end) {
-					std::deque<Standalone<VerUpdateRef>> updatesToSplit = std::move(shard->updates);
+					// Since mutations are now applied eagerly, the updates queue should be empty
+				ASSERT(shard->updates.empty());
 
 					// This actor finishes committing the keys [keys.begin,nfk) that we already fetched.
 					// The remaining unfetched keys [nfk,keys.end) will become a separate AddingShard with its own
@@ -7259,10 +7260,7 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 					// in WaitPrevious phase (hasn't chosen a fetchVersion yet). What we are doing here is expensive
 					// and could get more expensive if we started having many more blocks per shard. May need
 					// optimization in the future.
-					std::deque<Standalone<VerUpdateRef>>::iterator u = updatesToSplit.begin();
-					for (; u != updatesToSplit.end(); ++u) {
-						splitMutations(data, data->shards, *u);
-					}
+					// No longer need to split updates since mutations are applied eagerly
 
 					TraceEvent(SevDebug, "FetchKeysSplit")
 					    .detail("ExpectedRange", keys)
@@ -7271,7 +7269,7 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 					    .detail("FKID", fetchKeysID);
 
 					CODE_PROBE(true, "fetchkeys has more");
-					CODE_PROBE(shard->updates.size(), "Shard has updates");
+					ASSERT(shard->updates.empty());
 					ASSERT(otherShard->updates.empty());
 				}
 				break;
@@ -7350,38 +7348,11 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 
 		validate(data);
 
-		// the minimal version in updates must be larger than fetchVersion
-		ASSERT(shard->updates.empty() || shard->updates[0].version > fetchVersion);
-
-		// Put the updates that were collected during the FinalCommit phase into the batch at the
-		// transferredVersion. Eager reads will be done for them by update(), and the mutations will come back
-		// through AddingShard::addMutations and be applied to versionedMap and mutationLog as normal. The lie about
-		// their version is acceptable because this shard will never be read at versions < transferredVersion
-
-		for (auto i = shard->updates.begin(); i != shard->updates.end(); ++i) {
-			i->version = shard->transferredVersion;
-			batch->arena.dependsOn(i->arena());
-		}
-
-		int startSize = batch->changes.size();
-		CODE_PROBE(startSize, "Adding fetch data to a batch which already has changes");
-		batch->changes.resize(batch->changes.size() + shard->updates.size());
-
-		// FIXME: pass the deque back rather than copy the data
-		std::copy(shard->updates.begin(), shard->updates.end(), batch->changes.begin() + startSize);
-		Version checkv = shard->transferredVersion;
-
-		for (auto b = batch->changes.begin() + startSize; b != batch->changes.end(); ++b) {
-			ASSERT(b->version >= checkv);
-			checkv = b->version;
-			if (MUTATION_TRACKING_ENABLED) {
-				for (auto& m : b->mutations) {
-					DEBUG_MUTATION("fetchKeysFinalCommitInject", batch->changes[0].version, m, data->thisServerID);
-				}
-			}
-		}
-
-		shard->updates.clear();
+		// Since mutations are now applied eagerly during the Fetching phase,
+		// the updates queue should be empty and does not need to be transferred.
+		// This eliminates the complex song-and-dance between update() and fetchKeys()
+		// that was previously required for deferred mutation application.
+		ASSERT(shard->updates.empty());
 
 		shard->phase = AddingShard::Waiting;
 
@@ -7504,19 +7475,10 @@ void AddingShard::addMutation(Version version,
 	if (phase == WaitPrevious) {
 		// Updates can be discarded
 	} else if (phase == Fetching) {
-		// Save incoming mutations (See the comments of member variable `updates`).
-
-		// Create a new VerUpdateRef in updates queue if it is a new version.
-		if (!updates.size() || version > updates.end()[-1].version) {
-			VerUpdateRef v;
-			v.version = version;
-			v.isPrivateData = false;
-			updates.push_back(v);
-		} else {
-			ASSERT(version == updates.end()[-1].version);
-		}
-		// Add the mutation to the version.
-		updates.back().mutations.push_back_deep(updates.back().arena(), mutation);
+		// Apply mutations directly to storage during fetch instead of queuing them.
+		// This eager application improves data consistency and reduces memory overhead
+		// by eliminating the need for deferred update tracking.
+		server->addMutation(version, fromFetch, mutation, encryptedMutation, keys, server->updateEagerReads);
 	} else if (phase == FetchingCF || phase == Waiting) {
 		server->addMutation(version, fromFetch, mutation, encryptedMutation, keys, server->updateEagerReads);
 	} else
