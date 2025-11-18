@@ -335,11 +335,11 @@ std::map<std::string, std::string> configForToken(std::string const& mode) {
 		                         new PolicyAcross(2, "zoneid", Reference<IReplicationPolicy>(new PolicyOne())))));
 	} else if (mode == "three_data_hall") {
 		redundancy = "3";
-		log_replicas = "4";
+		log_replicas = "5";
 		storagePolicy = Reference<IReplicationPolicy>(
 		    new PolicyAcross(3, "data_hall", Reference<IReplicationPolicy>(new PolicyOne())));
 		tLogPolicy = Reference<IReplicationPolicy>(
-		    new PolicyAcross(2,
+		    new PolicyAcross(3,
 		                     "data_hall",
 		                     Reference<IReplicationPolicy>(
 		                         new PolicyAcross(2, "zoneid", Reference<IReplicationPolicy>(new PolicyOne())))));
@@ -759,7 +759,7 @@ ConfigureAutoResult parseConfig(StatusObject const& status) {
 		log_replication = 4;
 	} else if (result.old_replication == "three_data_hall") {
 		storage_replication = 3;
-		log_replication = 4;
+		log_replication = 5;
 	} else if (result.old_replication == "three_data_hall_fallback") {
 		storage_replication = 2;
 		log_replication = 4;
