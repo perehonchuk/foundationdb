@@ -75,7 +75,9 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( TRANSACTION_SIZE_LIMIT,                  1e7 );
 	init( KEY_SIZE_LIMIT,                          1e4 );
 	init( SYSTEM_KEY_SIZE_LIMIT,                   3e4 );
-	init( VALUE_SIZE_LIMIT,                        1e5 );
+	// Reduced from 100KB to 50KB to improve memory efficiency and reduce pressure on storage servers
+	// when handling large objects. Applications storing larger values should split them across multiple keys.
+	init( VALUE_SIZE_LIMIT,                        5e4 );
 	init( SPLIT_KEY_SIZE_LIMIT,                    KEY_SIZE_LIMIT/2 );  if( randomize && BUGGIFY ) SPLIT_KEY_SIZE_LIMIT = KEY_SIZE_LIMIT - 31;//serverKeysPrefixFor(UID()).size() - 1;
 	init( METADATA_VERSION_CACHE_SIZE,            1000 );
 	init( CHANGE_FEED_LOCATION_LIMIT,            10000 );

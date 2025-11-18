@@ -71,6 +71,8 @@ public:
 	int TRANSACTION_SIZE_LIMIT;
 	int64_t KEY_SIZE_LIMIT;
 	int64_t SYSTEM_KEY_SIZE_LIMIT;
+	// Maximum size for a single value in bytes. Values exceeding this limit will result in value_too_large error.
+	// This limit helps prevent memory pressure and ensures efficient data distribution across storage servers.
 	int64_t VALUE_SIZE_LIMIT;
 	int64_t SPLIT_KEY_SIZE_LIMIT;
 	int METADATA_VERSION_CACHE_SIZE;
