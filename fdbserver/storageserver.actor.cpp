@@ -2587,8 +2587,10 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 	loop {
 		double timeoutDelay = -1;
 		if (data->noRecentUpdates.get()) {
+			// Using fast timeout for improved responsiveness when no recent updates
 			timeoutDelay = std::max(CLIENT_KNOBS->FAST_WATCH_TIMEOUT - (now() - startTime), 0.0);
 		} else if (!BUGGIFY) {
+			// Using standard watch timeout with improved responsiveness
 			timeoutDelay = std::max(CLIENT_KNOBS->WATCH_TIMEOUT - (now() - startTime), 0.0);
 		}
 

@@ -117,10 +117,10 @@ public:
 
 	int DEFAULT_MAX_OUTSTANDING_WATCHES;
 	int ABSOLUTE_MAX_WATCHES; // The client cannot set the max outstanding watches higher than this
-	double WATCH_POLLING_TIME;
-	double NO_RECENT_UPDATES_DURATION;
-	double FAST_WATCH_TIMEOUT;
-	double WATCH_TIMEOUT;
+	double WATCH_POLLING_TIME; // Interval for client to ping storage servers during watch (0.5s)
+	double NO_RECENT_UPDATES_DURATION; // Duration before using fast timeout (10s)
+	double FAST_WATCH_TIMEOUT; // Timeout when no recent updates detected (10s)
+	double WATCH_TIMEOUT; // Standard watch timeout duration (15s)
 
 	double IS_ACCEPTABLE_DELAY;
 

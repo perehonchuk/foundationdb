@@ -119,10 +119,10 @@ void ClientKnobs::initialize(Randomize randomize) {
 
 	init( DEFAULT_MAX_OUTSTANDING_WATCHES,         1e4 );
 	init( ABSOLUTE_MAX_WATCHES,                    1e6 );
-	init( WATCH_POLLING_TIME,                      1.0 ); if( randomize && BUGGIFY ) WATCH_POLLING_TIME = 5.0;
-	init( NO_RECENT_UPDATES_DURATION,             20.0 ); if( randomize && BUGGIFY ) NO_RECENT_UPDATES_DURATION = 0.1;
-	init( FAST_WATCH_TIMEOUT,                     20.0 ); if( randomize && BUGGIFY ) FAST_WATCH_TIMEOUT = 1.0;
-	init( WATCH_TIMEOUT,                          30.0 ); if( randomize && BUGGIFY ) WATCH_TIMEOUT = 20.0;
+	init( WATCH_POLLING_TIME,                      0.5 ); if( randomize && BUGGIFY ) WATCH_POLLING_TIME = 5.0;
+	init( NO_RECENT_UPDATES_DURATION,             10.0 ); if( randomize && BUGGIFY ) NO_RECENT_UPDATES_DURATION = 0.1;
+	init( FAST_WATCH_TIMEOUT,                     10.0 ); if( randomize && BUGGIFY ) FAST_WATCH_TIMEOUT = 1.0;
+	init( WATCH_TIMEOUT,                          15.0 ); if( randomize && BUGGIFY ) WATCH_TIMEOUT = 10.0;
 
 	// Versions -- knobs that control 5s timeout
 	init( VERSIONS_PER_SECOND,                     1e6 ); // Must be the same as SERVER_KNOBS->VERSIONS_PER_SECOND
