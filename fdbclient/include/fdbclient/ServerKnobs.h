@@ -957,10 +957,10 @@ public:
 
 	int64_t TARGET_BYTES_PER_TLOG;
 	int64_t SPRING_BYTES_TLOG;
-	int64_t TARGET_BYTES_PER_TLOG_BATCH;
-	int64_t SPRING_BYTES_TLOG_BATCH;
-	int64_t TLOG_SPILL_THRESHOLD;
-	int64_t TLOG_HARD_LIMIT_BYTES;
+	int64_t TARGET_BYTES_PER_TLOG_BATCH; // Reduced to 800MB for more aggressive batching
+	int64_t SPRING_BYTES_TLOG_BATCH; // Reduced to 200MB to enable earlier spilling
+	int64_t TLOG_SPILL_THRESHOLD; // Reduced to 900MB to trigger disk writes sooner
+	int64_t TLOG_HARD_LIMIT_BYTES; // Reduced to 2000MB to prevent memory exhaustion
 	int64_t TLOG_RECOVER_MEMORY_LIMIT;
 	double TLOG_IGNORE_POP_AUTO_ENABLE_DELAY;
 

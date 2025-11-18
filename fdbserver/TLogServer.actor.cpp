@@ -1495,10 +1495,43 @@ ACTOR Future<Void> updateStorage(TLogData* self) {
 	return Void();
 }
 
+// Dynamically adjust spill threshold based on memory pressure
+void adjustSpillThreshold(TLogData* self) {
+	int64_t volatileBytes = self->bytesInput - self->bytesDurable;
+	double memoryPressure = (double)volatileBytes / SERVER_KNOBS->TLOG_HARD_LIMIT_BYTES;
+	int64_t oldThreshold = self->targetVolatileBytes;
+
+	// If memory pressure is high (>75%), reduce threshold to trigger more aggressive spilling
+	if (memoryPressure > 0.75) {
+		self->targetVolatileBytes = std::max<int64_t>(SERVER_KNOBS->TLOG_SPILL_THRESHOLD * 0.7,
+		                                               SERVER_KNOBS->TLOG_SPILL_THRESHOLD / 2);
+	}
+	// If memory pressure is moderate (50-75%), use slightly reduced threshold
+	else if (memoryPressure > 0.50) {
+		self->targetVolatileBytes = SERVER_KNOBS->TLOG_SPILL_THRESHOLD * 0.85;
+	}
+	// If memory pressure is low, gradually increase threshold back to default
+	else {
+		self->targetVolatileBytes = std::min<int64_t>(self->targetVolatileBytes * 1.05,
+		                                               SERVER_KNOBS->TLOG_SPILL_THRESHOLD);
+	}
+
+	// Log significant threshold adjustments
+	if (std::abs(self->targetVolatileBytes - oldThreshold) > oldThreshold * 0.1) {
+		TraceEvent("TLogAdaptiveSpillThreshold", self->dbgid)
+		    .detail("OldThreshold", oldThreshold)
+		    .detail("NewThreshold", self->targetVolatileBytes)
+		    .detail("MemoryPressure", memoryPressure)
+		    .detail("VolatileBytes", volatileBytes)
+		    .detail("HardLimit", SERVER_KNOBS->TLOG_HARD_LIMIT_BYTES);
+	}
+}
+
 ACTOR Future<Void> updateStorageLoop(TLogData* self) {
 	wait(delay(0, TaskPriority::UpdateStorage));
 
 	loop {
+		adjustSpillThreshold(self);
 		wait(updateStorage(self));
 	}
 }
