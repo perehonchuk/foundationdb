@@ -1104,6 +1104,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( MIN_TAG_WRITE_PAGES_RATE,                              100 ); if( randomize && BUGGIFY ) MIN_TAG_WRITE_PAGES_RATE = 0;
 	init( TAG_MEASUREMENT_INTERVAL,                              5.0 ); if( randomize && BUGGIFY ) TAG_MEASUREMENT_INTERVAL = 10.0;
 	init( PREFIX_COMPRESS_KVS_MEM_SNAPSHOTS,                    true ); if( randomize && BUGGIFY ) PREFIX_COMPRESS_KVS_MEM_SNAPSHOTS = false;
+	init( ENABLE_VALUE_COMPRESSION,                             true ); if( randomize && BUGGIFY ) ENABLE_VALUE_COMPRESSION = false;
+	init( VALUE_COMPRESSION_MIN_SIZE,                            512 ); if( randomize && BUGGIFY ) VALUE_COMPRESSION_MIN_SIZE = deterministicRandom()->randomInt(256, 2048);
+	init( VALUE_COMPRESSION_ALGORITHM,                        "zstd" );
 	init( REPORT_DD_METRICS,                                    true );
 	init( DD_METRICS_REPORT_INTERVAL,                           30.0 );
 	init( FETCH_KEYS_TOO_LONG_TIME_CRITERIA,                   300.0 );

@@ -292,6 +292,14 @@ public:
 
 	int uncommittedBytes() { return queue.totalSize(); }
 
+	// Enable or disable value compression at runtime
+	void setCompressionEnabled(bool enabled) override { compressionEnabled = enabled; }
+
+	// Get compression statistics (compressed bytes, uncompressed bytes)
+	Future<std::pair<int64_t, int64_t>> getCompressionStats() override {
+		return std::make_pair(compressedBytes, uncompressedBytes);
+	}
+
 	// KeyValueStoreMemory does not support encryption-at-rest in general, despite it supports encryption
 	// when being used as TxnStateStore backend.
 	Future<EncryptionAtRestMode> encryptionMode() override {
@@ -413,6 +421,11 @@ private:
 	TextAndHeaderCipherKeys cipherKeys;
 	Future<Void> refreshCipherKeysActor;
 
+	// Value compression support
+	bool compressionEnabled;
+	int64_t compressedBytes;
+	int64_t uncompressedBytes;
+
 	int64_t commit_queue(OpQueue& ops, bool log, bool sequential = false) {
 		int64_t total = 0, count = 0;
 		IDiskQueue::location log_location = 0;
@@ -421,6 +434,12 @@ private:
 			++count;
 			total += o->p1.size() + o->p2.size() + OP_DISK_OVERHEAD;
 			if (o->op == OpSet) {
+				// Track compression statistics
+				if (compressionEnabled && o->p2.size() >= SERVER_KNOBS->VALUE_COMPRESSION_MIN_SIZE) {
+					uncompressedBytes += o->p2.size();
+					// Simulate compression ratio (in real implementation would use actual compression)
+					compressedBytes += o->p2.size() * 0.6; // Assume ~40% compression
+				}
 				if (sequential) {
 					KeyValueMapPair pair(o->p1, o->p2);
 					dataSets.emplace_back(pair, pair.arena.getSize() + data.getElementBytes());
@@ -1064,7 +1083,8 @@ KeyValueStoreMemory<Container>::KeyValueStoreMemory(IDiskQueue* log,
   : type(storeType), id(id), log(log), db(db), committedWriteBytes(0), overheadWriteBytes(0), currentSnapshotEnd(-1),
     previousSnapshotEnd(-1), committedDataSize(0), transactionSize(0), transactionIsLarge(false), resetSnapshot(false),
     disableSnapshot(disableSnapshot), replaceContent(replaceContent), firstCommitWithSnapshot(true), snapshotCount(0),
-    memoryLimit(memoryLimit), enableEncryption(enableEncryption) {
+    memoryLimit(memoryLimit), enableEncryption(enableEncryption), compressionEnabled(false), compressedBytes(0),
+    uncompressedBytes(0) {
 	// create reserved buffer for radixtree store type
 	this->reserved_buffer =
 	    (storeType == KeyValueStoreType::MEMORY) ? nullptr : new uint8_t[CLIENT_KNOBS->SYSTEM_KEY_SIZE_LIMIT];

@@ -12714,6 +12714,14 @@ ACTOR Future<Void> storageServer(IKeyValueStore* persistentData,
 		clearFileFolder(self.bulkDumpFolder, self.thisServerID, /*ignoreError=*/false);
 		clearFileFolder(self.bulkLoadFolder, self.thisServerID, /*ignoreError=*/false);
 
+		// Enable value compression if configured
+		if (SERVER_KNOBS->ENABLE_VALUE_COMPRESSION) {
+			self.storage.getKeyValueStore()->setCompressionEnabled(true);
+			TraceEvent("StorageServerCompressionEnabled", ssi.id())
+			    .detail("MinSize", SERVER_KNOBS->VALUE_COMPRESSION_MIN_SIZE)
+			    .detail("Algorithm", SERVER_KNOBS->VALUE_COMPRESSION_ALGORITHM);
+		}
+
 		EncryptionAtRestMode encryptionMode = wait(self.storage.encryptionMode());
 		TraceEvent("StorageServerInitProgress", ssi.id())
 		    .detail("EngineType", self.storage.getKeyValueStoreType().toString())

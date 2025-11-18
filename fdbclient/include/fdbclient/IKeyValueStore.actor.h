@@ -139,6 +139,12 @@ public:
 	// Compact a range of keys in the store
 	virtual Future<Void> compactRange(KeyRangeRef range) { throw not_implemented(); }
 
+	// Enable or disable value compression at runtime
+	virtual void setCompressionEnabled(bool enabled) {}
+
+	// Get compression statistics
+	virtual Future<std::pair<int64_t, int64_t>> getCompressionStats() { return std::make_pair(0, 0); }
+
 	/*
 	Concurrency contract
 	    Causal consistency:
