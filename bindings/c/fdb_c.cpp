@@ -747,6 +747,22 @@ extern "C" DLLEXPORT void fdb_transaction_atomic_op(FDBTransaction* tr,
 	    KeyRef(key_name, key_name_length), ValueRef(param, param_length), (FDBMutationTypes::Option)operation_type););
 }
 
+extern "C" DLLEXPORT void fdb_transaction_compare_and_set(FDBTransaction* tr,
+                                                           uint8_t const* key_name,
+                                                           int key_name_length,
+                                                           uint8_t const* expected_value,
+                                                           int expected_value_length,
+                                                           uint8_t const* new_value,
+                                                           int new_value_length) {
+	// Encode expected_value_length + expected_value + new_value into param
+	Arena arena;
+	uint32_t expectedLen = (uint32_t)expected_value_length;
+	Standalone<StringRef> param = StringRef((uint8_t*)&expectedLen, 4).withSuffix(
+	    StringRef(expected_value, expected_value_length).withSuffix(StringRef(new_value, new_value_length)));
+	CATCH_AND_DIE(TXN(tr)->atomicOp(
+	    KeyRef(key_name, key_name_length), param, FDBMutationTypes::CompareAndSet););
+}
+
 extern "C" DLLEXPORT void fdb_transaction_clear(FDBTransaction* tr, uint8_t const* key_name, int key_name_length) {
 	CATCH_AND_DIE(TXN(tr)->clear(KeyRef(key_name, key_name_length)););
 }

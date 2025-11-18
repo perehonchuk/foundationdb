@@ -6267,6 +6267,33 @@ bool convertAtomicOp(MutationRef& m, StorageServer::VersionedData const& data, U
 				return true;
 			}
 			return false;
+		case MutationRef::CompareAndSet: {
+			// param2 format: <expected_value_len:4><expected_value><new_value>
+			if (m.param2.size() < 4)
+				return false;
+			uint32_t expectedLen = *(uint32_t*)m.param2.begin();
+			if (m.param2.size() < 4 + expectedLen)
+				return false;
+			StringRef expectedValue = m.param2.substr(4, expectedLen);
+			StringRef newValue = m.param2.substr(4 + expectedLen);
+			if (!oldVal.present() && expectedLen == 0) {
+				// Key doesn't exist and expected value is empty - set to new value
+				m.param2 = newValue;
+				m.type = MutationRef::SetValue;
+				return true;
+			} else if (oldVal.present() && oldVal.get() == expectedValue) {
+				// Old value matches expected - set to new value or clear
+				if (newValue.size() > 0) {
+					m.param2 = newValue;
+					m.type = MutationRef::SetValue;
+				} else {
+					m.type = MutationRef::ClearRange;
+					m.param2 = keyAfter(m.param1, ar);
+				}
+				return true;
+			}
+			return false;
+		}
 		}
 		m.type = MutationRef::SetValue;
 	}

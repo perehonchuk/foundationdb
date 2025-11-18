@@ -1994,6 +1994,7 @@ void ReadYourWritesTransaction::writeRangeToNativeTransaction(KeyRangeRef const&
 				case MutationRef::MinV2:
 				case MutationRef::AndV2:
 				case MutationRef::CompareAndClear:
+				case MutationRef::CompareAndSet:
 					tr.atomicOp(it.beginKey().assertRef(), op[i].value.get(), op[i].type, AddConflictRange::False);
 					break;
 				default:

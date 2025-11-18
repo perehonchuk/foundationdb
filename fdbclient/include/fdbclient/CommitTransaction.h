@@ -62,6 +62,7 @@ static const char* typeString[] = { "SetValue",
 	                                "Reserved_For_OTELSpanContextMessage",
 	                                "Encrypted",
 	                                "AccumulativeChecksum",
+	                                "CompareAndSet",
 	                                "MAX_ATOMIC_OP" };
 
 struct MutationRef {
@@ -94,6 +95,8 @@ struct MutationRef {
 		Reserved_For_SpanContextMessage /* See fdbserver/SpanContextMessage.h */,
 		Reserved_For_OTELSpanContextMessage,
 		Encrypted, /* Represents an encrypted mutation and cannot be used directly before decrypting */
+		AccumulativeChecksum,
+		CompareAndSet,
 		MAX_ATOMIC_OP
 	};
 
@@ -565,11 +568,11 @@ struct MutationRef {
 	enum {
 		ATOMIC_MASK = (1 << AddValue) | (1 << And) | (1 << Or) | (1 << Xor) | (1 << AppendIfFits) | (1 << Max) |
 		              (1 << Min) | (1 << SetVersionstampedKey) | (1 << SetVersionstampedValue) | (1 << ByteMin) |
-		              (1 << ByteMax) | (1 << MinV2) | (1 << AndV2) | (1 << CompareAndClear),
+		              (1 << ByteMax) | (1 << MinV2) | (1 << AndV2) | (1 << CompareAndClear) | (1 << CompareAndSet),
 		SINGLE_KEY_MASK = ATOMIC_MASK | (1 << SetValue),
 		NON_ASSOCIATIVE_MASK = (1 << AddValue) | (1 << Or) | (1 << Xor) | (1 << Max) | (1 << Min) |
 		                       (1 << SetVersionstampedKey) | (1 << SetVersionstampedValue) | (1 << MinV2) |
-		                       (1 << CompareAndClear)
+		                       (1 << CompareAndClear) | (1 << CompareAndSet)
 	};
 };
 

@@ -487,6 +487,14 @@ DLLEXPORT void fdb_transaction_atomic_op(FDBTransaction* tr,
                                          int param_length,
                                          FDBMutationType operation_type);
 
+DLLEXPORT void fdb_transaction_compare_and_set(FDBTransaction* tr,
+                                                uint8_t const* key_name,
+                                                int key_name_length,
+                                                uint8_t const* expected_value,
+                                                int expected_value_length,
+                                                uint8_t const* new_value,
+                                                int new_value_length);
+
 DLLEXPORT void fdb_transaction_clear(FDBTransaction* tr, uint8_t const* key_name, int key_name_length);
 
 DLLEXPORT void fdb_transaction_clear_range(FDBTransaction* tr,
