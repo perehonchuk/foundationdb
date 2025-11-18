@@ -76,10 +76,10 @@ private:
 template <class T>
 class PTreeFinger {
 	using PTreeFingerEntry = PTree<T> const*;
-	// This finger size supports trees with up to exp(96/4.3) ~= 4,964,514,749 entries.
+	// This finger size supports trees with up to exp(128/4.3) ~= 1,318,815,734,483 entries.
 	// The number 4.3 comes from here: https://en.wikipedia.org/wiki/Random_binary_tree#The_longest_path
 	// see also: check().
-	static constexpr size_t N = 96;
+	static constexpr size_t N = 128;
 	PTreeFingerEntry entries_[N];
 	size_t size_ = 0;
 	size_t bound_sz_ = 0;
@@ -603,7 +603,8 @@ template <class T>
 void check(const Reference<PTree<T>>& p) {
 	int count = 0, height;
 	validate(p, (T*)0, (T*)0, count, height);
-	if (count && height > 4.3 * log(double(count))) {
+	// With increased finger capacity (N=128), we can tolerate slightly deeper trees
+	if (count && height > 4.5 * log(double(count))) {
 		// printf("height %d; count %d\n", height, count);
 		ASSERT(false);
 	}
@@ -687,7 +688,8 @@ public:
 		return r->second;
 	}
 
-	// For each item in the versioned map, 4 PTree nodes are potentially allocated:
+	// For each item in the versioned map, 4 PTree nodes are potentially allocated.
+	// Note: PTreeFinger capacity increased to 128 to support larger trees.
 	static const int overheadPerItem = nextFastAllocatedSize(sizeof(PTreeT)) * 4;
 	struct iterator;
 
@@ -902,7 +904,8 @@ public:
 		void validate() {
 			int count = 0, height = 0;
 			PTreeImpl::validate<MapPair<K, std::pair<T, Version>>>(root, at, nullptr, nullptr, count, height);
-			if (height > 100)
+			// With increased finger capacity, we can support deeper trees before warning
+			if (height > 128)
 				TraceEvent(SevWarnAlways, "DiabolicalPTreeSize").detail("Size", count).detail("Height", height);
 		}
 

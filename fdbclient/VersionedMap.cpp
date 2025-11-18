@@ -22,6 +22,8 @@
 #include "flow/TreeBenchmark.h"
 #include "flow/UnitTest.h"
 
+// VersionedMap test harness for performance benchmarking
+// Note: PTreeFinger capacity increased to 128 to support trees with >1 trillion entries
 template <typename K>
 struct VersionedMapHarness {
 	using map = VersionedMap<K, int>;
