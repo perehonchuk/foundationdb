@@ -802,6 +802,17 @@ public:
 	double REPLACE_INTERFACE_CHECK_DELAY;
 	double COORDINATOR_REGISTER_INTERVAL;
 	double CLIENT_REGISTER_INTERVAL;
+	int CC_MAX_WORKERS_PER_CLUSTER; // Maximum number of workers that can be registered with the cluster controller
+	                                // before adaptive throttling begins. This is a soft limit - new workers will
+	                                // still be accepted but will experience delays.
+	double CC_WORKER_REGISTRATION_BATCH_WINDOW; // Time window (in seconds) for accepting worker registrations before
+	                                            // introducing delays. When more than CC_WORKER_REGISTRATION_BATCH_SIZE
+	                                            // workers register within this window, additional workers are throttled.
+	int CC_WORKER_REGISTRATION_BATCH_SIZE; // Maximum number of workers that can register within
+	                                       // CC_WORKER_REGISTRATION_BATCH_WINDOW before throttling kicks in.
+	double CC_WORKER_REGISTRATION_THROTTLE_DELAY; // Delay (in seconds) applied to worker registrations when the cluster
+	                                              // controller detects rapid worker registration rates that exceed
+	                                              // configured thresholds.
 	bool CC_ENABLE_WORKER_HEALTH_MONITOR;
 	double CC_WORKER_HEALTH_CHECKING_INTERVAL; // The interval of refreshing the degraded server list.
 	double CC_DEGRADED_LINK_EXPIRATION_INTERVAL; // The time period from the last degradation report after which a

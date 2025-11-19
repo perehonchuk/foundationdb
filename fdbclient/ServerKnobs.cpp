@@ -828,6 +828,10 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( REPLACE_INTERFACE_CHECK_DELAY,                         5.0 );
 	init( COORDINATOR_REGISTER_INTERVAL,                         5.0 );
 	init( CLIENT_REGISTER_INTERVAL,                            600.0 );
+	init( CC_MAX_WORKERS_PER_CLUSTER,                           2500 ); // Increased from the old 1500 guidance
+	init( CC_WORKER_REGISTRATION_BATCH_WINDOW,                  10.0 ); // 10 second window
+	init( CC_WORKER_REGISTRATION_BATCH_SIZE,                     250 ); // Max 250 workers per 10s window
+	init( CC_WORKER_REGISTRATION_THROTTLE_DELAY,                 0.5 ); // 500ms delay per excess worker
 	init( CC_ENABLE_WORKER_HEALTH_MONITOR,                     false ); if (isSimulated) CC_ENABLE_WORKER_HEALTH_MONITOR = true;
 	init( CC_WORKER_HEALTH_CHECKING_INTERVAL,                   60.0 );
 	init( CC_DEGRADED_LINK_EXPIRATION_INTERVAL,                300.0 );

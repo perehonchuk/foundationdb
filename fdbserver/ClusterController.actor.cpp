@@ -19,6 +19,7 @@
  */
 
 #include <algorithm>
+#include <deque>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -1087,8 +1088,53 @@ ACTOR Future<Void> registerWorker(RegisterWorkerRequest req,
 		return Void();
 	}
 
-	ProcessClass newProcessClass = req.processClass;
+	// Adaptive worker registration throttling
+	double currentTime = now();
 	auto info = self->id_worker.find(w.locality.processId());
+	bool isNewWorker = (info == self->id_worker.end());
+
+	if (isNewWorker) {
+		// Clean up old registration timestamps outside the tracking window
+		while (!self->recentWorkerRegistrationTimes.empty() &&
+		       (currentTime - self->recentWorkerRegistrationTimes.front() >
+		        SERVER_KNOBS->CC_WORKER_REGISTRATION_BATCH_WINDOW)) {
+			self->recentWorkerRegistrationTimes.pop_front();
+		}
+
+		// Check if we're over the batch size limit
+		if (self->recentWorkerRegistrationTimes.size() >= SERVER_KNOBS->CC_WORKER_REGISTRATION_BATCH_SIZE) {
+			double throttleDelay = SERVER_KNOBS->CC_WORKER_REGISTRATION_THROTTLE_DELAY;
+
+			// Log warning (throttled to avoid log spam)
+			if (currentTime - self->lastRegistrationThrottleWarning > 30.0) {
+				TraceEvent(SevWarnAlways, "WorkerRegistrationThrottled", self->id)
+				    .detail("WorkerId", w.id())
+				    .detail("ProcessId", w.locality.processId())
+				    .detail("RecentRegistrations", self->recentWorkerRegistrationTimes.size())
+				    .detail("TimeWindow", SERVER_KNOBS->CC_WORKER_REGISTRATION_BATCH_WINDOW)
+				    .detail("ThrottleDelay", throttleDelay)
+				    .detail("TotalWorkers", self->id_worker.size())
+				    .detail("MaxWorkers", SERVER_KNOBS->CC_MAX_WORKERS_PER_CLUSTER);
+				self->lastRegistrationThrottleWarning = currentTime;
+			}
+
+			// Apply throttle delay
+			wait(delay(throttleDelay));
+		}
+
+		// Track this registration
+		self->recentWorkerRegistrationTimes.push_back(currentTime);
+
+		// Warn if approaching maximum worker capacity
+		if (self->id_worker.size() >= SERVER_KNOBS->CC_MAX_WORKERS_PER_CLUSTER * 0.9) {
+			TraceEvent(SevWarn, "ApproachingMaxWorkerCapacity", self->id)
+			    .detail("CurrentWorkers", self->id_worker.size())
+			    .detail("MaxWorkers", SERVER_KNOBS->CC_MAX_WORKERS_PER_CLUSTER)
+			    .detail("Utilization", (double)self->id_worker.size() / SERVER_KNOBS->CC_MAX_WORKERS_PER_CLUSTER);
+		}
+	}
+
+	ProcessClass newProcessClass = req.processClass;
 	ClusterControllerPriorityInfo newPriorityInfo = req.priorityInfo;
 	newPriorityInfo.processClassFitness = newProcessClass.machineClassFitness(ProcessClass::ClusterController);
 

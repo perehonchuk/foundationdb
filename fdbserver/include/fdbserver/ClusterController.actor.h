@@ -3376,6 +3376,10 @@ public:
 	Counter registerMasterRequests;
 	Counter statusRequests;
 
+	// Worker registration throttling state
+	std::deque<double> recentWorkerRegistrationTimes; // Timestamps of recent worker registrations
+	double lastRegistrationThrottleWarning; // Last time we logged a throttling warning
+
 	Reference<EventCacheHolder> recruitedMasterWorkerEventHolder;
 
 	ClusterControllerData(ClusterControllerFullInterface const& ccInterface,
@@ -3389,7 +3393,7 @@ public:
 	    dcLogServerVersionDifference(0), dcStorageServerVersionDifference(0), datacenterVersionDifference(0),
 	    versionDifferenceUpdated(false), remoteDCMonitorStarted(false), remoteTransactionSystemDegraded(false),
 	    recruitDistributor(false), recruitRatekeeper(false), recruitBlobManager(false), recruitBlobMigrator(false),
-	    recruitEncryptKeyProxy(false), recruitConsistencyScan(false),
+	    recruitEncryptKeyProxy(false), recruitConsistencyScan(false), lastRegistrationThrottleWarning(0),
 	    clusterControllerMetrics("ClusterController", id.toString()),
 	    openDatabaseRequests("OpenDatabaseRequests", clusterControllerMetrics),
 	    registerWorkerRequests("RegisterWorkerRequests", clusterControllerMetrics),
