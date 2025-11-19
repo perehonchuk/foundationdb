@@ -351,6 +351,10 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
+
+		state double batchStartTime = now();
+		state int transactionsProcessed = 0;
+
 		for (int t = 0; t < req.transactions.size(); t++) {
 			conflictBatch.addTransaction(req.transactions[t], newOldestVersion);
 			self->resolvedReadConflictRanges += req.transactions[t].read_conflict_ranges.size();
@@ -364,7 +368,31 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 					self->iopsSample.addAndExpire(
 					    it.begin, SERVER_KNOBS->SAMPLE_OFFSET_PER_KEY + it.begin.size(), expire);
 			}
+
+			transactionsProcessed++;
+
+			// Adaptive batching: check for timeout and yield control periodically
+			if (SERVER_KNOBS->RESOLVER_ENABLE_ADAPTIVE_BATCHING &&
+			    transactionsProcessed % SERVER_KNOBS->RESOLVER_MAX_PARALLEL_CONFLICT_CHECKS == 0) {
+				double elapsedTime = now() - batchStartTime;
+				if (elapsedTime > SERVER_KNOBS->RESOLVER_BATCH_PROCESSING_TIMEOUT) {
+					CODE_PROBE(true, "Resolver batch processing timeout, yielding control");
+					wait(delay(0));
+					batchStartTime = now();
+				}
+			}
 		}
+
+		double totalBatchTime = now() - batchStartTime;
+		if (SERVER_KNOBS->RESOLVER_ENABLE_ADAPTIVE_BATCHING && totalBatchTime > SERVER_KNOBS->RESOLVER_BATCH_PROCESSING_TIMEOUT) {
+			TraceEvent("ResolverAdaptiveBatching", self->dbgid)
+			    .detail("Version", req.version)
+			    .detail("TransactionsProcessed", transactionsProcessed)
+			    .detail("BatchTime", totalBatchTime)
+			    .detail("Timeout", SERVER_KNOBS->RESOLVER_BATCH_PROCESSING_TIMEOUT)
+			    .detail("MaxParallelChecks", SERVER_KNOBS->RESOLVER_MAX_PARALLEL_CONFLICT_CHECKS);
+		}
+
 		conflictBatch.detectConflicts(req.version, newOldestVersion, commitList, &tooOldList);
 
 		reply.debugID = req.debugID;

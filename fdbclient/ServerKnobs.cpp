@@ -757,6 +757,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( RESET_RESOLVER_BATCHES,                                 200 );
 	init( RESET_MASTER_DELAY,                                   300.0 );
 	init( RESET_RESOLVER_DELAY,                                 300.0 );
+	init( RESOLVER_BATCH_PROCESSING_TIMEOUT,                      2.5 ); if( randomize && BUGGIFY ) RESOLVER_BATCH_PROCESSING_TIMEOUT = deterministicRandom()->random01() * 5.0;
+	init( RESOLVER_MAX_PARALLEL_CONFLICT_CHECKS,                   16 ); if( randomize && BUGGIFY ) RESOLVER_MAX_PARALLEL_CONFLICT_CHECKS = deterministicRandom()->randomInt(4, 64);
+	init( RESOLVER_ENABLE_ADAPTIVE_BATCHING,                     true ); if( randomize && BUGGIFY ) RESOLVER_ENABLE_ADAPTIVE_BATCHING = deterministicRandom()->coinflip();
 
 	init( GLOBAL_CONFIG_MIGRATE_TIMEOUT,                          5.0 );
 	init( GLOBAL_CONFIG_REFRESH_INTERVAL,                         1.0 ); if ( randomize && BUGGIFY ) GLOBAL_CONFIG_REFRESH_INTERVAL = 0.1;

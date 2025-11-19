@@ -1179,7 +1179,9 @@ ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 			    .detail("PeerAddr", self->pProxyCommitData->resolvers[r].address())
 			    .detail("PeerAddress", self->pProxyCommitData->resolvers[r].address())
 			    .detail("CurrentBatch", self->localBatchNumber)
-			    .detail("InProcessBatch", self->pProxyCommitData->latestLocalCommitBatchLogging.get());
+			    .detail("InProcessBatch", self->pProxyCommitData->latestLocalCommitBatchLogging.get())
+			    .detail("AdaptiveBatchingEnabled", SERVER_KNOBS->RESOLVER_ENABLE_ADAPTIVE_BATCHING)
+			    .detail("BatchTimeout", SERVER_KNOBS->RESOLVER_BATCH_PROCESSING_TIMEOUT);
 			FlowTransport::transport().resetConnection(self->pProxyCommitData->resolvers[r].address());
 		}
 		self->pProxyCommitData->lastResolverReset = now();
