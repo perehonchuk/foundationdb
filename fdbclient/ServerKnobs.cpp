@@ -30,7 +30,7 @@ ServerKnobs::ServerKnobs(Randomize randomize, ClientKnobs* clientKnobs, IsSimula
 }
 
 // Returns a deterministically random transaction timeout value for simulation testing.
-// More weight is given to the famous 5s timeout, but [1, 10] range is returned with lower weight.
+// More weight is given to the famous 8s timeout, but [1, 10] range is returned with lower weight.
 int randomTxnTimeoutSeconds() {
 	if (deterministicRandom()->truePercent(90)) {
 		return 5;
@@ -43,10 +43,10 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	// clang-format off
 	init( ALLOW_DANGEROUS_KNOBS,                               isSimulated );
 	
-	// Versions -- knobs that control 5s timeout
+	// Versions -- knobs that control 8s timeout
 	init( VERSIONS_PER_SECOND,                                   1e6 );
-	init( MAX_READ_TRANSACTION_LIFE_VERSIONS,      5 * VERSIONS_PER_SECOND ); if (isSimulated) MAX_READ_TRANSACTION_LIFE_VERSIONS = randomTxnTimeoutSeconds() * VERSIONS_PER_SECOND;
-	init( MAX_WRITE_TRANSACTION_LIFE_VERSIONS,     5 * VERSIONS_PER_SECOND ); if (randomize && BUGGIFY) MAX_WRITE_TRANSACTION_LIFE_VERSIONS=std::max<int>(1, 1 * VERSIONS_PER_SECOND);
+	init( MAX_READ_TRANSACTION_LIFE_VERSIONS,      8 * VERSIONS_PER_SECOND ); if (isSimulated) MAX_READ_TRANSACTION_LIFE_VERSIONS = randomTxnTimeoutSeconds() * VERSIONS_PER_SECOND;
+	init( MAX_WRITE_TRANSACTION_LIFE_VERSIONS,     8 * VERSIONS_PER_SECOND ); if (randomize && BUGGIFY) MAX_WRITE_TRANSACTION_LIFE_VERSIONS=std::max<int>(1, 1 * VERSIONS_PER_SECOND);
 	
 	// Versions -- other
 	init( MAX_VERSIONS_IN_FLIGHT,                100 * VERSIONS_PER_SECOND );
@@ -1342,7 +1342,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 		clientKnobs->IS_ACCEPTABLE_DELAY =
 		    clientKnobs->IS_ACCEPTABLE_DELAY *
 		    std::min(MAX_READ_TRANSACTION_LIFE_VERSIONS, MAX_WRITE_TRANSACTION_LIFE_VERSIONS) /
-		    (5.0 * VERSIONS_PER_SECOND);
+		    (8.0 * VERSIONS_PER_SECOND);
 		clientKnobs->INIT_MID_SHARD_BYTES = MIN_SHARD_BYTES;
 	}
 
