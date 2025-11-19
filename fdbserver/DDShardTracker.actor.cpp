@@ -162,7 +162,7 @@ std::pair<ShardSizeBounds, bool> calculateShardSizeBounds(
 			bounds.max.bytesWrittenPerKSecond = SERVER_KNOBS->SHARD_MAX_BYTES_PER_KSEC;
 			bounds.min.bytesWrittenPerKSecond = SERVER_KNOBS->SHARD_MIN_BYTES_PER_KSEC;
 			bounds.permittedError.bytesWrittenPerKSecond = bounds.min.bytesWrittenPerKSecond / 4;
-		} else if (bandwidthStatus == BandwidthStatusHigh) { // > 10MB/sec for 100MB shard, proportionally lower
+		} else if (bandwidthStatus == BandwidthStatusHigh) { // > 10MB/sec for 150MB shard, proportionally lower
 			                                                 // for smaller shard, > 200KB/sec no matter what
 			bounds.max.bytesWrittenPerKSecond = bounds.max.infinity;
 			bounds.min.bytesWrittenPerKSecond = SERVER_KNOBS->SHARD_MAX_BYTES_PER_KSEC;
