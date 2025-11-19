@@ -3978,8 +3978,16 @@ IKeyValueStore* keyValueStoreShardedRocksDB(std::string const& path,
                                             UID logID,
                                             KeyValueStoreType storeType,
                                             bool checkChecksums,
-                                            bool checkIntegrity) {
+                                            bool checkIntegrity,
+                                            Reference<AsyncVar<ServerDBInfo> const> db,
+                                            Optional<EncryptionAtRestMode> encryptionMode,
+                                            Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
 #ifdef WITH_ROCKSDB
+	if (encryptionMode.present() && encryptionMode.get().isEncryptionEnabled()) {
+		TraceEvent("ShardedRocksDBEncryptionEnabled", logID)
+		    .detail("Path", path)
+		    .detail("EncryptionMode", encryptionMode.get().toString());
+	}
 	return new ShardedRocksDBKeyValueStore(path, logID);
 #else
 	TraceEvent(SevError, "ShardedRocksDBEngineInitFailure").detail("Reason", "Built without RocksDB");

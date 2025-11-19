@@ -35,9 +35,11 @@ IKeyValueStore* openKVStore(KeyValueStoreType storeType,
                             Optional<EncryptionAtRestMode> encryptionMode,
                             int64_t pageCacheBytes,
                             Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
-	// Only Redwood support encryption currently.
+	// Redwood and RocksDB storage engines support encryption.
 	if (encryptionMode.present() && encryptionMode.get().isEncryptionEnabled() &&
-	    storeType != KeyValueStoreType::SSD_REDWOOD_V1) {
+	    storeType != KeyValueStoreType::SSD_REDWOOD_V1 &&
+	    storeType != KeyValueStoreType::SSD_ROCKSDB_V1 &&
+	    storeType != KeyValueStoreType::SSD_SHARDED_ROCKSDB) {
 		TraceEvent(SevWarn, "KVStoreTypeNotSupportingEncryption")
 		    .detail("KVStoreType", storeType)
 		    .detail("EncryptionMode", encryptionMode);
@@ -56,9 +58,9 @@ IKeyValueStore* openKVStore(KeyValueStoreType storeType,
 	case KeyValueStoreType::SSD_REDWOOD_V1:
 		return keyValueStoreRedwoodV1(filename, logID, db, encryptionMode, pageCacheBytes, encryptionMonitor);
 	case KeyValueStoreType::SSD_ROCKSDB_V1:
-		return keyValueStoreRocksDB(filename, logID, storeType);
+		return keyValueStoreRocksDB(filename, logID, storeType, checkChecksums, checkIntegrity, db, encryptionMode, encryptionMonitor);
 	case KeyValueStoreType::SSD_SHARDED_ROCKSDB:
-		return keyValueStoreShardedRocksDB(filename, logID, storeType, checkChecksums, checkIntegrity);
+		return keyValueStoreShardedRocksDB(filename, logID, storeType, checkChecksums, checkIntegrity, db, encryptionMode, encryptionMonitor);
 	case KeyValueStoreType::MEMORY_RADIXTREE:
 		return keyValueStoreMemory(filename,
 		                           logID,

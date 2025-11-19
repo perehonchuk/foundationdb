@@ -1780,8 +1780,9 @@ SimulationStorageEngine chooseSimulationStorageEngine(const TestConfig& testConf
 	SimulationStorageEngine result = SimulationStorageEngine::SIMULATION_STORAGE_ENGINE_INVALID_VALUE;
 
 	if (isEncryptionEnabled) {
-		// Only storage engine supporting encryption is Redwood.
+		// Storage engines supporting encryption are Redwood and RocksDB variants.
 		reason = "EncryptionEnabled"_sr;
+		// Prefer Redwood, but allow RocksDB if configured
 		result = SimulationStorageEngine::REDWOOD;
 
 	} else if (testConfig.storageEngineType.present()) {
