@@ -347,6 +347,10 @@ void updateLiveCommittedVersionSwift(Reference<MasterData> self, ReportRawCommit
 void updateLiveCommittedVersionCxx(Reference<MasterData> self, ReportRawCommittedVersionRequest req) {
 	self->minKnownCommittedVersion = std::max(self->minKnownCommittedVersion, req.minKnownCommittedVersion);
 
+	if (req.version <= self->liveCommittedVersion.get() && !SERVER_KNOBS->COMMIT_PROXY_ENFORCE_VERSION_ORDERING) {
+		CODE_PROBE(true, "Out-of-order commit version report received at master");
+	}
+
 	if (req.version > self->liveCommittedVersion.get()) {
 		if (SERVER_KNOBS->ENABLE_VERSION_VECTOR && req.writtenTags.present()) {
 			// TraceEvent("Received ReportRawCommittedVersionRequest").detail("Version",req.version);

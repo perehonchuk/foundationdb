@@ -2676,11 +2676,20 @@ ACTOR Future<Void> reply(CommitBatchContext* self) {
 	// self->committedVersion by reporting commit version first before updating self->committedVersion. Otherwise, a
 	// client may get a commit version that the master is not aware of, and next GRV request may get a version less
 	// than self->committedVersion.
+	//
+	// When COMMIT_PROXY_ENFORCE_VERSION_ORDERING is disabled, we report all commit versions to the master
+	// regardless of ordering. This allows commits to complete faster but may result in out-of-order version
+	// reports to the master. The master handles this by only updating its liveCommittedVersion when receiving
+	// a version higher than what it currently knows.
 
 	CODE_PROBE(pProxyCommitData->committedVersion.get() > self->commitVersion,
 	           "later version was reported committed first");
 
-	if (self->commitVersion >= pProxyCommitData->committedVersion.get()) {
+	bool shouldReportVersion = SERVER_KNOBS->COMMIT_PROXY_ENFORCE_VERSION_ORDERING
+	                               ? (self->commitVersion >= pProxyCommitData->committedVersion.get())
+	                               : true;
+
+	if (shouldReportVersion) {
 		state Optional<std::set<Tag>> writtenTags;
 		if (SERVER_KNOBS->ENABLE_VERSION_VECTOR) {
 			writtenTags = self->writtenTags;
