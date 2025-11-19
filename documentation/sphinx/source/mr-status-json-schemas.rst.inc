@@ -795,7 +795,8 @@
              "one_satellite_double",
              "one_satellite_triple",
              "two_satellite_safe",
-             "two_satellite_fast"
+             "two_satellite_fast",
+             "three_satellite_balanced"
          ]},
          "satellite_log_replicas":1,
          "satellite_usable_dcs":1,

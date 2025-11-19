@@ -1986,7 +1986,7 @@ void SimulationConfig::setRegions(const TestConfig& testConfig) {
 				ASSERT(false); // Programmer forgot to adjust cases.
 			}
 		} else {
-			int satellite_replication_type = deterministicRandom()->randomInt(0, 5);
+			int satellite_replication_type = deterministicRandom()->randomInt(0, 6);
 			switch (satellite_replication_type) {
 			case 0: {
 				// FIXME: implement
@@ -2013,6 +2013,12 @@ void SimulationConfig::setRegions(const TestConfig& testConfig) {
 				CODE_PROBE(true, "Simulated cluster using triple satellite redundancy mode");
 				primaryObj["satellite_redundancy_mode"] = "one_satellite_triple";
 				remoteObj["satellite_redundancy_mode"] = "one_satellite_triple";
+				break;
+			}
+			case 5: {
+				CODE_PROBE(true, "Simulated cluster using three satellite balanced redundancy mode");
+				primaryObj["satellite_redundancy_mode"] = "three_satellite_balanced";
+				remoteObj["satellite_redundancy_mode"] = "three_satellite_balanced";
 				break;
 			}
 			default:

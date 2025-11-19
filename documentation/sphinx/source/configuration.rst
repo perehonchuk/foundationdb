@@ -688,6 +688,10 @@ Keep two copies of the mutation log in each of the two satellite datacenters wit
 
 .. warning:: In release 6.0 this is implemented by waiting for all but 2 of the transaction logs. If ``satellite_logs`` is set to more than 4, FoundationDB will still need to wait for replies from both datacenters.
 
+``three_satellite_balanced`` mode
+
+Keep two copies of the mutation log in each of three satellite datacenters, for a total of six copies of each mutation. FoundationDB will synchronously wait for any three of the six transaction logs (across any of the three satellite datacenters) to make the mutations durable before considering a commit successful. This mode provides the highest level of durability while maintaining low commit latencies when one or more satellites experience performance degradation. If fewer than three satellites are available, it will fall back to storing two copies of the mutation log in a single datacenter.
+
 The number of ``satellite_logs`` is also configured per region. It represents the desired number of transaction logs that should be recruited in the satellite datacenters. The satellite transaction logs do slightly less work than the primary datacenter transaction logs. So while the ratio of logs to replicas should be kept roughly equal in the primary datacenter and the satellites, a slightly fewer number of satellite transaction logs may be the optimal balance for performance.
 
 The number of replicas in each region is controlled by redundancy level. For example ``double`` mode will put 2 replicas in each region, for a total of 4 replicas.

@@ -165,6 +165,20 @@ void parse(std::vector<RegionInfo>* regions, ValueRef const& v) {
 					info.satelliteTLogWriteAntiQuorumFallback = 0;
 					info.satelliteTLogPolicyFallback = Reference<IReplicationPolicy>(
 					    new PolicyAcross(2, "zoneid", Reference<IReplicationPolicy>(new PolicyOne())));
+				} else if (satelliteReplication == "three_satellite_balanced") {
+					info.satelliteTLogReplicationFactor = 6;
+					info.satelliteTLogUsableDcs = 3;
+					info.satelliteTLogWriteAntiQuorum = 3;
+					info.satelliteTLogPolicy = Reference<IReplicationPolicy>(
+					    new PolicyAcross(3,
+					                     "dcid",
+					                     Reference<IReplicationPolicy>(new PolicyAcross(
+					                         2, "zoneid", Reference<IReplicationPolicy>(new PolicyOne())))));
+					info.satelliteTLogReplicationFactorFallback = 2;
+					info.satelliteTLogUsableDcsFallback = 1;
+					info.satelliteTLogWriteAntiQuorumFallback = 0;
+					info.satelliteTLogPolicyFallback = Reference<IReplicationPolicy>(
+					    new PolicyAcross(2, "zoneid", Reference<IReplicationPolicy>(new PolicyOne())));
 				} else {
 					throw invalid_option();
 				}
