@@ -2170,7 +2170,7 @@ ACTOR Future<Version> watchValue(Database cx, Reference<const WatchParameters> p
 			// little while to get the committed version.
 			bool buggifyRetry = g_network->isSimulated() && !g_simulator->speedUpSimulation && BUGGIFY_WITH_PROB(0.1);
 			CODE_PROBE(buggifyRetry, "Watch buggifying version gap retry");
-			if (v - resp.version < 50'000'000 && !buggifyRetry) {
+			if (v - resp.version < 60'000'000 && !buggifyRetry) {
 				return resp.version;
 			}
 			ver = v;

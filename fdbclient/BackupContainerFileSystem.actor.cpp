@@ -1195,8 +1195,8 @@ public:
 		return f;
 	}
 
-	// The innermost folder covers 100 seconds (1e8 versions) During a full speed backup it is possible though very
-	// unlikely write about 10,000 snapshot range files during that time.
+	// The innermost folder covers 120 seconds (1.2e8 versions) During a full speed backup it is possible though very
+	// unlikely write about 12,000 snapshot range files during that time.
 	static std::string old_rangeVersionFolderString(Version v) {
 		return format("ranges/%s/", versionFolderString(v, 8).c_str());
 	}

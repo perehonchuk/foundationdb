@@ -217,10 +217,10 @@ struct FailoverWithSSLagWorkload : TestWorkload {
 		state bool failoverCompleted = false;
 		loop choose {
 			// NOTE: We don't have a way of verifying that failover is blocked because of the
-			// data center/storage server lag. So verify that failover is blocked for 100 seconds
+			// data center/storage server lag. So verify that failover is blocked for 120 seconds
 			// (which is way longer than the time needed to complete failover) and then unclog
 			// connections and let failover make progress.
-			when(wait(delay(100.0))) {
+			when(wait(delay(120.0))) {
 				if (connectionsClogged) {
 					if (failoverCompleted) {
 						// Failover completed even while the remote storages are clogged, which

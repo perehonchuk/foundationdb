@@ -327,7 +327,7 @@ That is, for any transactions that the Commit Proxies may have sent back
 commit response, their logs are persisted in multiple Log Servers (e.g., 
 three servers if replication degree is 3).
 
-Finally, a recovery will *fast forward* time by 90 seconds, which would
+Finally, a recovery will *fast forward* time by 120 seconds, which would
 abort any in-progress client transactions with ``transaction_too_old``
 error. During retry, these client transactions will find the new
 generation of transaction system and commit.

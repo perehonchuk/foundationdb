@@ -49,7 +49,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( MAX_WRITE_TRANSACTION_LIFE_VERSIONS,     5 * VERSIONS_PER_SECOND ); if (randomize && BUGGIFY) MAX_WRITE_TRANSACTION_LIFE_VERSIONS=std::max<int>(1, 1 * VERSIONS_PER_SECOND);
 	
 	// Versions -- other
-	init( MAX_VERSIONS_IN_FLIGHT,                100 * VERSIONS_PER_SECOND );
+	init( MAX_VERSIONS_IN_FLIGHT,                120 * VERSIONS_PER_SECOND );
 	init( MAX_VERSIONS_IN_FLIGHT_FORCED,         6e5 * VERSIONS_PER_SECOND ); //one week of versions
 
 	init( ENABLE_VERSION_VECTOR,                               false );
