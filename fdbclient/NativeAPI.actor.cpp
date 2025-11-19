@@ -600,6 +600,13 @@ Database Database::createDatabase(Reference<IClusterConnectionRecord> connRecord
 
 	g_network->initTLS();
 
+	// Enable backward-compatible readonly client connections if configured
+	if (CLIENT_KNOBS->ALLOW_BACKWARD_COMPATIBLE_READONLY_CLIENTS) {
+		TraceEvent("BackwardCompatibleReadonlyClientsEnabled")
+		    .detail("MaxVersionDelta", CLIENT_KNOBS->BACKWARD_COMPATIBLE_PROTOCOL_VERSION_DELTA)
+		    .detail("ClientProtocolVersion", g_network->protocolVersion().version());
+	}
+
 	auto clientInfo = makeReference<AsyncVar<ClientDBInfo>>();
 	auto coordinator = makeReference<AsyncVar<Optional<ClientLeaderRegInterface>>>();
 	auto connectionRecord = makeReference<AsyncVar<Reference<IClusterConnectionRecord>>>();

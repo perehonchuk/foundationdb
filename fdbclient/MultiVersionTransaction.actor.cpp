@@ -2847,7 +2847,23 @@ bool ClientInfo::canReplace(Reference<ClientInfo> other) const {
 		return true;
 	}
 
-	return !protocolVersion.isCompatible(other->protocolVersion);
+	// Check standard compatibility first
+	if (!protocolVersion.isCompatible(other->protocolVersion)) {
+		// If not normally compatible, check if backward-compatible readonly mode is enabled
+		if (CLIENT_KNOBS->ALLOW_BACKWARD_COMPATIBLE_READONLY_CLIENTS) {
+			// Allow connection if this client can work in backward-compatible readonly mode
+			if (protocolVersion.isBackwardCompatibleReadonly(
+			        other->protocolVersion, CLIENT_KNOBS->BACKWARD_COMPATIBLE_PROTOCOL_VERSION_DELTA)) {
+				TraceEvent("ClientUsingBackwardCompatibleReadonlyMode")
+				    .detail("ClientProtocol", protocolVersion.version())
+				    .detail("ServerProtocol", other->protocolVersion.version());
+				return false; // Not incompatible - allow connection
+			}
+		}
+		return true; // Incompatible
+	}
+
+	return false; // Compatible
 }
 
 std::string ClientInfo::getTraceFileIdentifier(const std::string& baseIdentifier) {

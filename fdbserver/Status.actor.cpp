@@ -1170,6 +1170,11 @@ static JsonBuilderObject clientStatusFetcher(
 		ver["client_version"] = clientVersionRef.clientVersion.toString();
 		ver["protocol_version"] = clientVersionRef.protocolVersion.toString();
 		ver["source_version"] = clientVersionRef.sourceVersion.toString();
+		// Check if this client is using backward-compatible readonly mode
+		ProtocolVersion clientProto(std::stoull(clientVersionRef.protocolVersion.toString(), nullptr, 16));
+		if (clientProto.isBackwardCompatibleReadonly(g_network->protocolVersion(), 2)) {
+			ver["backward_compatible_readonly"] = true;
+		}
 
 		JsonBuilderArray clients = JsonBuilderArray();
 		for (const auto& [networkAddress, trackLogGroup] : samples.samples) {

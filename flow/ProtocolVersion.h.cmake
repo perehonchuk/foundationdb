@@ -69,6 +69,23 @@ public:
 		return (other.version() & compatibleProtocolVersionMask) == (version() & compatibleProtocolVersionMask);
 	}
 
+	// Check if a client with this (older) protocol version can connect to a server with a newer protocol
+	// for read-only operations. Allows backward compatibility within a configurable version delta.
+	constexpr bool isBackwardCompatibleReadonly(ProtocolVersion serverVersion, int maxMinorVersionDelta) const {
+		// Extract the minor version from protocol version (assuming format 0x0FDB00BMMM...)
+		// where MMM is the minor version in hex
+		uint64_t clientMinor = (version() >> 24) & 0xFFF;
+		uint64_t serverMinor = (serverVersion.version() >> 24) & 0xFFF;
+
+		// Client must be older than or equal to server
+		if (version() > serverVersion.version()) {
+			return false;
+		}
+
+		// If within maxMinorVersionDelta minor versions, allow backward compatibility
+		return (serverMinor - clientMinor) <= static_cast<uint64_t>(maxMinorVersionDelta);
+	}
+
 	// Returns a normalized protocol version that will be the same for all compatible versions
 	constexpr ProtocolVersion normalizedVersion() const {
 		return ProtocolVersion(_version & compatibleProtocolVersionMask);

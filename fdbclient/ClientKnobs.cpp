@@ -56,6 +56,8 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( MAX_GRV_PROXY_CONNECTIONS,                 3 ); if( randomize && BUGGIFY ) MAX_GRV_PROXY_CONNECTIONS = 1;
 	init( STATUS_IDLE_TIMEOUT,                   120.0 );
 	init( SEND_ENTIRE_VERSION_VECTOR,            false );
+	init( ALLOW_BACKWARD_COMPATIBLE_READONLY_CLIENTS, true ); if( randomize && BUGGIFY ) ALLOW_BACKWARD_COMPATIBLE_READONLY_CLIENTS = false;
+	init( BACKWARD_COMPATIBLE_PROTOCOL_VERSION_DELTA, 2 ); // Allow up to 2 minor versions backward compatibility
 
 	// wrong_shard_server sometimes comes from the only nonfailed server, so we need to avoid a fast spin
 
