@@ -468,8 +468,9 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						}
 					}
 
-					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
-					    batch.size()) {
+					// Allow batching based on size threshold only; removed firstInBatch check
+					// to enable opportunistic batching of split transactions
+					if (batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT && batch.size()) {
 						commitData->triggerCommit.set(false);
 						out.send({ std::move(batch), batchBytes });
 						lastBatch = now();
@@ -481,6 +482,12 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 					batch.push_back(req);
 					batchBytes += bytes;
 					commitData->commitBatchesMemBytesCount += bytes;
+
+					// Track split transactions for potential future batching optimizations
+					if (req.debugID.present() && req.firstInBatch()) {
+						auto& splitBatch = commitData->splitTransactionBatches[req.debugID.get()];
+						splitBatch.push_back(req);
+					}
 				}
 				when(wait(timeout)) {}
 				when(wait(commitData->triggerCommit.onChange())) {

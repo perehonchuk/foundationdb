@@ -268,6 +268,9 @@ struct ProxyCommitData {
 
 	AsyncVar<bool> triggerCommit;
 
+	// Map to track split transaction parts for batching by debugID
+	std::unordered_map<UID, std::vector<CommitTransactionRequest>> splitTransactionBatches;
+
 	uint16_t commitProxyIndex; // decided when the cluster controller recruits commit proxies
 	std::shared_ptr<AccumulativeChecksumBuilder> acsBuilder = nullptr;
 	LogEpoch epoch;
