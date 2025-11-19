@@ -7340,10 +7340,23 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		//   * The transferredVersion is <= the version of any of the updates in batch, and if there is an equal
 		//   version
 		//     its mutations haven't been processed yet
-		shard->transferredVersion = data->version.get() + 1;
+		// Add a configurable offset to the transferred version to provide version spacing for concurrent operations
+		shard->transferredVersion = data->version.get() + SERVER_KNOBS->FETCH_KEYS_TRANSFERRED_VERSION_OFFSET;
 		// shard->transferredVersion = batch->changes[0].version;  //< FIXME: This obeys the documented properties,
 		// and seems "safer" because it never introduces extra versions into the data structure, but violates some
 		// ASSERTs currently
+
+		CODE_PROBE(SERVER_KNOBS->FETCH_KEYS_TRANSFERRED_VERSION_OFFSET != 1,
+		           "Using non-standard transferred version offset");
+
+		TraceEvent(SevDebug, "FetchKeysTransferredVersion", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("FetchVersion", fetchVersion)
+		    .detail("CurrentVersion", data->version.get())
+		    .detail("VersionOffset", SERVER_KNOBS->FETCH_KEYS_TRANSFERRED_VERSION_OFFSET)
+		    .detail("TransferredVersion", shard->transferredVersion)
+		    .detail("Range", keys);
+
 		data->mutableData().createNewVersion(shard->transferredVersion);
 		ASSERT(shard->transferredVersion > data->storageVersion());
 		ASSERT(shard->transferredVersion == data->data().getLatestVersion());
