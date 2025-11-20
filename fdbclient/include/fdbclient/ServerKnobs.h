@@ -785,6 +785,8 @@ public:
 	double WAIT_FOR_BLOB_MANAGER_JOIN_DELAY;
 	double WAIT_FOR_ENCRYPT_KEY_PROXY_JOIN_DELAY;
 	double WORKER_FAILURE_TIME;
+	double WORKER_FAILURE_TIME_MULTIPLIER; // Multiplier for determining global failure threshold
+	double FAILURE_DETECTION_POLL_INTERVAL; // How often workers poll CC for failure status
 	double CHECK_OUTSTANDING_INTERVAL;
 	double INCOMPATIBLE_PEERS_LOGGING_INTERVAL;
 	double VERSION_LAG_METRIC_INTERVAL;

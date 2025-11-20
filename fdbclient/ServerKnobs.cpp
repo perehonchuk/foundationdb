@@ -813,7 +813,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( WAIT_FOR_CONSISTENCYSCAN_JOIN_DELAY,                   1.0 );
 	init( WAIT_FOR_BLOB_MANAGER_JOIN_DELAY,                      1.0 );
 	init( WAIT_FOR_ENCRYPT_KEY_PROXY_JOIN_DELAY,                 1.0 );
-	init( WORKER_FAILURE_TIME,                                   1.0 ); if( randomize && BUGGIFY ) WORKER_FAILURE_TIME = 10.0;
+	init( WORKER_FAILURE_TIME,                                   1.5 ); if( randomize && BUGGIFY ) WORKER_FAILURE_TIME = 10.0;
+	init( WORKER_FAILURE_TIME_MULTIPLIER,                        4.0 ); // Global failure after WORKER_FAILURE_TIME * multiplier
+	init( FAILURE_DETECTION_POLL_INTERVAL,                      0.15 ); // Workers poll CC every 150ms instead of 100ms
 	init( CHECK_OUTSTANDING_INTERVAL,                            0.5 ); if( randomize && BUGGIFY ) CHECK_OUTSTANDING_INTERVAL = 0.001;
 	init( VERSION_LAG_METRIC_INTERVAL,                           0.5 ); if( randomize && BUGGIFY ) VERSION_LAG_METRIC_INTERVAL = 10.0;
 	init( MAX_VERSION_DIFFERENCE,           20 * VERSIONS_PER_SECOND );

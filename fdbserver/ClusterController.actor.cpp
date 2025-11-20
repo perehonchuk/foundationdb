@@ -797,9 +797,11 @@ ACTOR Future<Void> rebootAndCheck(ClusterControllerData* cluster, Optional<Stand
 ACTOR Future<Void> workerAvailabilityWatch(WorkerInterface worker,
                                            ProcessClass startingClass,
                                            ClusterControllerData* cluster) {
-	state Future<Void> failed = (worker.address() == g_network->getLocalAddress())
-	                                ? Never()
-	                                : waitFailureClient(worker.waitFailure, SERVER_KNOBS->WORKER_FAILURE_TIME);
+	state Future<Void> failed =
+	    (worker.address() == g_network->getLocalAddress())
+	        ? Never()
+	        : waitFailureClient(worker.waitFailure,
+	                            SERVER_KNOBS->WORKER_FAILURE_TIME * SERVER_KNOBS->WORKER_FAILURE_TIME_MULTIPLIER);
 	cluster->updateWorkerList.set(worker.locality.processId(),
 	                              ProcessData(worker.locality, startingClass, worker.stableAddress()));
 	// This switching avoids a race where the worker can be added to id_worker map after the workerAvailabilityWatch
@@ -830,6 +832,8 @@ ACTOR Future<Void> workerAvailabilityWatch(WorkerInterface worker,
 				TraceEvent("ClusterControllerWorkerFailed", cluster->id)
 				    .detail("ProcessId", worker.locality.processId())
 				    .detail("ProcessClass", failedWorkerInfo.details.processClass.toString())
+				    .detail("FailureTimeout",
+				            SERVER_KNOBS->WORKER_FAILURE_TIME * SERVER_KNOBS->WORKER_FAILURE_TIME_MULTIPLIER)
 				    .detail("Address", worker.address());
 				cluster->removedDBInfoEndpoints.insert(worker.updateServerDBInfo.getEndpoint());
 				cluster->id_worker.erase(worker.locality.processId());
