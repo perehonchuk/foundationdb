@@ -833,6 +833,8 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	double lastActivityTime;
+	int activityCount;
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
@@ -840,7 +842,8 @@ public:
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
 	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId),
+	    lastActivityTime(now()), activityCount(0) {}
 };
 
 struct BusiestWriteTagContext {
@@ -2508,6 +2511,9 @@ ACTOR Future<Version> watchWaitForValueChange(StorageServer* data, SpanContext p
 			Version waitVersion = minVersion;
 			if (reply.value != metadata->value) {
 				if (latest >= metadata->version) {
+					// Track activity for adaptive timeout
+					metadata->lastActivityTime = now();
+					metadata->activityCount++;
 					return latest; // fire watch
 				} else if (metadata->version > originalMetadataVersion) {
 					// another watch came in and raced in case 2 and updated the version. simply just wait and read
@@ -2586,10 +2592,32 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 
 	loop {
 		double timeoutDelay = -1;
+		double baseTimeout = CLIENT_KNOBS->WATCH_TIMEOUT;
+
 		if (data->noRecentUpdates.get()) {
-			timeoutDelay = std::max(CLIENT_KNOBS->FAST_WATCH_TIMEOUT - (now() - startTime), 0.0);
-		} else if (!BUGGIFY) {
-			timeoutDelay = std::max(CLIENT_KNOBS->WATCH_TIMEOUT - (now() - startTime), 0.0);
+			baseTimeout = CLIENT_KNOBS->FAST_WATCH_TIMEOUT;
+		}
+
+		// Apply adaptive timeout based on key activity
+		if (CLIENT_KNOBS->ENABLE_WATCH_ADAPTIVE_TIMEOUT) {
+			Reference<ServerWatchMetadata> metadata = data->getWatchMetadata(req.key.contents(), req.tenantInfo.tenantId);
+			if (metadata.isValid()) {
+				double timeSinceLastActivity = now() - metadata->lastActivityTime;
+				if (timeSinceLastActivity > 60.0 && metadata->activityCount > 0) {
+					// Inactive key - reduce timeout
+					baseTimeout = baseTimeout / CLIENT_KNOBS->WATCH_ADAPTIVE_TIMEOUT_FACTOR;
+					TraceEvent("WatchAdaptiveTimeout", data->thisServerID)
+					    .detail("Key", req.key)
+					    .detail("TimeSinceLastActivity", timeSinceLastActivity)
+					    .detail("ActivityCount", metadata->activityCount)
+					    .detail("OriginalTimeout", baseTimeout * CLIENT_KNOBS->WATCH_ADAPTIVE_TIMEOUT_FACTOR)
+					    .detail("AdaptiveTimeout", baseTimeout);
+				}
+			}
+		}
+
+		if (!BUGGIFY) {
+			timeoutDelay = std::max(baseTimeout - (now() - startTime), 0.0);
 		}
 
 		try {
