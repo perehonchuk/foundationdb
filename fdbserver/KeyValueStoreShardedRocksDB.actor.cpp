@@ -3978,7 +3978,10 @@ IKeyValueStore* keyValueStoreShardedRocksDB(std::string const& path,
                                             UID logID,
                                             KeyValueStoreType storeType,
                                             bool checkChecksums,
-                                            bool checkIntegrity) {
+                                            bool checkIntegrity,
+                                            Reference<AsyncVar<ServerDBInfo> const> db,
+                                            Optional<EncryptionAtRestMode> encryptionMode,
+                                            Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
 #ifdef WITH_ROCKSDB
 	return new ShardedRocksDBKeyValueStore(path, logID);
 #else

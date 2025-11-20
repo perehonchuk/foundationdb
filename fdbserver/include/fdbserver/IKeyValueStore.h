@@ -42,12 +42,18 @@ extern IKeyValueStore* keyValueStoreRocksDB(std::string const& path,
                                             UID logID,
                                             KeyValueStoreType storeType,
                                             bool checkChecksums = false,
-                                            bool checkIntegrity = false);
+                                            bool checkIntegrity = false,
+                                            Reference<AsyncVar<struct ServerDBInfo> const> db = {},
+                                            Optional<EncryptionAtRestMode> encryptionMode = {},
+                                            Reference<GetEncryptCipherKeysMonitor> encryptionMonitor = {});
 extern IKeyValueStore* keyValueStoreShardedRocksDB(std::string const& path,
                                                    UID logID,
                                                    KeyValueStoreType storeType,
                                                    bool checkChecksums = false,
-                                                   bool checkIntegrity = false);
+                                                   bool checkIntegrity = false,
+                                                   Reference<AsyncVar<struct ServerDBInfo> const> db = {},
+                                                   Optional<EncryptionAtRestMode> encryptionMode = {},
+                                                   Reference<GetEncryptCipherKeysMonitor> encryptionMonitor = {});
 extern IKeyValueStore* keyValueStoreMemory(std::string const& basename,
                                            UID logID,
                                            int64_t memoryLimit,
