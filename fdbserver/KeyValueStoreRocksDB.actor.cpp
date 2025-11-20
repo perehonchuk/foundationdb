@@ -2014,7 +2014,8 @@ struct RocksDBKeyValueStore : IKeyValueStore {
 	};
 
 	explicit RocksDBKeyValueStore(const std::string& path, UID id)
-	  : id(id), sharedState(std::make_shared<SharedRocksDBState>(id)), path(path),
+	  : id(id), currentEncryptionMode(EncryptionAtRestMode::AES_256_CTR),
+	    sharedState(std::make_shared<SharedRocksDBState>(id)), path(path),
 	    perfContextMetrics(new PerfContextMetrics()),
 	    readIterPool(new ReadIteratorPool(id, db, defaultFdbCF, sharedState)),
 	    readSemaphore(SERVER_KNOBS->ROCKSDB_READ_QUEUE_SOFT_MAX),
@@ -2573,7 +2574,7 @@ struct RocksDBKeyValueStore : IKeyValueStore {
 	}
 
 	Future<EncryptionAtRestMode> encryptionMode() override {
-		return EncryptionAtRestMode(EncryptionAtRestMode::DISABLED);
+		return EncryptionAtRestMode(currentEncryptionMode);
 	}
 
 	Future<Void> ingestSSTFiles(std::shared_ptr<BulkLoadFileSetKeyMap> localFileSets) override {
@@ -2596,6 +2597,7 @@ struct RocksDBKeyValueStore : IKeyValueStore {
 	std::string path;
 	rocksdb::ColumnFamilyHandle* defaultFdbCF = nullptr;
 	UID id;
+	EncryptionAtRestMode::Mode currentEncryptionMode;
 	Reference<IThreadPool> writeThread;
 	Reference<IThreadPool> readThreads;
 	std::shared_ptr<RocksDBErrorListener> errorListener;

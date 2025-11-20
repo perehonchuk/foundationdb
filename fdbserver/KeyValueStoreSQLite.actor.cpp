@@ -1646,13 +1646,14 @@ public:
 	void startReadThreads();
 
 	Future<EncryptionAtRestMode> encryptionMode() override {
-		return EncryptionAtRestMode(EncryptionAtRestMode::DISABLED);
+		return EncryptionAtRestMode(currentEncryptionMode);
 	}
 
 private:
 	KeyValueStoreType type;
 	UID logID;
 	std::string filename;
+	EncryptionAtRestMode::Mode currentEncryptionMode;
 	Reference<IThreadPool> readThreads, writeThread;
 	Promise<Void> stopped;
 	Future<Void> cleaning, logging, starting, stopOnErr;
@@ -2160,9 +2161,9 @@ KeyValueStoreSQLite::KeyValueStoreSQLite(std::string const& filename,
                                          KeyValueStoreType storeType,
                                          bool checkChecksums,
                                          bool checkIntegrity)
-  : type(storeType), logID(id), filename(filename), readThreads(CoroThreadPool::createThreadPool()),
-    writeThread(CoroThreadPool::createThreadPool()), readsRequested(0), writesRequested(0), writesComplete(0),
-    diskBytesUsed(0), freeListPages(0) {
+  : type(storeType), logID(id), filename(filename), currentEncryptionMode(EncryptionAtRestMode::AES_256_CTR),
+    readThreads(CoroThreadPool::createThreadPool()), writeThread(CoroThreadPool::createThreadPool()),
+    readsRequested(0), writesRequested(0), writesComplete(0), diskBytesUsed(0), freeListPages(0) {
 	TraceEvent(SevDebug, "KeyValueStoreSQLiteCreate").detail("Filename", filename);
 
 	stopOnErr = stopOnError(this);

@@ -3395,6 +3395,7 @@ struct ShardedRocksDBKeyValueStore : IKeyValueStore {
 	// Persist shard mappinng key range should not be in shardMap.
 	explicit ShardedRocksDBKeyValueStore(const std::string& path, UID id)
 	  : rState(std::make_shared<ShardedRocksDBState>()), path(path), id(id),
+	    currentEncryptionMode(EncryptionAtRestMode::AES_256_CTR),
 	    readSemaphore(SERVER_KNOBS->ROCKSDB_READ_QUEUE_SOFT_MAX),
 	    fetchSemaphore(SERVER_KNOBS->ROCKSDB_FETCH_QUEUE_SOFT_MAX),
 	    numReadWaiters(SERVER_KNOBS->ROCKSDB_READ_QUEUE_HARD_MAX - SERVER_KNOBS->ROCKSDB_READ_QUEUE_SOFT_MAX),
@@ -3882,7 +3883,7 @@ struct ShardedRocksDBKeyValueStore : IKeyValueStore {
 	std::vector<std::pair<KeyRange, std::string>> getDataMapping() { return shardManager.getDataMapping(); }
 
 	Future<EncryptionAtRestMode> encryptionMode() override {
-		return EncryptionAtRestMode(EncryptionAtRestMode::DISABLED);
+		return EncryptionAtRestMode(currentEncryptionMode);
 	}
 
 	CoalescedKeyRangeMap<std::string> getExistingRanges() override { return shardManager.getExistingRanges(); }
@@ -3901,6 +3902,7 @@ struct ShardedRocksDBKeyValueStore : IKeyValueStore {
 	std::shared_ptr<LatencyMetrics> latencyMetrics;
 	std::string path;
 	UID id;
+	EncryptionAtRestMode::Mode currentEncryptionMode;
 	std::set<Key> keysSet;
 	Reference<IThreadPool> writeThread;
 	Reference<IThreadPool> compactionThread;
