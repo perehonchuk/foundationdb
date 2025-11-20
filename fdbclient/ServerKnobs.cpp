@@ -226,11 +226,11 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	bool buggifySmallShards = randomize && BUGGIFY;
 	bool simulationMediumShards = !buggifySmallShards && isSimulated && randomize && !BUGGIFY; // prefer smaller shards in simulation
 	// FIXME: increase this even more eventually
-	init( MIN_SHARD_BYTES,                                  10000000 ); if( buggifySmallShards ) MIN_SHARD_BYTES = 400000; if (simulationMediumShards) MIN_SHARD_BYTES = 2000000; //FIXME: data distribution tracker (specifically StorageMetrics) relies on this number being larger than the maximum size of a key value pair
-	init( SHARD_BYTES_RATIO,                                       4 );
+	init( MIN_SHARD_BYTES,                                  20000000 ); if( buggifySmallShards ) MIN_SHARD_BYTES = 400000; if (simulationMediumShards) MIN_SHARD_BYTES = 2000000; //FIXME: data distribution tracker (specifically StorageMetrics) relies on this number being larger than the maximum size of a key value pair
+	init( SHARD_BYTES_RATIO,                                       5 );
 	init( SHARD_BYTES_PER_SQRT_BYTES,                             45 ); if( buggifySmallShards ) SHARD_BYTES_PER_SQRT_BYTES = 0;//Approximately 10000 bytes per shard
-	init( MAX_SHARD_BYTES,                                 500000000 );
-	init( KEY_SERVER_SHARD_BYTES,                          500000000 );
+	init( MAX_SHARD_BYTES,                                 800000000 );
+	init( KEY_SERVER_SHARD_BYTES,                          800000000 );
 
 	init( SHARD_MAX_READ_OPS_PER_KSEC,                  45000 * 1000 );
     init( SHARD_READ_OPS_CHANGE_THRESHOLD, SHARD_MAX_READ_OPS_PER_KSEC / 4); if(randomize && BUGGIFY) SHARD_READ_OPS_CHANGE_THRESHOLD = 2000;
@@ -322,7 +322,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( DD_ENABLED_CHECK_DELAY,                                1.0 );
 	init( DD_STALL_CHECK_DELAY,                                  0.4 ); //Must be larger than 2*MAX_BUGGIFIED_DELAY
 	init( DD_LOW_BANDWIDTH_DELAY,         isSimulated ? 15.0 : 240.0 ); if( randomize && BUGGIFY ) DD_LOW_BANDWIDTH_DELAY = 0; //Because of delayJitter, this should be less than 0.9 * DD_MERGE_COALESCE_DELAY
-	init( DD_MERGE_COALESCE_DELAY,       isSimulated ?  30.0 : 300.0 ); if( randomize && BUGGIFY ) DD_MERGE_COALESCE_DELAY = 0.001;
+	init( DD_MERGE_COALESCE_DELAY,       isSimulated ?  45.0 : 450.0 ); if( randomize && BUGGIFY ) DD_MERGE_COALESCE_DELAY = 0.001;
 	init( STORAGE_METRICS_POLLING_DELAY,                         2.0 ); if( randomize && BUGGIFY ) STORAGE_METRICS_POLLING_DELAY = 15.0;
 	init( STORAGE_METRICS_RANDOM_DELAY,                          0.2 );
 	init( AVAILABLE_SPACE_RATIO_CUTOFF,                         0.05 );
@@ -330,7 +330,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( MAX_TEAMS_PER_SERVER,           5*DESIRED_TEAMS_PER_SERVER );
 	init( DD_SHARD_SIZE_GRANULARITY,                         5000000 );
 	init( DD_SHARD_SIZE_GRANULARITY_SIM,                      500000 ); if( randomize && BUGGIFY ) DD_SHARD_SIZE_GRANULARITY_SIM = 0;
-	init( DD_MOVE_KEYS_PARALLELISM,                               15 ); if( randomize && BUGGIFY ) DD_MOVE_KEYS_PARALLELISM = 1;
+	init( DD_MOVE_KEYS_PARALLELISM,                               20 ); if( randomize && BUGGIFY ) DD_MOVE_KEYS_PARALLELISM = 1;
 	init( DD_FETCH_SOURCE_PARALLELISM,                          1000 ); if( randomize && BUGGIFY ) DD_FETCH_SOURCE_PARALLELISM = 1;
 	init( DD_MERGE_LIMIT,                                       2000 ); if( randomize && BUGGIFY ) DD_MERGE_LIMIT = 2;
 	init( DD_SHARD_METRICS_TIMEOUT,                             60.0 ); if( randomize && BUGGIFY ) DD_SHARD_METRICS_TIMEOUT = 0.1;
