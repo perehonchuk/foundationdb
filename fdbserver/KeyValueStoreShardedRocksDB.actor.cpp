@@ -482,6 +482,8 @@ struct ShardedRocksDBState {
 	Counters counters;
 	std::shared_ptr<rocksdb::Cache> blockCache = nullptr;
 	std::shared_ptr<CompactOnRangeDeletionCollectorFactory> compactOnRangeDeletionFactory = nullptr;
+	Promise<EncryptionAtRestMode> encryptionMode;
+	Reference<GetEncryptCipherKeysMonitor> encryptionMonitor;
 
 	ShardedRocksDBState() {
 		if (SERVER_KNOBS->SHARDED_ROCKSDB_BLOCK_CACHE_SIZE > 0) {
@@ -3393,7 +3395,7 @@ struct ShardedRocksDBKeyValueStore : IKeyValueStore {
 	};
 
 	// Persist shard mappinng key range should not be in shardMap.
-	explicit ShardedRocksDBKeyValueStore(const std::string& path, UID id)
+	explicit ShardedRocksDBKeyValueStore(const std::string& path, UID id, Optional<EncryptionAtRestMode> encryptionMode = {}, Reference<GetEncryptCipherKeysMonitor> encryptionMonitor = {})
 	  : rState(std::make_shared<ShardedRocksDBState>()), path(path), id(id),
 	    readSemaphore(SERVER_KNOBS->ROCKSDB_READ_QUEUE_SOFT_MAX),
 	    fetchSemaphore(SERVER_KNOBS->ROCKSDB_FETCH_QUEUE_SOFT_MAX),
@@ -3406,6 +3408,9 @@ struct ShardedRocksDBKeyValueStore : IKeyValueStore {
 	    shardManager(path, id, rState, dbOptions, errorListener, eventListener, &counters, iteratorPool),
 	    rocksDBMetrics(std::make_shared<RocksDBMetrics>(id, rState, dbOptions.statistics)),
 	    latencyMetrics(std::make_shared<LatencyMetrics>()) {
+		// Initialize encryption mode
+		rState->encryptionMode.send(encryptionMode.present() ? encryptionMode.get() : EncryptionAtRestMode(EncryptionAtRestMode::DISABLED));
+		rState->encryptionMonitor = encryptionMonitor;
 		// In simluation, run the reader/writer threads as Coro threads (i.e. in the network thread. The storage
 		// engine is still multi-threaded as background compaction threads are still present. Reads/writes to disk
 		// will also block the network thread in a way that would be unacceptable in production but is a necessary
@@ -3882,7 +3887,7 @@ struct ShardedRocksDBKeyValueStore : IKeyValueStore {
 	std::vector<std::pair<KeyRange, std::string>> getDataMapping() { return shardManager.getDataMapping(); }
 
 	Future<EncryptionAtRestMode> encryptionMode() override {
-		return EncryptionAtRestMode(EncryptionAtRestMode::DISABLED);
+		return rState->encryptionMode.getFuture();
 	}
 
 	CoalescedKeyRangeMap<std::string> getExistingRanges() override { return shardManager.getExistingRanges(); }
@@ -3978,9 +3983,11 @@ IKeyValueStore* keyValueStoreShardedRocksDB(std::string const& path,
                                             UID logID,
                                             KeyValueStoreType storeType,
                                             bool checkChecksums,
-                                            bool checkIntegrity) {
+                                            bool checkIntegrity,
+                                            Optional<EncryptionAtRestMode> encryptionMode,
+                                            Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
 #ifdef WITH_ROCKSDB
-	return new ShardedRocksDBKeyValueStore(path, logID);
+	return new ShardedRocksDBKeyValueStore(path, logID, encryptionMode, encryptionMonitor);
 #else
 	TraceEvent(SevError, "ShardedRocksDBEngineInitFailure").detail("Reason", "Built without RocksDB");
 	ASSERT(false);
