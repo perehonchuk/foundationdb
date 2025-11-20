@@ -1104,6 +1104,26 @@ ACTOR Future<Void> registerWorker(RegisterWorkerRequest req,
 	}
 	self->removedDBInfoEndpoints.erase(w.updateServerDBInfo.getEndpoint());
 
+	// Check worker capacity and apply throttling if approaching maximum recommended count
+	int currentWorkerCount = self->id_worker.size();
+	if (info == self->id_worker.end()) { // Only for new worker registrations
+		if (currentWorkerCount >= SERVER_KNOBS->CC_MAX_WORKER_COUNT) {
+			TraceEvent(SevWarnAlways, "ClusterControllerWorkerCapacityExceeded", self->id)
+			    .detail("CurrentWorkers", currentWorkerCount)
+			    .detail("MaxRecommended", SERVER_KNOBS->CC_MAX_WORKER_COUNT)
+			    .detail("NewWorkerId", w.id())
+			    .detail("NewProcessId", w.locality.processId());
+			// Add throttling delay to prevent overload
+			wait(delay(SERVER_KNOBS->CC_WORKER_REGISTRATION_THROTTLE));
+		} else if (currentWorkerCount >= SERVER_KNOBS->CC_MAX_WORKER_COUNT * 0.9) {
+			// Warn when approaching 90% of capacity
+			TraceEvent(SevWarn, "ClusterControllerWorkerCapacityWarning", self->id)
+			    .detail("CurrentWorkers", currentWorkerCount)
+			    .detail("MaxRecommended", SERVER_KNOBS->CC_MAX_WORKER_COUNT)
+			    .detail("UtilizationPct", (currentWorkerCount * 100.0) / SERVER_KNOBS->CC_MAX_WORKER_COUNT);
+		}
+	}
+
 	if (info == self->id_worker.end()) {
 		TraceEvent("ClusterControllerActualWorkers", self->id)
 		    .detail("WorkerId", w.id())
@@ -1946,6 +1966,24 @@ ACTOR Future<Void> updateDatacenterVersionDifference(ClusterControllerData* self
 			if (onChange.isReady()) {
 				break;
 			}
+		}
+	}
+}
+
+// A background actor that periodically monitors and logs worker capacity metrics
+ACTOR Future<Void> monitorWorkerCapacity(ClusterControllerData* self) {
+	loop {
+		wait(delay(SERVER_KNOBS->CLUSTER_CONTROLLER_LOGGING_DELAY));
+
+		int workerCount = self->id_worker.size();
+		double utilizationPct = (workerCount * 100.0) / SERVER_KNOBS->CC_MAX_WORKER_COUNT;
+
+		if (workerCount > 0) {
+			TraceEvent("ClusterControllerWorkerCapacity", self->id)
+			    .detail("RegisteredWorkers", workerCount)
+			    .detail("MaxRecommended", SERVER_KNOBS->CC_MAX_WORKER_COUNT)
+			    .detail("UtilizationPct", utilizationPct)
+			    .detail("ThrottleDelay", SERVER_KNOBS->CC_WORKER_REGISTRATION_THROTTLE);
 		}
 	}
 }
@@ -2814,6 +2852,9 @@ ACTOR Future<Void> clusterControllerCore(ClusterControllerFullInterface interf,
 		self.addActor.send(workerHealthMonitor(&self));
 		self.addActor.send(updateRemoteDCHealth(&self));
 	}
+
+	// Start worker capacity monitoring
+	self.addActor.send(monitorWorkerCapacity(&self));
 
 	loop choose {
 		when(ErrorOr<Void> err = wait(error)) {

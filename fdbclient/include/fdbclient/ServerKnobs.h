@@ -861,6 +861,10 @@ public:
 	bool CC_GRAY_FAILURE_STATUS_JSON; // When enabled, returns gray failure information in machine readable status json.
 	double CC_THROTTLE_SINGLETON_RERECRUIT_INTERVAL; // The interval to prevent re-recruiting the same singleton if a
 	                                                 // recruiting fight between two cluster controllers occurs.
+	int CC_MAX_WORKER_COUNT; // The maximum recommended number of worker processes that can register with the cluster
+	                         // controller before performance degradation is expected.
+	double CC_WORKER_REGISTRATION_THROTTLE; // Delay (seconds) added to worker registration when approaching capacity
+	                                        // to prevent cluster controller overload during migrations.
 	bool
 	    CC_RECOVERY_INIT_REQ_ALLOW_DROP_IN_SIM; // This knob only affects simulation i.e. knob is ignored if isSimulated
 	                                            // is false.
