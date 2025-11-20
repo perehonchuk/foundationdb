@@ -1089,6 +1089,20 @@ ACTOR Future<Void> registerWorker(RegisterWorkerRequest req,
 
 	ProcessClass newProcessClass = req.processClass;
 	auto info = self->id_worker.find(w.locality.processId());
+
+	// Check if we've reached the maximum number of workers
+	if (info == self->id_worker.end() &&
+	    self->id_worker.size() >= SERVER_KNOBS->CC_MAX_CLUSTER_WORKERS &&
+	    req.processClass != ProcessClass::TesterClass) {
+		TraceEvent(SevWarnAlways, "ClusterControllerWorkerLimitReached", self->id)
+		    .detail("WorkerId", w.id())
+		    .detail("ProcessId", w.locality.processId())
+		    .detail("CurrentWorkers", self->id_worker.size())
+		    .detail("MaxWorkers", SERVER_KNOBS->CC_MAX_CLUSTER_WORKERS);
+		req.reply.sendError(recruitment_failed());
+		return Void();
+	}
+
 	ClusterControllerPriorityInfo newPriorityInfo = req.priorityInfo;
 	newPriorityInfo.processClassFitness = newProcessClass.machineClassFitness(ProcessClass::ClusterController);
 
@@ -2763,6 +2777,27 @@ ACTOR Future<Void> handleGetEncryptionAtRestMode(ClusterControllerData* self, Cl
 	}
 }
 
+ACTOR Future<Void> monitorWorkerCount(ClusterControllerData* self) {
+	loop {
+		wait(delay(SERVER_KNOBS->CLUSTER_CONTROLLER_LOGGING_DELAY));
+		int workerCount = self->id_worker.size();
+		int maxWorkers = SERVER_KNOBS->CC_MAX_CLUSTER_WORKERS;
+		double utilizationPct = (workerCount * 100.0) / maxWorkers;
+
+		if (utilizationPct >= 90.0) {
+			TraceEvent(SevWarnAlways, "ClusterControllerWorkerCapacityHigh", self->id)
+			    .detail("CurrentWorkers", workerCount)
+			    .detail("MaxWorkers", maxWorkers)
+			    .detail("UtilizationPct", utilizationPct);
+		} else if (utilizationPct >= 75.0) {
+			TraceEvent(SevInfo, "ClusterControllerWorkerCapacityWarning", self->id)
+			    .detail("CurrentWorkers", workerCount)
+			    .detail("MaxWorkers", maxWorkers)
+			    .detail("UtilizationPct", utilizationPct);
+		}
+	}
+}
+
 ACTOR Future<Void> clusterControllerCore(ClusterControllerFullInterface interf,
                                          Future<Void> leaderFail,
                                          ServerCoordinators coordinators,
@@ -2809,6 +2844,7 @@ ACTOR Future<Void> clusterControllerCore(ClusterControllerFullInterface interf,
 	                                                               SERVER_KNOBS->STORAGE_LOGGING_DELAY,
 	                                                               self.id.toString() + "/ClusterControllerMetrics"));
 	self.addActor.send(traceRole(Role::CLUSTER_CONTROLLER, interf.id()));
+	self.addActor.send(monitorWorkerCount(&self));
 	// printf("%s: I am the cluster controller\n", g_network->getLocalAddress().toString().c_str());
 	if (SERVER_KNOBS->CC_ENABLE_WORKER_HEALTH_MONITOR) {
 		self.addActor.send(workerHealthMonitor(&self));

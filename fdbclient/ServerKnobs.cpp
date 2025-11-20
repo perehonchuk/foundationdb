@@ -828,6 +828,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( REPLACE_INTERFACE_CHECK_DELAY,                         5.0 );
 	init( COORDINATOR_REGISTER_INTERVAL,                         5.0 );
 	init( CLIENT_REGISTER_INTERVAL,                            600.0 );
+	init( CC_MAX_CLUSTER_WORKERS,                              1000 ); if (randomize && BUGGIFY) CC_MAX_CLUSTER_WORKERS = deterministicRandom()->randomInt(100, 500);
 	init( CC_ENABLE_WORKER_HEALTH_MONITOR,                     false ); if (isSimulated) CC_ENABLE_WORKER_HEALTH_MONITOR = true;
 	init( CC_WORKER_HEALTH_CHECKING_INTERVAL,                   60.0 );
 	init( CC_DEGRADED_LINK_EXPIRATION_INTERVAL,                300.0 );
