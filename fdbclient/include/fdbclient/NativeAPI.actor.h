@@ -482,6 +482,12 @@ public:
 	// Throws not_committed or commit_unknown_result errors in normal operation
 	[[nodiscard]] Future<Void> commit();
 
+	// Returns the approximate size of the transaction's mutations and conflict ranges
+	int64_t getApproximateSizeInternal() const;
+
+	// Returns true if the transaction should be automatically split due to approaching size limit
+	bool shouldAutoSplit() const;
+
 	void setOption(FDBTransactionOptions::Option option, Optional<StringRef> value = Optional<StringRef>());
 
 	// May be called only after commit() returns success

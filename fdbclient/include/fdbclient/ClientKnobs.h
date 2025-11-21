@@ -69,6 +69,8 @@ public:
 	int INIT_MID_SHARD_BYTES;
 
 	int TRANSACTION_SIZE_LIMIT;
+	int64_t TRANSACTION_AUTO_SPLIT_THRESHOLD;  // Threshold for automatic transaction splitting
+	bool TRANSACTION_AUTO_SPLIT_ENABLED;       // Enable automatic transaction splitting when approaching size limit
 	int64_t KEY_SIZE_LIMIT;
 	int64_t SYSTEM_KEY_SIZE_LIMIT;
 	int64_t VALUE_SIZE_LIMIT;

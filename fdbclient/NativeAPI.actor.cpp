@@ -5168,6 +5168,27 @@ ACTOR Future<Void> commitAndWatch(Transaction* self) {
 	}
 }
 
+int64_t Transaction::getApproximateSizeInternal() const {
+	int64_t size = 0;
+	for (const auto& mutation : tr.transaction.mutations) {
+		size += mutation.expectedSize();
+	}
+	for (const auto& range : tr.transaction.read_conflict_ranges) {
+		size += range.expectedSize();
+	}
+	for (const auto& range : tr.transaction.write_conflict_ranges) {
+		size += range.expectedSize();
+	}
+	return size;
+}
+
+bool Transaction::shouldAutoSplit() const {
+	if (!CLIENT_KNOBS->TRANSACTION_AUTO_SPLIT_ENABLED) {
+		return false;
+	}
+	return getApproximateSizeInternal() > CLIENT_KNOBS->TRANSACTION_AUTO_SPLIT_THRESHOLD;
+}
+
 Future<Void> Transaction::commit() {
 	ASSERT(!committing.isValid());
 	committing = commitAndWatch(this);
