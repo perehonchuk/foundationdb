@@ -955,13 +955,14 @@ public:
 	int64_t LOW_PRIORITY_STORAGE_QUEUE_BYTES;
 	int64_t LOW_PRIORITY_DURABILITY_LAG;
 
-	int64_t TARGET_BYTES_PER_TLOG;
-	int64_t SPRING_BYTES_TLOG;
-	int64_t TARGET_BYTES_PER_TLOG_BATCH;
-	int64_t SPRING_BYTES_TLOG_BATCH;
-	int64_t TLOG_SPILL_THRESHOLD;
-	int64_t TLOG_HARD_LIMIT_BYTES;
-	int64_t TLOG_RECOVER_MEMORY_LIMIT;
+	// TLog memory management thresholds - controls when rate limiting and spilling occur
+	int64_t TARGET_BYTES_PER_TLOG; // 3.6GB - Ratekeeper throttles traffic approaching this limit
+	int64_t SPRING_BYTES_TLOG; // 0.6GB - Buffer zone before TARGET_BYTES_PER_TLOG
+	int64_t TARGET_BYTES_PER_TLOG_BATCH; // 2.1GB - Batch priority transactions throttled here
+	int64_t SPRING_BYTES_TLOG_BATCH; // 0.45GB - Buffer zone for batch transactions
+	int64_t TLOG_SPILL_THRESHOLD; // 2.25GB - TLog starts spilling mutations to disk
+	int64_t TLOG_HARD_LIMIT_BYTES; // 4.5GB - Hard limit, commits blocked above this
+	int64_t TLOG_RECOVER_MEMORY_LIMIT; // Recovery mode limit = TARGET + SPRING
 	double TLOG_IGNORE_POP_AUTO_ENABLE_DELAY;
 
 	// Tag throttling

@@ -288,6 +288,11 @@ struct SpilledData {
 struct TLogData : NonCopyable {
 	AsyncTrigger newLogData;
 	// A process has only 1 SharedTLog, which holds data for multiple logs, so that it obeys its assigned memory limit.
+	// Memory thresholds for TLog operation (see SERVER_KNOBS for current values):
+	//   - TARGET_BYTES_PER_TLOG_BATCH (2.1GB): batch priority transactions throttled when exceeded
+	//   - TLOG_SPILL_THRESHOLD (2.25GB): TLog starts spilling mutations to disk
+	//   - TARGET_BYTES_PER_TLOG (3.6GB): Ratekeeper starts slowing down client traffic
+	//   - TLOG_HARD_LIMIT_BYTES (4.5GB): Hard limit for TLog memory usage
 	// A process has only 1 active log and multiple non-active log from old generations.
 	// In the figure below, TLog [1-4] are logs from old generations.
 	// Because SS may need to pull data from old generation log, we keep Tlog [1-4].
