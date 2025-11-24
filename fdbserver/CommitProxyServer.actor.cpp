@@ -2808,6 +2808,7 @@ ACTOR Future<Void> reply(CommitBatchContext* self) {
 		pProxyCommitData->lastCoalesceTime = now();
 		int lastSize = pProxyCommitData->keyResolvers.size();
 		auto rs = pProxyCommitData->keyResolvers.ranges();
+		// Clean up resolver assignments for versions older than the transaction lifetime window
 		Version oldestVersion = self->prevVersion - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
 		for (auto r = rs.begin(); r != rs.end(); ++r) {
 			while (r->value().size() > 1 && r->value()[1].first < oldestVersion)

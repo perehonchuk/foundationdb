@@ -347,7 +347,10 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
 
-		// Detect conflicts
+		// Detect conflicts and reject transactions that are too old.
+		// The conflict set maintains write-conflict ranges for the transaction lifetime window
+		// to ensure serializability. Transactions with read versions older than this window
+		// will be rejected with transaction_too_old errors.
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
