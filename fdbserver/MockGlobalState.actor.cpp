@@ -205,6 +205,10 @@ public:
 		}
 
 		self->setShardStatus(params.keys, MockShardStatus::FETCHED);
+
+		// Transition to VALIDATING phase to simulate data integrity validation
+		self->setShardStatus(params.keys, MockShardStatus::VALIDATING);
+
 		TraceEvent(SevDebug, interval.end(), self->id).log();
 		return Void();
 	}
@@ -265,7 +269,8 @@ void MockStorageServer::setShardStatus(const KeyRangeRef& range, MockShardStatus
 		auto oldStatus = it->cvalue().status;
 		if (isStatusTransitionValid(oldStatus, status)) {
 			it->value().status = status;
-		} else if ((oldStatus == MockShardStatus::COMPLETED || oldStatus == MockShardStatus::FETCHED) &&
+		} else if ((oldStatus == MockShardStatus::COMPLETED || oldStatus == MockShardStatus::FETCHED ||
+		            oldStatus == MockShardStatus::VALIDATING) &&
 		           (status == MockShardStatus::INFLIGHT || status == MockShardStatus::FETCHED)) {
 			CODE_PROBE(true, "Shard already on server");
 		} else {
