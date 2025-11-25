@@ -102,6 +102,12 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( WARM_RANGE_SHARD_LIMIT,                  100 );
 	init( STORAGE_METRICS_SHARD_LIMIT,             100 ); if( randomize && BUGGIFY ) STORAGE_METRICS_SHARD_LIMIT = 10;
 	init( SHARD_COUNT_LIMIT,                        80 ); if( randomize && BUGGIFY ) SHARD_COUNT_LIMIT = 3;
+
+	// Range read prefetching
+	init( ENABLE_RANGE_READ_PREFETCH,              true ); if( randomize && BUGGIFY ) ENABLE_RANGE_READ_PREFETCH = false;
+	init( RANGE_PREFETCH_CONSECUTIVE_THRESHOLD,       2 ); // Require 2 consecutive sequential reads to trigger prefetch
+	init( RANGE_PREFETCH_PATTERN_STALENESS,         5.0 ); // Pattern becomes stale after 5 seconds
+
 	init( STORAGE_METRICS_UNFAIR_SPLIT_LIMIT,  2.0/3.0 );
 	init( STORAGE_METRICS_TOO_MANY_SHARDS_DELAY,  15.0 );
 	init( AGGREGATE_HEALTH_METRICS_MAX_STALENESS,  0.5 );

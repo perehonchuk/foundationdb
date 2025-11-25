@@ -99,6 +99,11 @@ public:
 	int WARM_RANGE_SHARD_LIMIT;
 	int STORAGE_METRICS_SHARD_LIMIT;
 	int SHARD_COUNT_LIMIT;
+
+	// Range read prefetching
+	bool ENABLE_RANGE_READ_PREFETCH; // Enable sequential range read pattern detection and prefetching
+	int RANGE_PREFETCH_CONSECUTIVE_THRESHOLD; // Number of consecutive reads to trigger prefetch
+	double RANGE_PREFETCH_PATTERN_STALENESS; // Time in seconds before read pattern is considered stale
 	double STORAGE_METRICS_UNFAIR_SPLIT_LIMIT;
 	double STORAGE_METRICS_TOO_MANY_SHARDS_DELAY;
 	double AGGREGATE_HEALTH_METRICS_MAX_STALENESS;

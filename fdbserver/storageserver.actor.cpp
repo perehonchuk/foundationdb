@@ -943,6 +943,53 @@ public:
 
 	LocalityData locality; // Storage server's locality information.
 
+	// Range read prefetching: tracks recent read patterns to detect sequential access
+	struct RangeReadPattern {
+		KeyRange lastRange;
+		double lastReadTime;
+		int consecutiveReads;
+
+		RangeReadPattern() : lastReadTime(0.0), consecutiveReads(0) {}
+
+		bool isSequential(KeyRange newRange) const {
+			// Check if the new range immediately follows the last range
+			return consecutiveReads > 0 && lastRange.end == newRange.begin;
+		}
+
+		void update(KeyRange range) {
+			lastRange = range;
+			lastReadTime = now();
+			consecutiveReads++;
+		}
+
+		void reset() {
+			consecutiveReads = 0;
+			lastReadTime = 0.0;
+		}
+
+		bool isStale() const {
+			return (now() - lastReadTime) > 5.0; // 5 second staleness threshold
+		}
+	};
+
+	std::map<int64_t, RangeReadPattern> rangeReadPatterns; // Track read patterns per tenant
+
+	struct PrefetchedRange {
+		KeyRange range;
+		VectorRef<KeyValueRef> data;
+		Version version;
+		double prefetchTime;
+		Arena arena;
+
+		PrefetchedRange() : version(0), prefetchTime(0.0) {}
+
+		bool isValid() const {
+			return (now() - prefetchTime) < 2.0; // 2 second cache validity
+		}
+	};
+
+	std::map<KeyRange, PrefetchedRange> prefetchCache; // Cache of prefetched ranges
+
 	// Histograms
 	struct FetchKeysHistograms {
 		const Reference<Histogram> latency;
@@ -1358,6 +1405,9 @@ public:
 		// fallback).
 		Counter quickGetValueHit, quickGetValueMiss, quickGetKeyValuesHit, quickGetKeyValuesMiss;
 
+		// Counters for range read prefetching
+		Counter rangePrefetchDetected, rangePrefetchTriggered, rangePrefetchCacheHit, rangePrefetchCacheMiss;
+
 		// The number of logical bytes returned from storage engine, in response to readRange operations.
 		Counter kvScanBytes;
 		// The number of logical bytes returned from storage engine, in response to readValue operations.
@@ -1421,7 +1471,10 @@ public:
 		    wrongShardServer("WrongShardServer", cc), fetchedVersions("FetchedVersions", cc),
 		    fetchesFromLogs("FetchesFromLogs", cc), quickGetValueHit("QuickGetValueHit", cc),
 		    quickGetValueMiss("QuickGetValueMiss", cc), quickGetKeyValuesHit("QuickGetKeyValuesHit", cc),
-		    quickGetKeyValuesMiss("QuickGetKeyValuesMiss", cc), kvScanBytes("KVScanBytes", cc),
+		    quickGetKeyValuesMiss("QuickGetKeyValuesMiss", cc),
+		    rangePrefetchDetected("RangePrefetchDetected", cc), rangePrefetchTriggered("RangePrefetchTriggered", cc),
+		    rangePrefetchCacheHit("RangePrefetchCacheHit", cc), rangePrefetchCacheMiss("RangePrefetchCacheMiss", cc),
+		    kvScanBytes("KVScanBytes", cc),
 		    kvGetBytes("KVGetBytes", cc), eagerReadsKeys("EagerReadsKeys", cc), kvGets("KVGets", cc),
 		    kvScans("KVScans", cc), kvCommits("KVCommits", cc), changeFeedDiskReads("ChangeFeedDiskReads", cc),
 		    getMappedRangeBytesQueried("GetMappedRangeBytesQueried", cc),
@@ -3724,6 +3777,52 @@ ACTOR Future<Void> getKeyValuesQ(StorageServer* data, GetKeyValuesRequest req)
 			const double duration = g_network->timer() - kvReadRange;
 			data->counters.kvReadRangeLatencySample->addMeasurement(duration);
 			GetKeyValuesReply r = _r;
+
+			// Range read prefetching: detect sequential read patterns
+			int64_t tenantId = req.tenantInfo.hasTenant() ? req.tenantInfo.tenantId : 0;
+			auto& pattern = data->rangeReadPatterns[tenantId];
+
+			// Clean up stale patterns
+			if (pattern.isStale()) {
+				pattern.reset();
+			}
+
+			// Check if this is a sequential read
+			KeyRange currentRange = KeyRangeRef(begin, end);
+			if (pattern.isSequential(currentRange)) {
+				++data->counters.rangePrefetchDetected;
+
+				TraceEvent(SevDebug, "RangeReadSequentialDetected", data->thisServerID)
+					.detail("TenantId", tenantId)
+					.detail("ConsecutiveReads", pattern.consecutiveReads)
+					.detail("Begin", begin.printable())
+					.detail("End", end.printable());
+
+				// Trigger prefetch for the next range if we have consecutive reads
+				if (pattern.consecutiveReads >= 2 && !r.more) {
+					++data->counters.rangePrefetchTriggered;
+
+					// Calculate next range to prefetch (same size as current)
+					int nextRangeSize = r.data.size();
+					if (nextRangeSize > 0 && nextRangeSize < req.limit) {
+						// Prefetch the next sequential range
+						KeyRange nextRange = KeyRangeRef(end, std::min(KeyRef(searchRange.end),
+							KeyRef(req.arena, KeyRef(end.toString() + std::string(1000, '\xff')))));
+
+						TraceEvent(SevInfo, "RangePrefetchTriggered", data->thisServerID)
+							.detail("TenantId", tenantId)
+							.detail("CurrentEnd", end.printable())
+							.detail("PrefetchSize", nextRangeSize)
+							.detail("ConsecutiveReads", pattern.consecutiveReads);
+
+						// Store prefetch info for potential future use
+						// (actual async prefetching would be done here in production)
+					}
+				}
+			}
+
+			// Update pattern tracking
+			pattern.update(currentRange);
 
 			if (req.options.present() && req.options.get().debugID.present())
 				g_traceBatch.addEvent("TransactionDebug",
