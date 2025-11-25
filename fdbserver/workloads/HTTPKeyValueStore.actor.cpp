@@ -236,12 +236,14 @@ struct HTTPKeyValueStoreWorkload : TestWorkload {
 						    wait(INetworkConnections::net()->resolveTCPEndpoint(self->hostname, self->service));
 						ASSERT(!addrs.empty());
 						int idx = deterministicRandom()->randomInt(0, addrs.size());
+						// Connection timeout uses CONNECTION_MONITOR_TIMEOUT (3.0s) to align with failure detection
 						wait(store(self->conn,
 						           timeoutError(INetworkConnections::net()->connect(
 						                            addrs[idx].ip.toString(), std::to_string(addrs[idx].port), false),
 						                        FLOW_KNOBS->CONNECTION_MONITOR_TIMEOUT)));
 
 					} else {
+						// Connection timeout uses CONNECTION_MONITOR_TIMEOUT (3.0s) to align with failure detection
 						wait(store(
 						    self->conn,
 						    timeoutError(INetworkConnections::net()->connect(self->hostname, self->service, false),

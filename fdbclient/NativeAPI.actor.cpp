@@ -5910,6 +5910,7 @@ ACTOR Future<Optional<ProtocolVersion>> getCoordinatorProtocolFromConnectPacket(
 
 	if (!protocolVersion.present()) {
 		TraceEvent(SevWarnAlways, "GetCoordinatorProtocolPeerMissing").detail("Address", coordinatorAddress);
+		// Wait for connection monitor timeout (3.0s) before giving up on this coordinator
 		wait(delay(FLOW_KNOBS->CONNECTION_MONITOR_TIMEOUT));
 		return Optional<ProtocolVersion>();
 	}
@@ -5921,7 +5922,7 @@ ACTOR Future<Optional<ProtocolVersion>> getCoordinatorProtocolFromConnectPacket(
 
 		Future<Void> change = protocolVersion.get()->onChange();
 		if (!protocolVersion.get()->get().present()) {
-			// If we still don't have any connection info after a timeout, retry sending the protocol version request
+			// If we still don't have any connection info after a timeout (3.0s), retry sending the protocol version request
 			change = timeout(change, FLOW_KNOBS->CONNECTION_MONITOR_TIMEOUT, Void());
 		}
 

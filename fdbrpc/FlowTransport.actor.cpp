@@ -628,6 +628,10 @@ static ReliablePacket* sendPacket(TransportData* self,
                                   bool reliable);
 
 ACTOR Future<Void> connectionMonitor(Reference<Peer> peer) {
+	// Connection monitor sends periodic pings to detect network partitions and connection failures.
+	// The monitor now pings every 1.5 seconds (CONNECTION_MONITOR_LOOP_TIME) and waits up to 3.0 seconds
+	// (CONNECTION_MONITOR_TIMEOUT) for a response before considering the connection failed.
+	// These increased intervals reduce network overhead while still providing timely failure detection.
 	state Endpoint remotePingEndpoint({ peer->destination }, Endpoint::wellKnownToken(WLTOKEN_PING_PACKET));
 	// set this to not immediately close the connection as idle if the peer already existed
 	peer->lastDataPacketSentTime = now();

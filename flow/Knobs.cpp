@@ -99,8 +99,10 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	init( METRICS_EMIT_DDSKETCH,                             false ); // Determines if DDSketch buckets will get emitted
 
 	//connectionMonitor
-	init( CONNECTION_MONITOR_LOOP_TIME,   isSimulated ? 0.75 : 1.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_LOOP_TIME = 6.0;
-	init( CONNECTION_MONITOR_TIMEOUT,     isSimulated ? 1.50 : 2.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_TIMEOUT = 6.0;
+	// Increased loop time to reduce network overhead and give more time for slow connections
+	init( CONNECTION_MONITOR_LOOP_TIME,   isSimulated ? 1.0 : 1.5 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_LOOP_TIME = 6.0;
+	// Increased timeout to better handle network latency spikes and reduce false positives
+	init( CONNECTION_MONITOR_TIMEOUT,     isSimulated ? 2.0 : 3.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_TIMEOUT = 6.0;
 	init( CONNECTION_MONITOR_IDLE_TIMEOUT,                   180.0 ); if( randomize && BUGGIFY ) CONNECTION_MONITOR_IDLE_TIMEOUT = 5.0;
 	init( CONNECTION_MONITOR_INCOMING_IDLE_MULTIPLIER,         1.2 );
 	init( CONNECTION_MONITOR_UNREFERENCED_CLOSE_DELAY,         2.0 );
