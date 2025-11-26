@@ -54,6 +54,8 @@ struct GrvProxyStats {
 	Counter txnBatchPriorityStartOut;
 	Counter txnDefaultPriorityStartIn;
 	Counter txnDefaultPriorityStartOut;
+	Counter txnExpeditedPriorityStartIn;
+	Counter txnExpeditedPriorityStartOut;
 	Counter txnTagThrottlerIn;
 	Counter txnTagThrottlerOut;
 	Counter txnThrottled;
@@ -61,6 +63,7 @@ struct GrvProxyStats {
 	Counter leaseTimeouts;
 	int systemGRVQueueSize;
 	int defaultGRVQueueSize;
+	int expeditedGRVQueueSize;
 	int batchGRVQueueSize;
 	int tagThrottlerGRVQueueSize;
 	double transactionRateAllowed;
@@ -142,10 +145,12 @@ struct GrvProxyStats {
 	    txnBatchPriorityStartIn("TxnBatchPriorityStartIn", cc),
 	    txnBatchPriorityStartOut("TxnBatchPriorityStartOut", cc),
 	    txnDefaultPriorityStartIn("TxnDefaultPriorityStartIn", cc),
-	    txnDefaultPriorityStartOut("TxnDefaultPriorityStartOut", cc), txnTagThrottlerIn("TxnTagThrottlerIn", cc),
+	    txnDefaultPriorityStartOut("TxnDefaultPriorityStartOut", cc),
+	    txnExpeditedPriorityStartIn("TxnExpeditedPriorityStartIn", cc),
+	    txnExpeditedPriorityStartOut("TxnExpeditedPriorityStartOut", cc), txnTagThrottlerIn("TxnTagThrottlerIn", cc),
 	    txnTagThrottlerOut("TxnTagThrottlerOut", cc), txnThrottled("TxnThrottled", cc),
 	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc), systemGRVQueueSize(0),
-	    defaultGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
+	    defaultGRVQueueSize(0), expeditedGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
 	    batchTransactionRateAllowed(0), transactionLimit(0), batchTransactionLimit(0),
 	    percentageOfDefaultGRVQueueProcessed(0), percentageOfBatchGRVQueueProcessed(0), lastBatchQueueThrottled(false),
 	    lastDefaultQueueThrottled(false), batchThrottleStartTime(0.0), defaultThrottleStartTime(0.0),
@@ -175,6 +180,7 @@ struct GrvProxyStats {
 		// The rate at which the limit(budget) is allowed to grow.
 		specialCounter(cc, "SystemGRVQueueSize", [this]() { return this->systemGRVQueueSize; });
 		specialCounter(cc, "DefaultGRVQueueSize", [this]() { return this->defaultGRVQueueSize; });
+		specialCounter(cc, "ExpeditedGRVQueueSize", [this]() { return this->expeditedGRVQueueSize; });
 		specialCounter(cc, "BatchGRVQueueSize", [this]() { return this->batchGRVQueueSize; });
 		specialCounter(cc, "TagThrottlerGRVQueueSize", [this]() { return this->tagThrottlerGRVQueueSize; });
 		specialCounter(
@@ -511,6 +517,7 @@ void dropRequestFromQueue(Deque<GetReadVersionRequest>* queue, GrvProxyStats* st
 ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> const> db,
                                                Deque<GetReadVersionRequest>* systemQueue,
                                                Deque<GetReadVersionRequest>* defaultQueue,
+                                               Deque<GetReadVersionRequest>* expeditedQueue,
                                                Deque<GetReadVersionRequest>* batchQueue,
                                                FutureStream<GetReadVersionRequest> readVersionRequests,
                                                PromiseStream<Void> GRVTimer,
@@ -542,6 +549,16 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
 					} else {
 						canBeQueued = false;
 					}
+				} else if (req.priority == TransactionPriority::EXPEDITED) {
+					if (!batchQueue->empty()) {
+						dropRequestFromQueue(batchQueue, stats);
+						--stats->batchGRVQueueSize;
+					} else if (!defaultQueue->empty()) {
+						dropRequestFromQueue(defaultQueue, stats);
+						--stats->defaultGRVQueueSize;
+					} else {
+						canBeQueued = false;
+					}
 				} else {
 					if (!batchQueue->empty()) {
 						dropRequestFromQueue(batchQueue, stats);
@@ -549,6 +566,9 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
 					} else if (!defaultQueue->empty()) {
 						dropRequestFromQueue(defaultQueue, stats);
 						--stats->defaultGRVQueueSize;
+					} else if (!expeditedQueue->empty()) {
+						dropRequestFromQueue(expeditedQueue, stats);
+						--stats->expeditedGRVQueueSize;
 					} else {
 						canBeQueued = false;
 					}
@@ -564,7 +584,7 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
 					                      req.debugID.get().first(),
 					                      "GrvProxyServer.queueTransactionStartRequests.Before");
 
-				if (systemQueue->empty() && defaultQueue->empty() && batchQueue->empty()) {
+				if (systemQueue->empty() && defaultQueue->empty() && expeditedQueue->empty() && batchQueue->empty()) {
 					forwardPromise(GRVTimer,
 					               delayJittered(std::max(0.0, *GRVBatchTime - (now() - *lastGRVTime)),
 					                             TaskPriority::ProxyGRVTimer));
@@ -576,6 +596,12 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
 					stats->txnSystemPriorityStartIn += req.transactionCount;
 					++stats->systemGRVQueueSize;
 					systemQueue->push_back(req);
+				} else if (req.priority >= TransactionPriority::EXPEDITED) {
+					++stats->txnRequestIn;
+					stats->txnStartIn += req.transactionCount;
+					stats->txnExpeditedPriorityStartIn += req.transactionCount;
+					++stats->expeditedGRVQueueSize;
+					expeditedQueue->push_back(req);
 				} else if (req.priority >= TransactionPriority::DEFAULT) {
 					if (SERVER_KNOBS->ENFORCE_TAG_THROTTLING_ON_PROXIES && req.isTagged()) {
 						++stats->tagThrottlerGRVQueueSize;
@@ -660,6 +686,7 @@ ACTOR Future<GetReadVersionReply> getLiveCommittedVersion(std::vector<SpanContex
                                                           int transactionCount,
                                                           int systemTransactionCount,
                                                           int defaultPriTransactionCount,
+                                                          int expeditedPriTransactionCount,
                                                           int batchPriTransactionCount) {
 	// Returns a version which (1) is committed, and (2) is >= the latest version reported committed (by a commit
 	// response) when this request was sent (1) The version returned is the committedVersion of some proxy at some point
@@ -722,6 +749,7 @@ ACTOR Future<GetReadVersionReply> getLiveCommittedVersion(std::vector<SpanContex
 	grvProxyData->stats.txnStartOut += transactionCount;
 	grvProxyData->stats.txnSystemPriorityStartOut += systemTransactionCount;
 	grvProxyData->stats.txnDefaultPriorityStartOut += defaultPriTransactionCount;
+	grvProxyData->stats.txnExpeditedPriorityStartOut += expeditedPriTransactionCount;
 	grvProxyData->stats.txnBatchPriorityStartOut += batchPriTransactionCount;
 
 	return rep;
@@ -883,6 +911,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 
 	state Deque<GetReadVersionRequest> systemQueue;
 	state Deque<GetReadVersionRequest> defaultQueue;
+	state Deque<GetReadVersionRequest> expeditedQueue;
 	state Deque<GetReadVersionRequest> batchQueue;
 
 	state TransactionTagMap<uint64_t> transactionTagCounter;
@@ -910,6 +939,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 	addActor.send(queueGetReadVersionRequests(db,
 	                                          &systemQueue,
 	                                          &defaultQueue,
+	                                          &expeditedQueue,
 	                                          &batchQueue,
 	                                          proxy.getConsistentReadVersion.getFuture(),
 	                                          GRVTimer,
@@ -952,6 +982,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 		int transactionsStarted[2] = { 0, 0 };
 		int systemTransactionsStarted[2] = { 0, 0 };
 		int defaultPriTransactionsStarted[2] = { 0, 0 };
+		int expeditedPriTransactionsStarted[2] = { 0, 0 };
 		int batchPriTransactionsStarted[2] = { 0, 0 };
 
 		std::vector<std::vector<GetReadVersionRequest>> start(
@@ -967,6 +998,8 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 			Deque<GetReadVersionRequest>* transactionQueue;
 			if (!systemQueue.empty()) {
 				transactionQueue = &systemQueue;
+			} else if (!expeditedQueue.empty()) {
+				transactionQueue = &expeditedQueue;
 			} else if (!defaultQueue.empty()) {
 				transactionQueue = &defaultQueue;
 			} else if (!batchQueue.empty()) {
@@ -981,7 +1014,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 			if (req.priority < TransactionPriority::DEFAULT &&
 			    !batchRateInfo.canStart(transactionsStarted[0] + transactionsStarted[1], tc)) {
 				break;
-			} else if (req.priority < TransactionPriority::IMMEDIATE &&
+			} else if (req.priority < TransactionPriority::EXPEDITED &&
 			           !normalRateInfo.canStart(transactionsStarted[0] + transactionsStarted[1], tc)) {
 				break;
 			}
@@ -998,6 +1031,9 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 			if (req.priority >= TransactionPriority::IMMEDIATE) {
 				systemTransactionsStarted[req.flags & 1] += tc;
 				--grvProxyData->stats.systemGRVQueueSize;
+			} else if (req.priority >= TransactionPriority::EXPEDITED) {
+				expeditedPriTransactionsStarted[req.flags & 1] += tc;
+				--grvProxyData->stats.expeditedGRVQueueSize;
 			} else if (req.priority >= TransactionPriority::DEFAULT) {
 				defaultPriTransactionsStarted[req.flags & 1] += tc;
 				grvProxyData->stats.defaultTxnGRVTimeInQueue.addMeasurement(currentTime - req.requestTime());
@@ -1086,6 +1122,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 				                                                                       transactionsStarted[i],
 				                                                                       systemTransactionsStarted[i],
 				                                                                       defaultPriTransactionsStarted[i],
+				                                                                       expeditedPriTransactionsStarted[i],
 				                                                                       batchPriTransactionsStarted[i]);
 				addActor.send(sendGrvReplies(readVersionReply,
 				                             start[i],
