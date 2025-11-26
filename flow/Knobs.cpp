@@ -326,6 +326,8 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	if ( randomize && BUGGIFY) { ENCRYPT_KEY_REFRESH_INTERVAL = deterministicRandom()->randomInt(2, 10); }
 	init( ENCRYPT_KEY_HEALTH_CHECK_INTERVAL,                    10 );
 	if ( randomize && BUGGIFY) { ENCRYPT_KEY_HEALTH_CHECK_INTERVAL = deterministicRandom()->randomInt(10, 60); }
+	init( ENCRYPT_CIPHER_KEY_VALIDATION_DELAY,  isSimulated ? 2.0 : 5.0 );
+	if ( randomize && BUGGIFY) { ENCRYPT_CIPHER_KEY_VALIDATION_DELAY = deterministicRandom()->random01() * 10.0; }
 	init( EKP_HEALTH_CHECK_REQUEST_TIMEOUT,                    10.0);
 	init( ENCRYPT_KEY_CACHE_ENABLE_DETAIL_LOGGING,           false ); if( randomize && BUGGIFY ) ENCRYPT_KEY_CACHE_ENABLE_DETAIL_LOGGING = true;
 	init( ENCRYPT_KEY_CACHE_LOGGING_INTERVAL,                  5.0 );

@@ -151,6 +151,14 @@ CipherKeyValidityTS getCipherKeyValidityTS(Optional<int64_t> refreshInterval, Op
 
 } // namespace
 
+// State of a cipher key in the validation pipeline
+enum class CipherKeyState : uint8_t {
+	Fetching = 0,   // Key is being fetched from KMS
+	Validating = 1, // Key has been fetched and is undergoing validation
+	Active = 2,     // Key has been validated and is ready for use
+	Expired = 3     // Key has expired
+};
+
 struct EncryptBaseCipherKey {
 	EncryptCipherDomainId domainId;
 	EncryptCipherBaseKeyId baseCipherId;
@@ -169,17 +177,24 @@ struct EncryptBaseCipherKey {
 	// leverage already cached CipherKey iff it is 'Non-revocable CipherKey'. PerpetualWiggle would update old/retired
 	// CipherKeys with the latest CipherKeys sometime soon in the future.
 	int64_t expireAt;
+	// State tracking for the cipher key validation pipeline
+	CipherKeyState state;
+	// Timestamp when the key entered the Validating state
+	int64_t validationStartedAt;
 
 	EncryptBaseCipherKey()
-	  : domainId(0), baseCipherId(0), baseCipherKey(StringRef()), baseCipherKCV(0), refreshAt(0), expireAt(0) {}
+	  : domainId(0), baseCipherId(0), baseCipherKey(StringRef()), baseCipherKCV(0), refreshAt(0), expireAt(0),
+	    state(CipherKeyState::Fetching), validationStartedAt(0) {}
 	explicit EncryptBaseCipherKey(EncryptCipherDomainId dId,
 	                              EncryptCipherBaseKeyId cipherId,
 	                              Standalone<StringRef> cipherKey,
 	                              EncryptCipherKeyCheckValue cipherKCV,
 	                              int64_t refAtTS,
-	                              int64_t expAtTS)
+	                              int64_t expAtTS,
+	                              CipherKeyState keyState = CipherKeyState::Validating,
+	                              int64_t validationTS = 0)
 	  : domainId(dId), baseCipherId(cipherId), baseCipherKey(cipherKey), baseCipherKCV(cipherKCV), refreshAt(refAtTS),
-	    expireAt(expAtTS) {}
+	    expireAt(expAtTS), state(keyState), validationStartedAt(validationTS) {}
 
 	bool needsRefresh() const {
 		bool shouldRefresh = now() > refreshAt;
@@ -191,6 +206,15 @@ struct EncryptBaseCipherKey {
 		bool expired = now() > expireAt;
 		CODE_PROBE(expired, "EKP: Key is expired");
 		return expired;
+	}
+
+	bool isValidating() const { return state == CipherKeyState::Validating; }
+
+	bool isActive() const { return state == CipherKeyState::Active; }
+
+	bool needsValidation() const {
+		return state == CipherKeyState::Validating &&
+		       (now() - validationStartedAt) > FLOW_KNOBS->ENCRYPT_CIPHER_KEY_VALIDATION_DELAY;
 	}
 };
 
@@ -304,15 +328,29 @@ public:
 	                                 int64_t expireAtTS) {
 		// Entries in domainId cache are eligible for periodic refreshes to support 'limiting lifetime of encryption
 		// key' support if enabled on external KMS solutions.
+		//
+		// New cipher keys enter the Validating state before becoming Active. This allows the system
+		// to perform additional integrity checks and ensures a two-phase commit for key activation.
 
-		baseCipherDomainIdCache[domainId] =
-		    EncryptBaseCipherKey(domainId, baseCipherId, baseCipherKey, baseCipherKCV, refreshAtTS, expireAtTS);
+		int64_t validationStartTS = (int64_t)now();
+		baseCipherDomainIdCache[domainId] = EncryptBaseCipherKey(domainId,
+		                                                          baseCipherId,
+		                                                          baseCipherKey,
+		                                                          baseCipherKCV,
+		                                                          refreshAtTS,
+		                                                          expireAtTS,
+		                                                          CipherKeyState::Validating,
+		                                                          validationStartTS);
 
 		// Update cached the information indexed using baseCipherId
 		// Cache indexed by 'baseCipherId' need not refresh cipher, however, it still needs to abide by KMS governed
 		// CipherKey lifetime rules
-		insertIntoBaseCipherIdCache(
-		    domainId, baseCipherId, baseCipherKey, baseCipherKCV, std::numeric_limits<int64_t>::max(), expireAtTS);
+		insertIntoBaseCipherIdCache(domainId,
+		                            baseCipherId,
+		                            baseCipherKey,
+		                            baseCipherKCV,
+		                            std::numeric_limits<int64_t>::max(),
+		                            expireAtTS);
 	}
 
 	void insertIntoBaseCipherIdCache(const EncryptCipherDomainId domainId,
@@ -334,15 +372,24 @@ public:
 			throw encrypt_key_check_value_mismatch();
 		}
 		EncryptBaseCipherDomainIdKeyIdCacheKey cacheKey = getBaseCipherDomainIdKeyIdCacheKey(domainId, baseCipherId);
-		baseCipherDomainIdKeyIdCache[cacheKey] =
-		    EncryptBaseCipherKey(domainId, baseCipherId, baseCipherKey, baseCipherKCV, refreshAtTS, expireAtTS);
+		int64_t validationStartTS = (int64_t)now();
+		baseCipherDomainIdKeyIdCache[cacheKey] = EncryptBaseCipherKey(domainId,
+		                                                               baseCipherId,
+		                                                               baseCipherKey,
+		                                                               baseCipherKCV,
+		                                                               refreshAtTS,
+		                                                               expireAtTS,
+		                                                               CipherKeyState::Validating,
+		                                                               validationStartTS);
 		TraceEvent("InsertIntoBaseCipherIdCache")
 		    .detail("DomId", domainId)
 		    .detail("BaseCipherId", baseCipherId)
 		    .detail("BaseCipherLen", baseCipherKey.size())
 		    .detail("BaseCipherKCV", baseCipherKCV)
 		    .detail("RefreshAt", refreshAtTS)
-		    .detail("ExpireAt", expireAtTS);
+		    .detail("ExpireAt", expireAtTS)
+		    .detail("State", "Validating")
+		    .detail("ValidationStartedAt", validationStartTS);
 	}
 
 	void insertIntoBlobMetadataCache(const BlobMetadataDomainId domainId,
@@ -398,7 +445,9 @@ getLookupDetails(
 		const EncryptBaseCipherDomainIdKeyIdCacheKey cacheKey =
 		    ekpProxyData->getBaseCipherDomainIdKeyIdCacheKey(item.domainId, item.baseCipherId);
 		const auto itr = ekpProxyData->baseCipherDomainIdKeyIdCache.find(cacheKey);
-		if (itr != ekpProxyData->baseCipherDomainIdKeyIdCache.end() && !itr->second.isExpired()) {
+		// Only return keys that are Active (validated) and not expired
+		if (itr != ekpProxyData->baseCipherDomainIdKeyIdCache.end() && itr->second.isActive() &&
+		    !itr->second.isExpired()) {
 			keyIdsReply.baseCipherDetails.emplace_back(
 			    itr->second.domainId, itr->second.baseCipherId, itr->second.baseCipherKey, itr->second.baseCipherKCV);
 			numHits++;
@@ -411,6 +460,7 @@ getLookupDetails(
 				                      "");
 			}
 		} else {
+			// Key is missing, validating, or expired - fetch from KMS
 			lookupCipherInfoMap.emplace(std::make_pair(item.domainId, item.baseCipherId), item);
 		}
 	}
@@ -533,8 +583,9 @@ std::unordered_set<EncryptCipherDomainId> getLookupDetailsLatest(
 	std::unordered_set<EncryptCipherDomainId> lookupCipherDomainIds;
 	for (const auto domainId : dedupedDomainIds) {
 		const auto itr = ekpProxyData->baseCipherDomainIdCache.find(domainId);
-		if (itr != ekpProxyData->baseCipherDomainIdCache.end() && !itr->second.needsRefresh() &&
-		    !itr->second.isExpired()) {
+		// Only return keys that are Active (validated) and not expired or needing refresh
+		if (itr != ekpProxyData->baseCipherDomainIdCache.end() && itr->second.isActive() &&
+		    !itr->second.needsRefresh() && !itr->second.isExpired()) {
 			latestCipherReply.baseCipherDetails.emplace_back(domainId,
 			                                                 itr->second.baseCipherId,
 			                                                 itr->second.baseCipherKey,
@@ -553,6 +604,7 @@ std::unordered_set<EncryptCipherDomainId> getLookupDetailsLatest(
 				                      "");
 			}
 		} else {
+			// Key is missing, validating, expired, or needs refresh - fetch from KMS
 			lookupCipherDomainIds.emplace(domainId);
 		}
 	}
@@ -860,6 +912,45 @@ Future<Void> updateHealthStatus(Reference<EncryptKeyProxyData> ekpProxyData, Kms
 	return updateHealthStatusImpl(ekpProxyData, kmsConnectorInf);
 }
 
+// Background actor that validates cipher keys that are in the Validating state.
+// Keys must remain in the Validating state for at least ENCRYPT_CIPHER_KEY_VALIDATION_DELAY
+// before being transitioned to the Active state.
+ACTOR Future<Void> validateCipherKeys(Reference<EncryptKeyProxyData> ekpProxyData) {
+	loop {
+		wait(delay(FLOW_KNOBS->ENCRYPT_CIPHER_KEY_VALIDATION_DELAY));
+
+		state int numValidated = 0;
+
+		// Validate keys in baseCipherDomainIdCache
+		for (auto& entry : ekpProxyData->baseCipherDomainIdCache) {
+			if (entry.second.needsValidation()) {
+				entry.second.state = CipherKeyState::Active;
+				numValidated++;
+				TraceEvent("EKPCipherKeyValidated", ekpProxyData->myId)
+				    .detail("DomainId", entry.second.domainId)
+				    .detail("BaseCipherId", entry.second.baseCipherId)
+				    .detail("ValidationDelay", now() - entry.second.validationStartedAt);
+			}
+		}
+
+		// Validate keys in baseCipherDomainIdKeyIdCache
+		for (auto& entry : ekpProxyData->baseCipherDomainIdKeyIdCache) {
+			if (entry.second.needsValidation()) {
+				entry.second.state = CipherKeyState::Active;
+				numValidated++;
+				TraceEvent("EKPCipherKeyValidated", ekpProxyData->myId)
+				    .detail("DomainId", entry.second.domainId)
+				    .detail("BaseCipherId", entry.second.baseCipherId)
+				    .detail("ValidationDelay", now() - entry.second.validationStartedAt);
+			}
+		}
+
+		if (numValidated > 0) {
+			TraceEvent("EKPCipherKeyValidationComplete", ekpProxyData->myId).detail("NumValidated", numValidated);
+		}
+	}
+}
+
 void activateKmsConnector(Reference<EncryptKeyProxyData> ekpProxyData, KmsConnectorInterface kmsConnectorInf) {
 	if (g_network->isSimulated()) {
 		ekpProxyData->kmsConnector = std::make_unique<SimKmsConnector>(FDB_SIM_KMS_CONNECTOR_TYPE_STR);
@@ -911,6 +1002,10 @@ ACTOR Future<Void> encryptKeyProxyServer(EncryptKeyProxyInterface ekpInterface,
 	                                     FLOW_KNOBS->ENCRYPT_KEY_HEALTH_CHECK_INTERVAL,
 	                                     TaskPriority::Worker,
 	                                     true);
+
+	// Register a recurring task to validate cipher keys that are in the Validating state.
+	// This background validation process ensures keys undergo integrity checks before becoming active.
+	self->addActor.send(validateCipherKeys(self));
 
 	CODE_PROBE(!encryptMode.isEncryptionEnabled() && SERVER_KNOBS->ENABLE_REST_KMS_COMMUNICATION,
 	           "Encryption disabled and EKP Recruited");
