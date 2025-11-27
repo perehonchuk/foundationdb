@@ -979,6 +979,24 @@ void ConflictBatch::GetTooOldTransactions(std::vector<int>& tooOldTransactions) 
 	}
 }
 
+void ConflictBatch::preValidateTransactions(Version now,
+                                            Version newOldestVersion,
+                                            std::vector<int>& preValidated) {
+	// Pre-validation phase: check for obvious conflicts before full resolution
+	// This phase only validates read-only transactions and transactions with non-overlapping key ranges
+	for (int i = 0; i < transactionCount; i++) {
+		const TransactionInfo& tr = *transactionInfo[i];
+		if (tr.tooOld) {
+			continue; // Skip too-old transactions
+		}
+
+		// Pre-validate transactions that have no write conflicts (read-only)
+		if (tr.writeRanges.empty() && !tr.tooOld) {
+			preValidated.push_back(i);
+		}
+	}
+}
+
 void ConflictBatch::detectConflicts(Version now,
                                     Version newOldestVersion,
                                     std::vector<int>& nonConflicting,

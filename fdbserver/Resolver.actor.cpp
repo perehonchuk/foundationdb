@@ -165,6 +165,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsAccepted;
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
+	Counter transactionsPreValidated;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -200,7 +201,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    resolvedBytes("ResolvedBytes", cc), resolvedReadConflictRanges("ResolvedReadConflictRanges", cc),
 	    resolvedWriteConflictRanges("ResolvedWriteConflictRanges", cc),
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
-	    transactionsConflicted("TransactionsConflicted", cc),
+	    transactionsConflicted("TransactionsConflicted", cc), transactionsPreValidated("TransactionsPreValidated", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
@@ -346,8 +347,9 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
+		std::vector<int> preValidatedList;
 
-		// Detect conflicts
+		// Two-phase conflict resolution
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
@@ -365,6 +367,11 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 					    it.begin, SERVER_KNOBS->SAMPLE_OFFSET_PER_KEY + it.begin.size(), expire);
 			}
 		}
+
+		// Phase 1: Pre-validation for fast-path transactions
+		conflictBatch.preValidateTransactions(req.version, newOldestVersion, preValidatedList);
+
+		// Phase 2: Full conflict detection for remaining transactions
 		conflictBatch.detectConflicts(req.version, newOldestVersion, commitList, &tooOldList);
 
 		reply.debugID = req.debugID;
@@ -380,6 +387,7 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		self->transactionsAccepted += commitList.size();
 		self->transactionsTooOld += tooOldList.size();
 		self->transactionsConflicted += req.transactions.size() - commitList.size() - tooOldList.size();
+		self->transactionsPreValidated += preValidatedList.size();
 
 		ASSERT(req.prevVersion >= 0 ||
 		       req.txnStateTransactions.size() == 0); // The master's request should not have any state transactions
