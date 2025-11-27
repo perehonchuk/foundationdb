@@ -73,7 +73,7 @@ void validateEncryptHeaderAlgoHeaderVersion(const EncryptCipherMode cipherMode,
                                             const EncryptAuthTokenMode authMode,
                                             const EncryptAuthTokenAlgo authAlgo,
                                             const int version) {
-	if (cipherMode != ENCRYPT_CIPHER_MODE_AES_256_CTR) {
+	if (cipherMode != ENCRYPT_CIPHER_MODE_AES_256_CTR && cipherMode != ENCRYPT_CIPHER_MODE_AES_256_GCM) {
 		TraceEvent("EncryptHeaderUnsupportedEncryptCipherMode")
 		    .detail("MaxSupportedVersion", CLIENT_KNOBS->ENCRYPT_HEADER_FLAGS_VERSION)
 		    .detail("CipherMode", cipherMode);
@@ -81,17 +81,33 @@ void validateEncryptHeaderAlgoHeaderVersion(const EncryptCipherMode cipherMode,
 	}
 
 	int maxSupportedVersion = -1;
-	if (authMode == ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE) {
-		maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_NO_AUTH_VERSION;
-	} else {
-		ASSERT_EQ(authMode, ENCRYPT_HEADER_AUTH_TOKEN_MODE_SINGLE);
-
-		if (authAlgo == ENCRYPT_HEADER_AUTH_TOKEN_ALGO_HMAC_SHA) {
-			maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_HMAC_SHA_AUTH_VERSION;
-		} else if (authAlgo == ENCRYPT_HEADER_AUTH_TOKEN_ALGO_AES_CMAC) {
-			maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_AES_CMAC_AUTH_VERSION;
+	if (cipherMode == ENCRYPT_CIPHER_MODE_AES_256_CTR) {
+		if (authMode == ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE) {
+			maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_NO_AUTH_VERSION;
 		} else {
-			// Unknown encryption authentication algo
+			ASSERT_EQ(authMode, ENCRYPT_HEADER_AUTH_TOKEN_MODE_SINGLE);
+
+			if (authAlgo == ENCRYPT_HEADER_AUTH_TOKEN_ALGO_HMAC_SHA) {
+				maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_HMAC_SHA_AUTH_VERSION;
+			} else if (authAlgo == ENCRYPT_HEADER_AUTH_TOKEN_ALGO_AES_CMAC) {
+				maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_CTR_AES_CMAC_AUTH_VERSION;
+			} else {
+				// Unknown encryption authentication algo
+			}
+		}
+	} else if (cipherMode == ENCRYPT_CIPHER_MODE_AES_256_GCM) {
+		if (authMode == ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE) {
+			maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_GCM_NO_AUTH_VERSION;
+		} else {
+			ASSERT_EQ(authMode, ENCRYPT_HEADER_AUTH_TOKEN_MODE_SINGLE);
+
+			if (authAlgo == ENCRYPT_HEADER_AUTH_TOKEN_ALGO_HMAC_SHA) {
+				maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_GCM_HMAC_SHA_AUTH_VERSION;
+			} else if (authAlgo == ENCRYPT_HEADER_AUTH_TOKEN_ALGO_AES_CMAC) {
+				maxSupportedVersion = CLIENT_KNOBS->ENCRYPT_HEADER_AES_GCM_AES_CMAC_AUTH_VERSION;
+			} else {
+				// Unknown encryption authentication algo
+			}
 		}
 	}
 
@@ -125,7 +141,7 @@ uint32_t BlobCipherEncryptHeaderRef::getHeaderSize(const int flagVersion,
 
 	uint32_t total = sizeof(BlobCipherEncryptHeaderFlagsV1) + 2; // 2 bytes of std::variant index
 
-	if (cipherMode != ENCRYPT_CIPHER_MODE_AES_256_CTR) {
+	if (cipherMode != ENCRYPT_CIPHER_MODE_AES_256_CTR && cipherMode != ENCRYPT_CIPHER_MODE_AES_256_GCM) {
 		throw not_implemented();
 	}
 
@@ -1029,7 +1045,9 @@ void EncryptBlobCipherAes265Ctr::updateEncryptHeaderFlagsV1(BlobCipherEncryptHea
                                                             BlobCipherEncryptHeaderFlagsV1* flags) {
 
 	// Populate encryption header flags details
-	flags->encryptMode = ENCRYPT_CIPHER_MODE_AES_256_CTR;
+	// Determine encryption mode from configuration knob
+	EncryptCipherMode configuredMode = encryptModeFromString(CLIENT_KNOBS->ENCRYPT_CIPHER_MODE);
+	flags->encryptMode = configuredMode;
 	flags->authTokenMode = authTokenMode;
 	flags->authTokenAlgo = authTokenAlgo;
 	headerRef->flags = *flags;
@@ -1057,7 +1075,9 @@ void EncryptBlobCipherAes265Ctr::updateEncryptHeader(const uint8_t* ciphertext,
 	// Populate encryption header flags details
 	header->flags.size = sizeof(BlobCipherEncryptHeader);
 	header->flags.headerVersion = EncryptBlobCipherAes265Ctr::ENCRYPT_HEADER_VERSION;
-	header->flags.encryptMode = ENCRYPT_CIPHER_MODE_AES_256_CTR;
+	// Determine encryption mode from configuration knob
+	EncryptCipherMode configuredMode = encryptModeFromString(CLIENT_KNOBS->ENCRYPT_CIPHER_MODE);
+	header->flags.encryptMode = configuredMode;
 	header->flags.authTokenMode = authTokenMode;
 	header->flags.authTokenAlgo = authTokenAlgo;
 
