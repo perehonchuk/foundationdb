@@ -37,7 +37,7 @@ enum class EventType {
 	UNSET
 };
 
-enum class TransactionPriorityType : int { PRIORITY_DEFAULT = 0, PRIORITY_BATCH = 1, PRIORITY_IMMEDIATE = 2, UNSET };
+enum class TransactionPriorityType : int { PRIORITY_DEFAULT = 0, PRIORITY_BATCH = 1, PRIORITY_IMMEDIATE = 2, PRIORITY_CRITICAL = 3, UNSET };
 static_assert(sizeof(TransactionPriorityType) == 4, "transaction_profiling_analyzer.py assumes this field has size 4");
 
 struct Event {

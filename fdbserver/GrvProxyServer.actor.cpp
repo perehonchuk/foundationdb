@@ -62,6 +62,7 @@ struct GrvProxyStats {
 	int systemGRVQueueSize;
 	int defaultGRVQueueSize;
 	int batchGRVQueueSize;
+	int criticalGRVQueueSize;
 	int tagThrottlerGRVQueueSize;
 	double transactionRateAllowed;
 	double batchTransactionRateAllowed;
@@ -145,7 +146,7 @@ struct GrvProxyStats {
 	    txnDefaultPriorityStartOut("TxnDefaultPriorityStartOut", cc), txnTagThrottlerIn("TxnTagThrottlerIn", cc),
 	    txnTagThrottlerOut("TxnTagThrottlerOut", cc), txnThrottled("TxnThrottled", cc),
 	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc), systemGRVQueueSize(0),
-	    defaultGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
+	    defaultGRVQueueSize(0), batchGRVQueueSize(0), criticalGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
 	    batchTransactionRateAllowed(0), transactionLimit(0), batchTransactionLimit(0),
 	    percentageOfDefaultGRVQueueProcessed(0), percentageOfBatchGRVQueueProcessed(0), lastBatchQueueThrottled(false),
 	    lastDefaultQueueThrottled(false), batchThrottleStartTime(0.0), defaultThrottleStartTime(0.0),
@@ -510,6 +511,7 @@ void dropRequestFromQueue(Deque<GetReadVersionRequest>* queue, GrvProxyStats* st
 // Put a GetReadVersion request into the queue corresponding to its priority.
 ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> const> db,
                                                Deque<GetReadVersionRequest>* systemQueue,
+                                               Deque<GetReadVersionRequest>* criticalQueue,
                                                Deque<GetReadVersionRequest>* defaultQueue,
                                                Deque<GetReadVersionRequest>* batchQueue,
                                                FutureStream<GetReadVersionRequest> readVersionRequests,
@@ -564,13 +566,19 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
 					                      req.debugID.get().first(),
 					                      "GrvProxyServer.queueTransactionStartRequests.Before");
 
-				if (systemQueue->empty() && defaultQueue->empty() && batchQueue->empty()) {
+				if (systemQueue->empty() && criticalQueue->empty() && defaultQueue->empty() && batchQueue->empty()) {
 					forwardPromise(GRVTimer,
 					               delayJittered(std::max(0.0, *GRVBatchTime - (now() - *lastGRVTime)),
 					                             TaskPriority::ProxyGRVTimer));
 				}
 
-				if (req.priority >= TransactionPriority::IMMEDIATE) {
+				if (req.priority >= TransactionPriority::CRITICAL) {
+					++stats->txnRequestIn;
+					stats->txnStartIn += req.transactionCount;
+					stats->txnSystemPriorityStartIn += req.transactionCount;
+					++stats->criticalGRVQueueSize;
+					criticalQueue->push_back(req);
+				} else if (req.priority >= TransactionPriority::IMMEDIATE) {
 					++stats->txnRequestIn;
 					stats->txnStartIn += req.transactionCount;
 					stats->txnSystemPriorityStartIn += req.transactionCount;
@@ -882,6 +890,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 	                                           /*rate=*/0);
 
 	state Deque<GetReadVersionRequest> systemQueue;
+	state Deque<GetReadVersionRequest> criticalQueue;
 	state Deque<GetReadVersionRequest> defaultQueue;
 	state Deque<GetReadVersionRequest> batchQueue;
 
@@ -909,6 +918,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 	                      grvProxyData));
 	addActor.send(queueGetReadVersionRequests(db,
 	                                          &systemQueue,
+	                                          &criticalQueue,
 	                                          &defaultQueue,
 	                                          &batchQueue,
 	                                          proxy.getConsistentReadVersion.getFuture(),
@@ -965,7 +975,9 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 		uint32_t batchQueueSize = batchQueue.size();
 		while (requestsToStart < SERVER_KNOBS->START_TRANSACTION_MAX_REQUESTS_TO_START) {
 			Deque<GetReadVersionRequest>* transactionQueue;
-			if (!systemQueue.empty()) {
+			if (!criticalQueue.empty()) {
+				transactionQueue = &criticalQueue;
+			} else if (!systemQueue.empty()) {
 				transactionQueue = &systemQueue;
 			} else if (!defaultQueue.empty()) {
 				transactionQueue = &defaultQueue;
