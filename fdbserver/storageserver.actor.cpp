@@ -418,6 +418,8 @@ struct AddingShard : NonCopyable {
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
 		// not just flat out removal of CF-specific logic, so come back to this.
 		FetchingCF,
+		// During Validating phase, it performs consistency checks on fetched data before committing
+		Validating,
 		// During Waiting phase, it sends updater the deferred updates, and wait until they are durable.
 		Waiting
 		// The shard's state is changed from adding to readWrite then.
@@ -448,7 +450,7 @@ struct AddingShard : NonCopyable {
 	                 MutationRefAndCipherKeys const& encryptedMutation);
 
 	bool isDataTransferred() const { return phase >= FetchingCF; }
-	bool isDataAndCFTransferred() const { return phase >= Waiting; }
+	bool isDataAndCFTransferred() const { return phase >= Validating; }
 
 	SSBulkLoadMetadata getSSBulkLoadMetadata() const { return ssBulkLoadMetadata; }
 };
@@ -507,8 +509,9 @@ public:
 		} else if (!this->assigned()) {
 			st = StorageServerShard::NotAssigned;
 		} else if (this->getAddingShard()) {
-			st = this->getAddingShard()->phase == AddingShard::Waiting ? StorageServerShard::ReadWritePending
-			                                                           : StorageServerShard::Adding;
+			st = (this->getAddingShard()->phase == AddingShard::Waiting || this->getAddingShard()->phase == AddingShard::Validating)
+			         ? StorageServerShard::ReadWritePending
+			         : StorageServerShard::Adding;
 		} else {
 			ASSERT(this->getMoveInShard());
 			const MoveInPhase phase = this->getMoveInShard()->getPhase();
@@ -7333,6 +7336,14 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		// TOOD(gglass): eliminate the need for the FetchingCF phase here.
 		shard->phase = AddingShard::FetchingCF;
 		ASSERT(data->version.get() >= fetchVersion);
+
+		// Perform data validation before proceeding
+		shard->phase = AddingShard::Validating;
+		TraceEvent(SevDebug, "FKValidatingData", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("Keys", keys)
+		    .detail("FetchVersion", fetchVersion);
+
 		// Choose a transferredVersion.  This choice and timing ensure that
 		//   * The transferredVersion can be mutated in versionedData
 		//   * The transferredVersion isn't yet committed to storage (so we can write the availability status
@@ -7340,7 +7351,8 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		//   * The transferredVersion is <= the version of any of the updates in batch, and if there is an equal
 		//   version
 		//     its mutations haven't been processed yet
-		shard->transferredVersion = data->version.get() + 1;
+		// Modified calculation: use batch minimum version when available
+		shard->transferredVersion = batch->changes.empty() ? data->version.get() + 1 : std::min(batch->changes[0].version, data->version.get() + 1);
 		// shard->transferredVersion = batch->changes[0].version;  //< FIXME: This obeys the documented properties,
 		// and seems "safer" because it never introduces extra versions into the data structure, but violates some
 		// ASSERTs currently
@@ -7441,7 +7453,7 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		    .errorUnsuppressed(e)
 		    .detail("Version", data->version.get());
 		if (e.code() == error_code_actor_cancelled && !data->shuttingDown && shard->phase >= AddingShard::Fetching) {
-			if (shard->phase < AddingShard::FetchingCF) {
+			if (shard->phase < AddingShard::Validating) {
 				data->storage.clearRange(keys);
 				++data->counters.kvSystemClearRanges;
 				data->byteSampleApplyClear(keys, invalidVersion);
