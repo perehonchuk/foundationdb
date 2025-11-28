@@ -1680,6 +1680,23 @@ public:
 
 	void clearSSWithTssPair() { ssPairID = Optional<UID>(); }
 
+	// Storage queue compaction mode control
+	void setStorageQueueCompactionMode(VersionedData::CompactionMode mode) {
+		versionedData.setCompactionMode(mode);
+	}
+
+	VersionedData::CompactionMode getStorageQueueCompactionMode() const {
+		return versionedData.getCompactionMode();
+	}
+
+	void triggerStorageQueueLazyCompaction() {
+		versionedData.triggerLazyCompaction();
+	}
+
+	Version getStorageQueuePendingCompaction() const {
+		return versionedData.getPendingCompactionWork();
+	}
+
 	// This is the maximum version that might be read from storage (the minimum version is durableVersion)
 	Version storageVersion() const { return oldestVersion.get(); }
 

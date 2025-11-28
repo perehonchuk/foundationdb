@@ -669,12 +669,23 @@ public:
 	typedef PTreeImpl::PTreeFinger<MapPair<K, std::pair<T, Version>>> PTreeFingerT;
 	typedef Reference<PTreeT> Tree;
 
+	enum CompactionMode {
+		EAGER, // Compact nodes immediately when versions are forgotten
+		LAZY   // Defer compaction until explicitly triggered
+	};
+
 	Version oldestVersion, latestVersion;
 
 	// This deque keeps track of PTree root nodes at various versions. Since the
 	// versions increase monotonically, the deque is implicitly sorted and hence
 	// binary-searchable.
 	std::deque<std::pair<Version, Tree>> roots;
+
+	// Compaction mode controls when node cleanup happens
+	CompactionMode compactionMode;
+
+	// For lazy mode: tracks the oldest version that still needs compaction
+	Version pendingCompactionVersion;
 
 	struct rootsComparator {
 		bool operator()(const std::pair<Version, Tree>& value, const Version& key) { return (value.first < key); }
@@ -691,13 +702,22 @@ public:
 	static const int overheadPerItem = nextFastAllocatedSize(sizeof(PTreeT)) * 4;
 	struct iterator;
 
-	VersionedMap() : oldestVersion(0), latestVersion(0) { roots.emplace_back(0, Tree()); }
+	VersionedMap() : oldestVersion(0), latestVersion(0), compactionMode(EAGER), pendingCompactionVersion(0) {
+		roots.emplace_back(0, Tree());
+	}
+	VersionedMap(CompactionMode mode)
+	  : oldestVersion(0), latestVersion(0), compactionMode(mode), pendingCompactionVersion(0) {
+		roots.emplace_back(0, Tree());
+	}
 	VersionedMap(VersionedMap&& v) noexcept
-	  : oldestVersion(v.oldestVersion), latestVersion(v.latestVersion), roots(std::move(v.roots)) {}
+	  : oldestVersion(v.oldestVersion), latestVersion(v.latestVersion), roots(std::move(v.roots)),
+	    compactionMode(v.compactionMode), pendingCompactionVersion(v.pendingCompactionVersion) {}
 	void operator=(VersionedMap&& v) noexcept {
 		oldestVersion = v.oldestVersion;
 		latestVersion = v.latestVersion;
 		roots = std::move(v.roots);
+		compactionMode = v.compactionMode;
+		pendingCompactionVersion = v.pendingCompactionVersion;
 	}
 
 	Version getLatestVersion() const { return latestVersion; }
@@ -720,6 +740,16 @@ public:
 		UNSTOPPABLE_ASSERT(r->first == newOldestVersion);
 		roots.erase(roots.begin(), r);
 		oldestVersion = newOldestVersion;
+
+		// In EAGER mode, compact immediately. In LAZY mode, just track what needs compaction.
+		if (compactionMode == EAGER) {
+			compact(newOldestVersion);
+		} else {
+			// LAZY mode: update pending compaction version but don't compact yet
+			if (newOldestVersion > pendingCompactionVersion) {
+				pendingCompactionVersion = newOldestVersion;
+			}
+		}
 	}
 
 	Future<Void> forgetVersionsBeforeAsync(Version newOldestVersion, TaskPriority taskID = TaskPriority::DefaultYield) {
@@ -753,6 +783,12 @@ public:
 
 		roots.erase(roots.begin(), newBegin);
 		oldestVersion = newOldestVersion;
+
+		// In LAZY mode, update pending compaction but don't compact
+		if (compactionMode == LAZY && newOldestVersion > pendingCompactionVersion) {
+			pendingCompactionVersion = newOldestVersion;
+		}
+
 		return deferredCleanupActor(toFree, taskID);
 	}
 
@@ -794,9 +830,42 @@ public:
 			if (root->second)
 				PTreeImpl::compact(root->second, newOldestVersion);
 		}
+
+		// In LAZY mode, update tracking after explicit compaction
+		if (compactionMode == LAZY && newOldestVersion > pendingCompactionVersion) {
+			pendingCompactionVersion = newOldestVersion;
+		}
 		// printf("\nPrinting the tree at latest version after compaction.\n");
 		// PTreeImpl::printTreeDetails(roots.back().second(), 0);
 	}
+
+	// Trigger compaction for LAZY mode up to the current oldestVersion
+	void triggerLazyCompaction() {
+		if (compactionMode == LAZY && pendingCompactionVersion < oldestVersion) {
+			compact(oldestVersion);
+		}
+	}
+
+	// Get the amount of pending compaction work (versions not yet compacted)
+	Version getPendingCompactionWork() const {
+		if (compactionMode == LAZY) {
+			return oldestVersion > pendingCompactionVersion ? oldestVersion - pendingCompactionVersion : 0;
+		}
+		return 0;
+	}
+
+	// Change compaction mode at runtime
+	void setCompactionMode(CompactionMode mode) {
+		if (compactionMode != mode) {
+			if (mode == EAGER && compactionMode == LAZY) {
+				// Switching to EAGER: compact any pending work
+				triggerLazyCompaction();
+			}
+			compactionMode = mode;
+		}
+	}
+
+	CompactionMode getCompactionMode() const { return compactionMode; }
 
 	// for(auto i = vm.at(version).lower_bound(range.begin); i < range.end; ++i)
 	struct iterator {
