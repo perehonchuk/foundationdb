@@ -108,6 +108,9 @@ struct ResolveTransactionBatchReply {
 	std::set<Tag> writtenTags;
 	Version lastShardMove;
 
+	// Two-phase conflict resolution: transactions that passed preliminary check
+	VectorRef<int> preliminaryPassedTransactions;
+
 	template <class Archive>
 	void serialize(Archive& ar) {
 		serializer(ar,
@@ -120,6 +123,7 @@ struct ResolveTransactionBatchReply {
 		           tpcvMap,
 		           writtenTags,
 		           lastShardMove,
+		           preliminaryPassedTransactions,
 		           arena);
 	}
 };

@@ -171,6 +171,8 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter resolveBatchOut;
 	Counter metricsRequests;
 	Counter splitRequests;
+	Counter transactionsPreliminaryPassed;
+	Counter transactionsPreliminaryRejected;
 	int numLogs;
 
 	// End-to-end server latency of resolver requests.
@@ -205,6 +207,8 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
 	    splitRequests("SplitRequests", cc),
+	    transactionsPreliminaryPassed("TransactionsPreliminaryPassed", cc),
+	    transactionsPreliminaryRejected("TransactionsPreliminaryRejected", cc),
 	    resolverLatencyDist(Histogram::getHistogram("Resolver"_sr, "Latency"_sr, Histogram::Unit::milliseconds)),
 	    queueWaitLatencyDist(Histogram::getHistogram("Resolver"_sr, "QueueWait"_sr, Histogram::Unit::milliseconds)),
 	    computeTimeDist(Histogram::getHistogram("Resolver"_sr, "ComputeTime"_sr, Histogram::Unit::milliseconds)),
@@ -346,12 +350,26 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
+		std::vector<int> preliminaryPassedList;
 
-		// Detect conflicts
+		// Two-phase conflict resolution
+		// Phase 1: Preliminary conflict check - quickly filter out transactions
+		// that are obviously too old or have trivial conflicts
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
-		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
+
 		for (int t = 0; t < req.transactions.size(); t++) {
+			// Preliminary check: reject transactions that are too old
+			if (req.transactions[t].read_snapshot < newOldestVersion) {
+				tooOldList.push_back(t);
+			} else {
+				preliminaryPassedList.push_back(t);
+			}
+		}
+
+		// Phase 2: Full conflict detection on transactions that passed preliminary check
+		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
+		for (int t : preliminaryPassedList) {
 			conflictBatch.addTransaction(req.transactions[t], newOldestVersion);
 			self->resolvedReadConflictRanges += req.transactions[t].read_conflict_ranges.size();
 			self->resolvedWriteConflictRanges += req.transactions[t].write_conflict_ranges.size();
@@ -376,6 +394,16 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 			ASSERT(reply.committed[tooOldList[c]] == ConflictBatch::TransactionConflict);
 			reply.committed[tooOldList[c]] = ConflictBatch::TransactionTooOld;
 		}
+
+		// Store preliminary passed transactions for observability
+		reply.preliminaryPassedTransactions.resize(reply.arena, preliminaryPassedList.size());
+		for (int i = 0; i < preliminaryPassedList.size(); i++) {
+			reply.preliminaryPassedTransactions[i] = preliminaryPassedList[i];
+		}
+
+		// Update two-phase resolution metrics
+		self->transactionsPreliminaryPassed += preliminaryPassedList.size();
+		self->transactionsPreliminaryRejected += (req.transactions.size() - preliminaryPassedList.size());
 
 		self->transactionsAccepted += commitList.size();
 		self->transactionsTooOld += tooOldList.size();

@@ -1799,6 +1799,15 @@ ACTOR Future<Void> applyMetadataToCommittedTransactions(CommitBatchContext* self
 		// Resolver also calculates forceRecovery and only applies metadata mutations
 		// in the same set of transactions as this proxy.
 		ResolveTransactionBatchReply& reply = self->resolution[0];
+
+		// Log two-phase conflict resolution metrics
+		if (reply.preliminaryPassedTransactions.size() > 0) {
+			TraceEvent("TwoPhaseConflictResolution")
+			    .detail("PreliminaryPassed", reply.preliminaryPassedTransactions.size())
+			    .detail("TotalTransactions", self->trs.size())
+			    .detail("Version", commitVersion);
+		}
+
 		self->toCommit.setMutations(reply.privateMutationCount, reply.privateMutations);
 		if (SERVER_KNOBS->ENABLE_VERSION_VECTOR_TLOG_UNICAST) {
 			// TraceEvent("ResolverReturn").detail("ReturnTags",reply.writtenTags).detail("TPCVsize",reply.tpcvMap.size()).detail("ReqTags",self->writtenTagsPreResolution);
