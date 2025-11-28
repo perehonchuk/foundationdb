@@ -165,6 +165,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsAccepted;
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
+	Counter transactionsFastPathAccepted;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -201,6 +202,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    resolvedWriteConflictRanges("ResolvedWriteConflictRanges", cc),
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
 	    transactionsConflicted("TransactionsConflicted", cc),
+	    transactionsFastPathAccepted("TransactionsFastPathAccepted", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
@@ -346,12 +348,32 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
+		std::vector<int> fastPathList;
 
-		// Detect conflicts
-		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
-		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
+		// Fast-path pre-screening: transactions with no read conflicts can bypass full conflict resolution
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
 		for (int t = 0; t < req.transactions.size(); t++) {
+			if (req.transactions[t].read_conflict_ranges.empty() &&
+			    req.transactions[t].read_snapshot >= newOldestVersion) {
+				// Transaction has no read conflicts and is not too old - accept via fast path
+				fastPathList.push_back(t);
+			}
+		}
+
+		// Detect conflicts for remaining transactions
+		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
+		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
+		for (int t = 0; t < req.transactions.size(); t++) {
+			// Skip fast-path transactions
+			bool isFastPath = false;
+			for (int fp : fastPathList) {
+				if (fp == t) {
+					isFastPath = true;
+					break;
+				}
+			}
+			if (isFastPath) continue;
+
 			conflictBatch.addTransaction(req.transactions[t], newOldestVersion);
 			self->resolvedReadConflictRanges += req.transactions[t].read_conflict_ranges.size();
 			self->resolvedWriteConflictRanges += req.transactions[t].write_conflict_ranges.size();
@@ -369,6 +391,12 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 
 		reply.debugID = req.debugID;
 		reply.committed.resize(reply.arena, req.transactions.size());
+
+		// Mark fast-path transactions as committed
+		for (int c = 0; c < fastPathList.size(); c++)
+			reply.committed[fastPathList[c]] = ConflictBatch::TransactionCommitted;
+
+		// Mark normal path committed transactions
 		for (int c = 0; c < commitList.size(); c++)
 			reply.committed[commitList[c]] = ConflictBatch::TransactionCommitted;
 
@@ -379,7 +407,8 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 
 		self->transactionsAccepted += commitList.size();
 		self->transactionsTooOld += tooOldList.size();
-		self->transactionsConflicted += req.transactions.size() - commitList.size() - tooOldList.size();
+		self->transactionsConflicted += req.transactions.size() - commitList.size() - tooOldList.size() - fastPathList.size();
+		self->transactionsFastPathAccepted += fastPathList.size();
 
 		ASSERT(req.prevVersion >= 0 ||
 		       req.txnStateTransactions.size() == 0); // The master's request should not have any state transactions

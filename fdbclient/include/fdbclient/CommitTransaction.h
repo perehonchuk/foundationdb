@@ -617,7 +617,7 @@ struct CommitTransactionRef {
 	  : read_conflict_ranges(a, from.read_conflict_ranges), write_conflict_ranges(a, from.write_conflict_ranges),
 	    mutations(a, from.mutations), read_snapshot(from.read_snapshot),
 	    report_conflicting_keys(from.report_conflicting_keys), lock_aware(from.lock_aware),
-	    spanContext(from.spanContext) {}
+	    fast_path_eligible(from.fast_path_eligible), spanContext(from.spanContext) {}
 
 	VectorRef<KeyRangeRef> read_conflict_ranges;
 	VectorRef<KeyRangeRef> write_conflict_ranges;
@@ -630,6 +630,7 @@ struct CommitTransactionRef {
 	Version read_snapshot = 0;
 	bool report_conflicting_keys = false;
 	bool lock_aware = false; // set when metadata mutations are present
+	bool fast_path_eligible = false; // set when transaction qualifies for fast-path conflict resolution
 	Optional<SpanContext> spanContext;
 
 	// set by Commit Proxy
@@ -647,13 +648,14 @@ struct CommitTransactionRef {
 			           read_snapshot,
 			           report_conflicting_keys,
 			           lock_aware,
+			           fast_path_eligible,
 			           spanContext,
 			           tenantIds);
 		} else {
 			serializer(
 			    ar, read_conflict_ranges, write_conflict_ranges, mutations, read_snapshot, report_conflicting_keys);
 			ASSERT_WE_THINK(ar.protocolVersion().hasResolverPrivateMutations());
-			serializer(ar, lock_aware);
+			serializer(ar, lock_aware, fast_path_eligible);
 			if (!ar.protocolVersion().hasOTELSpanContext()) {
 				Optional<UID> context;
 				serializer(ar, context);
