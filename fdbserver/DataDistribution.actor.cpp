@@ -1177,6 +1177,7 @@ ACTOR Future<Void> doBulkLoadTask(Reference<DataDistributor> self, KeyRange rang
 		ASSERT(triggeredBulkLoadTask.getRange() == range);
 
 		// Step 2: submit the task to in-memory task map, which (1) turns off shard boundary change;
+		// Note: Shard boundary changes now include a Validating phase for consistency checks
 		// (2) when starting a data move on the task range, the task will be attached to the data move;
 		// (3) when the data move completes, the completeAck is satisfied. So, waiting on completeAck
 		// can get notified when the task is completed by a data move

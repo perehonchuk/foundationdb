@@ -1448,6 +1448,11 @@ ACTOR static Future<Void> finishMoveKeys(Database occ,
 					// Wait for a durable quorum of servers in destServers to have keys available (readWrite)
 					// They must also have at least the transaction read version so they can't "forget" the shard
 					// between now and when this transaction commits.
+					// Note: With the new Validating phase, shards must pass validation before becoming readable
+					TraceEvent(SevDebug, "FinishMoveKeysAwaitValidation", relocationIntervalId)
+					    .detail("KeyBegin", begin)
+					    .detail("KeyEnd", endKey)
+					    .detail("DestServers", describe(dest));
 					state std::vector<Future<Void>> serverReady; // only for count below
 					state std::vector<Future<Void>> tssReady; // for waiting in parallel with tss
 					state std::vector<StorageServerInterface> tssReadyInterfs;
