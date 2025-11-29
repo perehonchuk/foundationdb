@@ -320,6 +320,11 @@ public:
 	// Set to false only for the rangeLocking simulation test
 	bool TRANSACTION_LOCK_REJECTION_RETRIABLE;
 
+	// Conditional retry for commit_unknown_result errors
+	// When enabled, commit_unknown_result becomes non-retryable after MAX_COMMIT_UNKNOWN_RETRIES attempts
+	bool COMMIT_UNKNOWN_RESULT_CONDITIONAL_RETRY;
+	int MAX_COMMIT_UNKNOWN_RETRIES;
+
 	// busyness reporting
 	double BUSYNESS_SPIKE_START_THRESHOLD;
 	double BUSYNESS_SPIKE_SATURATED_THRESHOLD;

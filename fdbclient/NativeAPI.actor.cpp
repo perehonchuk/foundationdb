@@ -1656,6 +1656,7 @@ Reference<TransactionState> TransactionState::cloneAndReset(Reference<Transactio
 	newState->readVersionFuture = Future<Version>();
 	newState->metadataVersion = Promise<Optional<Key>>();
 	newState->numErrors = numErrors;
+	newState->numCommitUnknownResultRetries = numCommitUnknownResultRetries;
 	newState->startTime = startTime;
 	newState->committedVersion = committedVersion;
 	newState->conflictingKeys = conflictingKeys;
@@ -6028,6 +6029,20 @@ Future<Void> Transaction::onError(Error const& e) {
 	if (e.code() == error_code_success) {
 		return client_invalid_operation();
 	}
+
+	// Conditional retry logic for commit_unknown_result
+	if (e.code() == error_code_commit_unknown_result &&
+	    CLIENT_KNOBS->COMMIT_UNKNOWN_RESULT_CONDITIONAL_RETRY) {
+		++trState->numCommitUnknownResultRetries;
+		if (trState->numCommitUnknownResultRetries > CLIENT_KNOBS->MAX_COMMIT_UNKNOWN_RETRIES) {
+			// Exceeded max retries, make it non-retryable
+			TraceEvent(SevWarn, "CommitUnknownResultMaxRetriesExceeded")
+			    .detail("NumRetries", trState->numCommitUnknownResultRetries)
+			    .detail("MaxAllowed", CLIENT_KNOBS->MAX_COMMIT_UNKNOWN_RETRIES);
+			return e;
+		}
+	}
+
 	if (e.code() == error_code_not_committed || e.code() == error_code_commit_unknown_result ||
 	    e.code() == error_code_database_locked || e.code() == error_code_commit_proxy_memory_limit_exceeded ||
 	    e.code() == error_code_grv_proxy_memory_limit_exceeded || e.code() == error_code_process_behind ||

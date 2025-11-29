@@ -303,6 +303,7 @@ struct TransactionState : ReferenceCounted<TransactionState> {
 	bool skipApplyTenantPrefix = false;
 
 	int numErrors = 0;
+	int numCommitUnknownResultRetries = 0;  // Track commit_unknown_result retry attempts
 	double startTime = 0;
 	Promise<Standalone<StringRef>> versionstampPromise;
 
