@@ -274,6 +274,9 @@ public:
 	                                       // for usable region per second. Set 0 to disable shard usable region check
 	double SHARD_MAX_READ_DENSITY_RATIO;
 	int64_t SHARD_READ_HOT_BANDWIDTH_MIN_PER_KSECONDS;
+	bool ENABLE_READ_HOT_SHARD_REBALANCE;
+	double READ_HOT_REBALANCE_INTERVAL;
+	int READ_HOT_MAX_REBALANCE_SHARDS;
 	double SHARD_MAX_BYTES_READ_PER_KSEC_JITTER;
 	double STORAGE_METRIC_TIMEOUT;
 	double METRIC_DELAY;

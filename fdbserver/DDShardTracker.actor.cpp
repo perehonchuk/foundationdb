@@ -39,6 +39,20 @@ enum BandwidthStatus { BandwidthStatusLow, BandwidthStatusNormal, BandwidthStatu
 
 enum ReadBandwidthStatus { ReadBandwidthStatusNormal, ReadBandwidthStatusHigh };
 
+namespace {
+std::string encodeRangeForCache(const KeyRangeRef& range) {
+	std::string token;
+	const uint32_t beginLen = range.begin.size();
+	const uint32_t endLen = range.end.size();
+	token.reserve(sizeof(uint32_t) * 2 + beginLen + endLen);
+	token.append(reinterpret_cast<const char*>(&beginLen), sizeof(uint32_t));
+	token.append(reinterpret_cast<const char*>(&endLen), sizeof(uint32_t));
+	token.append(reinterpret_cast<const char*>(range.begin.begin()), beginLen);
+	token.append(reinterpret_cast<const char*>(range.end.begin()), endLen);
+	return token;
+}
+} // namespace
+
 BandwidthStatus getBandwidthStatus(StorageMetrics const& metrics) {
 	if (metrics.bytesWrittenPerKSecond > SERVER_KNOBS->SHARD_MAX_BYTES_PER_KSEC)
 		return BandwidthStatusHigh;
@@ -356,6 +370,20 @@ ACTOR Future<Void> readHotDetector(DataDistributionTracker* self) {
 			state KeyRange keys = waitNext(self->readHotShard.getFuture());
 			Standalone<VectorRef<ReadHotRangeWithMetrics>> readHotRanges = wait(self->db->getReadHotRanges(keys));
 
+			const double nowTime = now();
+			if (SERVER_KNOBS->ENABLE_READ_HOT_SHARD_REBALANCE) {
+				const double expiration = nowTime - SERVER_KNOBS->READ_HOT_REBALANCE_INTERVAL;
+				for (auto it = self->recentReadHotShardRelocations.begin();
+				     it != self->recentReadHotShardRelocations.end();) {
+					if (it->second < expiration) {
+						it = self->recentReadHotShardRelocations.erase(it);
+					} else {
+						++it;
+					}
+				}
+			}
+
+			int relocationsIssued = 0;
 			for (const auto& keyRange : readHotRanges) {
 				TraceEvent("ReadHotRangeLog")
 				    .detail("ReadDensity", keyRange.density)
@@ -363,6 +391,47 @@ ACTOR Future<Void> readHotDetector(DataDistributionTracker* self) {
 				    .detail("ReadDensityThreshold", SERVER_KNOBS->SHARD_MAX_READ_DENSITY_RATIO)
 				    .detail("KeyRangeBegin", keyRange.keys.begin)
 				    .detail("KeyRangeEnd", keyRange.keys.end);
+
+				if (!SERVER_KNOBS->ENABLE_READ_HOT_SHARD_REBALANCE) {
+					continue;
+				}
+
+				if (relocationsIssued >= SERVER_KNOBS->READ_HOT_MAX_REBALANCE_SHARDS) {
+					break;
+				}
+
+				KeyRef cursor = keyRange.keys.begin;
+				while (cursor < keyRange.keys.end &&
+				       relocationsIssued < SERVER_KNOBS->READ_HOT_MAX_REBALANCE_SHARDS) {
+					auto shardIt = self->shards->rangeContaining(cursor);
+					KeyRangeRef shardRange(shardIt->range().begin, shardIt->range().end);
+					cursor = shardRange.end;
+
+					std::string cacheKey = encodeRangeForCache(shardRange);
+					auto cached = self->recentReadHotShardRelocations.find(cacheKey);
+					if (cached != self->recentReadHotShardRelocations.end() &&
+					    nowTime - cached->second < SERVER_KNOBS->READ_HOT_REBALANCE_INTERVAL) {
+						continue;
+					}
+
+					self->recentReadHotShardRelocations[cacheKey] = nowTime;
+
+					RelocateShard rs(
+					    shardRange, DataMovementReason::REBALANCE_READ_OVERUTIL_TEAM, RelocateReason::REBALANCE_READ);
+					rs.setParentRange(keys);
+					self->output.send(rs);
+					relocationsIssued++;
+
+					TraceEvent("ReadHotShardRelocationQueued", self->distributorId)
+					    .detail("KeyRangeBegin", shardRange.begin)
+					    .detail("KeyRangeEnd", shardRange.end)
+					    .detail("Density", keyRange.density)
+					    .detail("ReadBandwidth", keyRange.readBandwidthSec);
+				}
+
+				if (relocationsIssued >= SERVER_KNOBS->READ_HOT_MAX_REBALANCE_SHARDS) {
+					break;
+				}
 			}
 		}
 	} catch (Error& e) {

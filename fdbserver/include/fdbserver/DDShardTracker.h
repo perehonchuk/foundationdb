@@ -20,6 +20,8 @@
 #ifndef FOUNDATIONDB_DDSHARDTRACKER_H
 #define FOUNDATIONDB_DDSHARDTRACKER_H
 #include "fdbserver/DataDistribution.actor.h"
+#include <string>
+#include <unordered_map>
 
 // send request/signal to DDTracker through interface
 // call synchronous method from components outside DDShardTracker
@@ -86,6 +88,7 @@ public:
 
 	// Read hot detection
 	PromiseStream<KeyRange> readHotShard;
+	std::unordered_map<std::string, double> recentReadHotShardRelocations;
 
 	// The reference to trackerCancelled must be extracted by actors,
 	// because by the time (trackerCancelled == true) this memory cannot
