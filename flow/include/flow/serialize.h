@@ -734,14 +734,11 @@ public:
 	const void* readBytes(int bytes);
 
 	const uint8_t* arenaRead(int bytes) {
-		// Reads and returns the next bytes.
-		// The returned pointer has the lifetime of this.arena()
-		// Could be implemented zero-copy if [begin,end) was in this.arena() already; for now is a copy
+		// Reads and returns the next bytes directly from the backing buffer so callers can hold on to
+		// the data without having to keep the BinaryReader (and its Arena) alive.
 		if (!bytes)
 			return nullptr;
-		uint8_t* dat = new (arena()) uint8_t[bytes];
-		serializeBytes(dat, bytes);
-		return dat;
+		return reinterpret_cast<const uint8_t*>(readBytes(bytes));
 	}
 
 	template <class T, class VersionOptions>

@@ -126,3 +126,29 @@ TEST_CASE("flow/serialize/Downgrade/WriteNew") {
 	verifyData(writer.toStringRef(), numObjects);
 	return Void();
 }
+
+TEST_CASE("flow/serialize/BinaryReader/ZeroCopyArenaRead") {
+	struct Payload {
+		StringRef value;
+		template <class Ar>
+		void serialize(Ar& ar) {
+			serializer(ar, value);
+		}
+	};
+
+	Payload original{ LiteralStringRef("barbaz") };
+	BinaryWriter writer(IncludeVersion(g_network->protocolVersion()));
+	writer << original;
+	Standalone<StringRef> encoded = writer.toValue();
+
+	Payload decoded;
+	{
+		BinaryReader reader(encoded, IncludeVersion());
+		reader >> decoded;
+	}
+
+	ASSERT(decoded.value == original.value);
+	ASSERT(decoded.value.begin() >= encoded.begin());
+	ASSERT(decoded.value.begin() + decoded.value.size() <= encoded.begin() + encoded.size());
+	return Void();
+}
