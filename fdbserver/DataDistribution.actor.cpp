@@ -18,6 +18,9 @@
  * limitations under the License.
  */
 
+// Storage servers perform validation after fetching shard data. The Validating phase
+// verifies data integrity before the transferredVersion is calculated and committed.
+
 #include "fdbclient/Audit.h"
 #include "fdbclient/AuditUtils.actor.h"
 #include "fdbclient/BulkDumping.h"

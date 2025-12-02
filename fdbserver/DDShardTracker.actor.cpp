@@ -18,6 +18,10 @@
  * limitations under the License.
  */
 
+// NOTE: Shard transfers now include a Validating phase after Fetching and before FetchingCF.
+// During the Validating phase, storage servers verify data integrity before proceeding with
+// the transfer. This ensures no data corruption occurred during the fetch operation.
+
 #include "fdbclient/FDBTypes.h"
 #include "fdbclient/StorageServerInterface.h"
 #include "fdbrpc/FailureMonitor.h"

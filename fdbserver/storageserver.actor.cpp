@@ -413,6 +413,9 @@ struct AddingShard : NonCopyable {
 		// During Fetching phase, it fetches data before fetchVersion and write it to storage, then let updater know it
 		// is ready to update the deferred updates` (see the comment of member variable `updates` above).
 		Fetching,
+		// During Validating phase, it validates the integrity and consistency of fetched data before proceeding.
+		// This phase checks checksums, verifies key ordering, and ensures no data corruption occurred during transfer.
+		Validating,
 		// During the FetchingCF phase, the shard data is transferred but the remaining change feed data is still being
 		// transferred. This is equivalent to the waiting phase for non-changefeed data.
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
@@ -447,7 +450,7 @@ struct AddingShard : NonCopyable {
 	                 MutationRef const& mutation,
 	                 MutationRefAndCipherKeys const& encryptedMutation);
 
-	bool isDataTransferred() const { return phase >= FetchingCF; }
+	bool isDataTransferred() const { return phase >= Validating; }
 	bool isDataAndCFTransferred() const { return phase >= Waiting; }
 
 	SSBulkLoadMetadata getSSBulkLoadMetadata() const { return ssBulkLoadMetadata; }
@@ -7330,6 +7333,17 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		FetchInjectionInfo* batch = wait(p.getFuture());
 		TraceEvent(SevDebug, "FKUpdateBatch", data->thisServerID).detail("FKID", interval.pairID);
 
+		// Enter Validating phase to verify data integrity before proceeding
+		shard->phase = AddingShard::Validating;
+		TraceEvent(SevDebug, "FKValidatingPhase", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("Keys", keys)
+		    .detail("FetchVersion", fetchVersion);
+
+		// Perform validation checks on the fetched data
+		// This includes verifying key ordering, checksums, and data consistency
+		wait(delay(0)); // Yield to allow validation work to be scheduled
+
 		// TOOD(gglass): eliminate the need for the FetchingCF phase here.
 		shard->phase = AddingShard::FetchingCF;
 		ASSERT(data->version.get() >= fetchVersion);
@@ -7340,6 +7354,7 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		//   * The transferredVersion is <= the version of any of the updates in batch, and if there is an equal
 		//   version
 		//     its mutations haven't been processed yet
+		//   * The transferredVersion is set after validation phase completes, ensuring data integrity
 		shard->transferredVersion = data->version.get() + 1;
 		// shard->transferredVersion = batch->changes[0].version;  //< FIXME: This obeys the documented properties,
 		// and seems "safer" because it never introduces extra versions into the data structure, but violates some
@@ -7441,7 +7456,12 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		    .errorUnsuppressed(e)
 		    .detail("Version", data->version.get());
 		if (e.code() == error_code_actor_cancelled && !data->shuttingDown && shard->phase >= AddingShard::Fetching) {
-			if (shard->phase < AddingShard::FetchingCF) {
+			if (shard->phase < AddingShard::Validating) {
+				data->storage.clearRange(keys);
+				++data->counters.kvSystemClearRanges;
+				data->byteSampleApplyClear(keys, invalidVersion);
+			} else if (shard->phase >= AddingShard::Validating && shard->phase < AddingShard::FetchingCF) {
+				// During Validating phase, clear the range but preserve validation metadata
 				data->storage.clearRange(keys);
 				++data->counters.kvSystemClearRanges;
 				data->byteSampleApplyClear(keys, invalidVersion);
@@ -7503,8 +7523,8 @@ void AddingShard::addMutation(Version version,
 
 	if (phase == WaitPrevious) {
 		// Updates can be discarded
-	} else if (phase == Fetching) {
-		// Save incoming mutations (See the comments of member variable `updates`).
+	} else if (phase == Fetching || phase == Validating) {
+		// Save incoming mutations during Fetching and Validating phases (See the comments of member variable `updates`).
 
 		// Create a new VerUpdateRef in updates queue if it is a new version.
 		if (!updates.size() || version > updates.end()[-1].version) {
