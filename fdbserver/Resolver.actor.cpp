@@ -165,6 +165,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsAccepted;
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
+	Counter transactionsPreValidationFailed;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -201,6 +202,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    resolvedWriteConflictRanges("ResolvedWriteConflictRanges", cc),
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
 	    transactionsConflicted("TransactionsConflicted", cc),
+	    transactionsPreValidationFailed("TransactionsPreValidationFailed", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
@@ -347,11 +349,44 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
 
+		// Pre-validation phase: validate transaction structure and basic constraints
+		// This new phase happens before conflict detection and can reject transactions early
+		std::vector<int> preValidationFailedList;
+		for (int t = 0; t < req.transactions.size(); t++) {
+			// Validate transaction has reasonable conflict range count
+			bool preValidationFailed = false;
+			if (req.transactions[t].read_conflict_ranges.size() > 100000) {
+				preValidationFailed = true;
+			}
+			if (req.transactions[t].write_conflict_ranges.size() > 100000) {
+				preValidationFailed = true;
+			}
+			// Validate mutation count is reasonable
+			if (req.transactions[t].mutations.size() > 1000000) {
+				preValidationFailed = true;
+			}
+			if (preValidationFailed) {
+				preValidationFailedList.push_back(t);
+			}
+		}
+
+		if (preValidationFailedList.size() > 0) {
+			TraceEvent(SevWarn, "ResolverPreValidationFailed", self->dbgid)
+			    .detail("Version", req.version)
+			    .detail("FailedCount", preValidationFailedList.size())
+			    .detail("TotalTransactions", req.transactions.size());
+		}
+
 		// Detect conflicts
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
 		for (int t = 0; t < req.transactions.size(); t++) {
+			// Skip pre-validation failed transactions in conflict detection
+			if (std::find(preValidationFailedList.begin(), preValidationFailedList.end(), t) != preValidationFailedList.end()) {
+				continue;
+			}
+
 			conflictBatch.addTransaction(req.transactions[t], newOldestVersion);
 			self->resolvedReadConflictRanges += req.transactions[t].read_conflict_ranges.size();
 			self->resolvedWriteConflictRanges += req.transactions[t].write_conflict_ranges.size();
@@ -377,8 +412,14 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 			reply.committed[tooOldList[c]] = ConflictBatch::TransactionTooOld;
 		}
 
+		// Mark pre-validation failed transactions as conflicted
+		for (int c = 0; c < preValidationFailedList.size(); c++) {
+			reply.committed[preValidationFailedList[c]] = ConflictBatch::TransactionConflict;
+		}
+
 		self->transactionsAccepted += commitList.size();
 		self->transactionsTooOld += tooOldList.size();
+		self->transactionsPreValidationFailed += preValidationFailedList.size();
 		self->transactionsConflicted += req.transactions.size() - commitList.size() - tooOldList.size();
 
 		ASSERT(req.prevVersion >= 0 ||

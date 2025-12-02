@@ -4794,6 +4794,9 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 		TraceEvent(interval.begin()).detail("Parent", debugID.get());
 	}
 
+	// Note: Commit requests will undergo pre-validation at the resolver before conflict detection.
+	// Transactions with excessive conflict ranges or mutations may be rejected during pre-validation.
+
 	CODE_PROBE(trState->hasTenant(), "NativeAPI commit has tenant");
 
 	// If the read version hasn't already been fetched, then we had no reads and don't need (expensive) full causal

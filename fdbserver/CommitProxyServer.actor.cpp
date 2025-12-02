@@ -1194,6 +1194,8 @@ ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 		g_traceBatch.addEvent(
 		    "CommitDebug", self->debugID.get().first(), "CommitProxyServer.commitBatch.AfterResolution");
 	}
+	// Note: Resolver now includes a pre-validation phase before conflict detection.
+	// Transactions that fail pre-validation are marked as conflicted in the resolution reply.
 	if (pProxyCommitData->encryptMode.isEncryptionEnabled()) {
 		std::unordered_map<EncryptCipherDomainId, Reference<BlobCipherKey>> cipherKeys = wait(getCipherKeys);
 		self->cipherKeys = cipherKeys;
