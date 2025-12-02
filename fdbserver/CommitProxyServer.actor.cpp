@@ -404,6 +404,7 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 		state Future<Void> timeout;
 		state std::vector<CommitTransactionRequest> batch;
 		state int batchBytes = 0;
+		state int highestPriority = 0;
 		// TODO: Enable this assertion (currently failing with gcc)
 		// static_assert(std::is_nothrow_move_constructible_v<CommitTransactionRequest>);
 
@@ -468,7 +469,8 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						}
 					}
 
-					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
+					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch() ||
+					     (req.priorityBatchFlush() && batch.size())) &&
 					    batch.size()) {
 						commitData->triggerCommit.set(false);
 						out.send({ std::move(batch), batchBytes });
@@ -481,6 +483,9 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 					batch.push_back(req);
 					batchBytes += bytes;
 					commitData->commitBatchesMemBytesCount += bytes;
+					if (req.priority > highestPriority) {
+						highestPriority = req.priority;
+					}
 				}
 				when(wait(timeout)) {}
 				when(wait(commitData->triggerCommit.onChange())) {
@@ -495,6 +500,11 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
+		if (highestPriority > 0) {
+			std::stable_sort(batch.begin(), batch.end(), [](const CommitTransactionRequest& a, const CommitTransactionRequest& b) {
+				return a.priority > b.priority;
+			});
+		}
 		out.send({ std::move(batch), batchBytes });
 		lastBatch = now();
 	}
@@ -667,6 +677,7 @@ struct CommitBatchContext {
 	LogPushData toCommit;
 
 	int batchOperations = 0;
+	int highestBatchPriority = 0;
 
 	Span span;
 
@@ -927,6 +938,9 @@ void CommitBatchContext::evaluateBatchSize() {
 		const auto& mutations = tr.transaction.mutations;
 		batchOperations += mutations.size();
 		batchBytes += mutations.expectedSize();
+		if (tr.priority > highestBatchPriority) {
+			highestBatchPriority = tr.priority;
+		}
 	}
 }
 
