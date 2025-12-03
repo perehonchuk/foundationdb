@@ -2686,7 +2686,8 @@ ACTOR Future<bool> getSkipRebalanceValue(Reference<IDDTxnProcessor> txnProcessor
 			skipCurrentLoop = (ddIgnore & DDIgnore::REBALANCE_DISK) > 0;
 		}
 	} else {
-		skipCurrentLoop = true;
+		// Default to enabled for both disk and read rebalancing
+		skipCurrentLoop = false;
 	}
 
 	return skipCurrentLoop;
@@ -2826,6 +2827,9 @@ struct DDQueueImpl {
 			ddQueueFutures.push_back(
 			    BgDDLoadRebalance(self.getPtr(), i, DataMovementReason::REBALANCE_UNDERUTILIZED_TEAM));
 			if (SERVER_KNOBS->READ_SAMPLING_ENABLED) {
+				TraceEvent("DDReadBalancingEnabled", self->distributorId)
+				    .detail("TeamCollectionIndex", i)
+				    .detail("Feature", "ReadBasedLoadBalancing");
 				ddQueueFutures.push_back(
 				    BgDDLoadRebalance(self.getPtr(), i, DataMovementReason::REBALANCE_READ_OVERUTIL_TEAM));
 				ddQueueFutures.push_back(

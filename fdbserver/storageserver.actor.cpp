@@ -12747,6 +12747,12 @@ ACTOR Future<Void> storageServer(IKeyValueStore* persistentData,
 
 		self.storage.makeNewStorageServerDurable(self.shardAware);
 		wait(self.storage.commit());
+
+		if (SERVER_KNOBS->READ_SAMPLING_ENABLED) {
+			TraceEvent("StorageServerReadSamplingEnabled", ssi.id())
+			    .detail("Feature", "ReadBasedLoadBalancing")
+			    .detail("Enabled", true);
+		}
 		TraceEvent("StorageServerInitProgress", ssi.id())
 		    .detail("EngineType", self.storage.getKeyValueStoreType().toString())
 		    .detail("Step", "10.NewStorageServerDurable");

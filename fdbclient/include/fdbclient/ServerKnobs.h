@@ -1092,8 +1092,8 @@ public:
 	int64_t READ_HOT_SUB_RANGE_CHUNK_SIZE;
 	int64_t EMPTY_READ_PENALTY;
 	int DD_SHARD_COMPARE_LIMIT; // when read-aware DD is enabled, at most how many shards are compared together
-	bool READ_SAMPLING_ENABLED;
-	bool DD_PREFER_LOW_READ_UTIL_TEAM;
+	bool READ_SAMPLING_ENABLED; // enables read sampling and read-traffic-based load balancing
+	bool DD_PREFER_LOW_READ_UTIL_TEAM; // prefer teams with lower read utilization for shard placement
 	// Rolling window duration over which the average bytes moved by DD is calculated for the 'MovingData' trace event.
 	double DD_TRACE_MOVE_BYTES_AVERAGE_INTERVAL;
 	int64_t MOVING_WINDOW_SAMPLE_SIZE;
