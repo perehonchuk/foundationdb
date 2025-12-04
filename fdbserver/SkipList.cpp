@@ -816,6 +816,7 @@ struct TransactionInfo {
 	VectorRef<std::pair<int, int>> writeRanges;
 	bool tooOld;
 	bool reportConflictingKeys;
+	uint8_t priority; // Transaction priority for conflict resolution
 };
 
 bool ConflictBatch::ignoreTooOld() const {
@@ -836,6 +837,7 @@ void ConflictBatch::addTransaction(const CommitTransactionRef& tr, Version newOl
 	Arena& arena = transactionInfo.arena();
 	TransactionInfo* info = new (arena) TransactionInfo;
 	info->reportConflictingKeys = tr.report_conflicting_keys;
+	info->priority = tr.transaction_priority;
 	bool tooOld = tr.read_snapshot < newOldestVersion && tr.read_conflict_ranges.size();
 	if (tooOld && ignoreTooOld()) {
 		bugs->hit();
@@ -950,24 +952,57 @@ void ConflictBatch::checkIntraBatchConflicts() {
 		*points[p].pIndex = index++;
 
 	MiniConflictSet mcs(index);
+	std::vector<uint8_t> writePriority(index, 0); // Track priority of transactions that wrote to each index
+	std::vector<int> writeTransaction(index, -1); // Track which transaction wrote to each index
+
 	for (int t = 0; t < transactionInfo.size(); t++) {
 		const TransactionInfo& tr = *transactionInfo[t];
 		if (transactionConflictStatus[t])
 			continue;
 		bool conflict = tr.tooOld;
+		int conflictingTxn = -1; // Track which transaction we conflict with
+
 		for (int i = 0; i < tr.readRanges.size(); i++) {
 			if (mcs.any(tr.readRanges[i].first, tr.readRanges[i].second)) {
-				if (tr.reportConflictingKeys) {
-					(*conflictingKeyRangeMap)[t].push_back(*resolveBatchReplyArena, i);
+				// Find the priority of the conflicting write
+				uint8_t maxConflictPriority = 0;
+				int maxPriorityTxn = -1;
+				for (int idx = tr.readRanges[i].first; idx < tr.readRanges[i].second; idx++) {
+					if (writeTransaction[idx] >= 0 && writePriority[idx] > maxConflictPriority) {
+						maxConflictPriority = writePriority[idx];
+						maxPriorityTxn = writeTransaction[idx];
+					}
 				}
-				conflict = true;
-				break;
+
+				// Priority-based conflict resolution: higher priority wins
+				if (tr.priority > maxConflictPriority) {
+					// Current transaction has higher priority, mark conflicting transaction as failed
+					if (maxPriorityTxn >= 0) {
+						transactionConflictStatus[maxPriorityTxn] = true;
+						conflictingTxn = maxPriorityTxn;
+					}
+				} else {
+					// Current transaction has lower or equal priority, it loses
+					if (tr.reportConflictingKeys) {
+						(*conflictingKeyRangeMap)[t].push_back(*resolveBatchReplyArena, i);
+					}
+					conflict = true;
+					break;
+				}
 			}
 		}
+
 		transactionConflictStatus[t] = conflict;
-		if (!conflict)
-			for (int i = 0; i < tr.writeRanges.size(); i++)
+		if (!conflict) {
+			for (int i = 0; i < tr.writeRanges.size(); i++) {
 				mcs.set(tr.writeRanges[i].first, tr.writeRanges[i].second);
+				// Track priority and transaction ID for priority-based resolution
+				for (int idx = tr.writeRanges[i].first; idx < tr.writeRanges[i].second; idx++) {
+					writePriority[idx] = tr.priority;
+					writeTransaction[idx] = t;
+				}
+			}
+		}
 	}
 }
 
