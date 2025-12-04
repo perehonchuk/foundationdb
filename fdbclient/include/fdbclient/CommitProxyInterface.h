@@ -224,8 +224,12 @@ struct CommitTransactionRequest : TimedRequest {
 
 	TenantInfo tenantInfo;
 
+	// Priority level for commit batching (higher values = higher priority)
+	// 0 = normal priority, 1 = high priority
+	uint8_t priority;
+
 	CommitTransactionRequest() : CommitTransactionRequest(SpanContext()) {}
-	CommitTransactionRequest(SpanContext const& context) : spanContext(context), flags(0) {}
+	CommitTransactionRequest(SpanContext const& context) : spanContext(context), flags(0), priority(0) {}
 
 	bool verify() const { return tenantInfo.isAuthorized(); }
 
@@ -241,6 +245,7 @@ struct CommitTransactionRequest : TimedRequest {
 		           spanContext,
 		           tenantInfo,
 		           idempotencyId,
+		           priority,
 		           arena);
 	}
 };
