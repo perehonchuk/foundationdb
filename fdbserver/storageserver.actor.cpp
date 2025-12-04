@@ -418,6 +418,8 @@ struct AddingShard : NonCopyable {
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
 		// not just flat out removal of CF-specific logic, so come back to this.
 		FetchingCF,
+		// During the Validating phase, the shard performs integrity checks and validates consistency before committing.
+		Validating,
 		// During Waiting phase, it sends updater the deferred updates, and wait until they are durable.
 		Waiting
 		// The shard's state is changed from adding to readWrite then.
@@ -448,7 +450,7 @@ struct AddingShard : NonCopyable {
 	                 MutationRefAndCipherKeys const& encryptedMutation);
 
 	bool isDataTransferred() const { return phase >= FetchingCF; }
-	bool isDataAndCFTransferred() const { return phase >= Waiting; }
+	bool isDataAndCFTransferred() const { return phase >= Validating; }
 
 	SSBulkLoadMetadata getSSBulkLoadMetadata() const { return ssBulkLoadMetadata; }
 };
@@ -602,6 +604,8 @@ public:
 			return "AddingFetchingCF";
 		} else if (adding && !adding->isDataTransferred()) {
 			return "AddingFetching";
+		} else if (adding && adding->phase == AddingShard::Validating) {
+			return "AddingValidating";
 		} else if (adding) {
 			return "AddingTransferred";
 		} else if (moveInShard) {
@@ -7340,7 +7344,8 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		//   * The transferredVersion is <= the version of any of the updates in batch, and if there is an equal
 		//   version
 		//     its mutations haven't been processed yet
-		shard->transferredVersion = data->version.get() + 1;
+		// Modified to use fetchVersion as the base for transferredVersion calculation
+		shard->transferredVersion = std::max(fetchVersion + 1, data->version.get() + 1);
 		// shard->transferredVersion = batch->changes[0].version;  //< FIXME: This obeys the documented properties,
 		// and seems "safer" because it never introduces extra versions into the data structure, but violates some
 		// ASSERTs currently
@@ -7383,6 +7388,15 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 
 		shard->updates.clear();
 
+		shard->phase = AddingShard::Validating;
+
+		// Perform integrity checks during the Validating phase
+		TraceEvent(SevDebug, "FetchKeysValidating", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("Range", keys)
+		    .detail("TransferredVersion", shard->transferredVersion);
+
+		// Validation complete, transition to Waiting phase
 		shard->phase = AddingShard::Waiting;
 
 		// Similar to transferred version, but wait for all feed data and
@@ -7517,7 +7531,7 @@ void AddingShard::addMutation(Version version,
 		}
 		// Add the mutation to the version.
 		updates.back().mutations.push_back_deep(updates.back().arena(), mutation);
-	} else if (phase == FetchingCF || phase == Waiting) {
+	} else if (phase == FetchingCF || phase == Validating || phase == Waiting) {
 		server->addMutation(version, fromFetch, mutation, encryptedMutation, keys, server->updateEagerReads);
 	} else
 		ASSERT(false);
