@@ -1164,7 +1164,13 @@ public:
 	static void addConflictRangeAndMustUnmodified(ReadYourWritesTransaction* ryw,
 	                                              GetMappedRangeReq<backwards> read,
 	                                              WriteMap::iterator& it,
-	                                              MappedRangeResult result) {
+	                                              MappedRangeResult result,
+	                                              Snapshot snapshot) {
+		// When using snapshot isolation, do not add conflict ranges
+		if (snapshot) {
+			return;
+		}
+
 		// Primary getRange.
 		addConflictRange<true, MappedRangeResult>(
 		    ryw, GetRangeReq<backwards>(read.begin, read.end, read.limits), it, result);
@@ -1191,18 +1197,18 @@ public:
 		}
 	}
 
-	// For Snapshot::True and NOT readYourWritesDisabled.
+	// For both Snapshot::True and Snapshot::False with RYW enabled.
 	ACTOR template <bool backwards>
 	static Future<MappedRangeResult> readWithConflictRangeRYW(ReadYourWritesTransaction* ryw,
 	                                                          GetMappedRangeReq<backwards> req,
 	                                                          Snapshot snapshot) {
 		choose {
-			when(MappedRangeResult result = wait(readThrough(ryw, req, Snapshot::True))) {
-				// Insert read conflicts (so that it supported Snapshot::True) and check it is not modified (so it masks
-				// sure not break RYW semantic while not implementing RYW) for both the primary getRange and all
+			when(MappedRangeResult result = wait(readThrough(ryw, req, snapshot))) {
+				// Insert read conflicts (if not snapshot) and check it is not modified (so it makes
+				// sure not to break RYW semantic while not implementing RYW) for both the primary getRange and all
 				// underlying getValue/getRanges.
 				WriteMap::iterator writes(&ryw->writes);
-				addConflictRangeAndMustUnmodified<backwards>(ryw, req, writes, result);
+				addConflictRangeAndMustUnmodified<backwards>(ryw, req, writes, result, snapshot);
 				return result;
 			}
 			when(wait(ryw->resetPromise.getFuture())) {
@@ -1216,13 +1222,10 @@ public:
 	    ReadYourWritesTransaction* ryw,
 	    GetMappedRangeReq<backwards> const& req,
 	    Snapshot snapshot) {
-		// For now, getMappedRange requires serializable isolation. (Technically it is trivial to add snapshot
-		// isolation support. But it is not default and is rarely used. So we disallow it until we have thorough test
-		// coverage for it.)
-		if (snapshot) {
-			CODE_PROBE(true, "getMappedRange not supported for snapshot.", probe::decoration::rare);
-			throw unsupported_operation();
-		}
+		// getMappedRange now supports both serializable and snapshot isolation.
+		// When using snapshot isolation, getMappedRange does not add conflict ranges,
+		// similar to how regular snapshot reads behave.
+
 		// For now, getMappedRange requires read-your-writes being NOT disabled. But the support of RYW is limited
 		// to throwing get_mapped_range_reads_your_writes error when getMappedRange actually reads your own writes.
 		// Applications should fall back in their own ways. This is different from what is usually expected from RYW,
