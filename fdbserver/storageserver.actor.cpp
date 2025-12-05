@@ -833,14 +833,16 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	int priority; // Priority level for watch notification (0=low, 1=normal, 2=high)
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
 	                    Version version,
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
-	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	                    int64_t tenantId,
+	                    int priority = 1)
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId), priority(priority) {}
 };
 
 struct BusiestWriteTagContext {
@@ -1241,6 +1243,23 @@ public:
 	int64_t numWatches;
 	AsyncVar<bool> noRecentUpdates;
 	double lastUpdate;
+
+	// Priority-based watch notification queue
+	struct PendingWatchNotification {
+		Key key;
+		int priority;
+		double queueTime;
+
+		PendingWatchNotification(Key key, int priority, double queueTime)
+		  : key(key), priority(priority), queueTime(queueTime) {}
+
+		bool operator<(const PendingWatchNotification& other) const {
+			if (priority != other.priority)
+				return priority < other.priority; // Higher priority first (reversed for priority_queue)
+			return queueTime > other.queueTime; // Earlier time first
+		}
+	};
+	std::deque<PendingWatchNotification> priorityWatchQueue;
 
 	std::string folder;
 	std::string checkpointFolder;
@@ -6359,7 +6378,14 @@ void applyMutation(StorageServer* self,
 			++self->counters.pTreeClearSplits;
 		}
 		data.insert(m.param1, ValueOrClearToRef::value(m.param2));
-		self->watches.trigger(m.param1);
+		// Queue watch notification with priority
+		Reference<ServerWatchMetadata> watchMeta = self->getWatchMetadata(m.param1, 0);
+		if (watchMeta.isValid()) {
+			self->priorityWatchQueue.push_back(
+			    StorageServer::PendingWatchNotification(m.param1, watchMeta->priority, now()));
+		} else {
+			self->watches.trigger(m.param1);
+		}
 		++self->counters.pTreeSets;
 	} else if (m.type == MutationRef::ClearRange) {
 		data.erase(m.param1, m.param2);
@@ -11893,7 +11919,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11928,7 +11954,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 			metadata->watch_impl.cancel();
 
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11962,7 +11988,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 
 					if (reply.value == req.value) { // valSS == valreq
 						metadata = makeReference<ServerWatchMetadata>(
-						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
 						KeyRef key = self->setWatchMetadata(metadata);
 						metadata->watch_impl =
 						    forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
@@ -12139,6 +12165,34 @@ ACTOR Future<Void> reportStorageServerState(StorageServer* self) {
 	}
 }
 
+// Actor to process priority-based watch notifications
+ACTOR Future<Void> processPriorityWatchQueue(StorageServer* self) {
+	loop {
+		wait(delay(0.001)); // Process queue every 1ms
+
+		if (self->priorityWatchQueue.empty())
+			continue;
+
+		// Sort queue by priority (higher priority first)
+		std::sort(self->priorityWatchQueue.begin(),
+		          self->priorityWatchQueue.end(),
+		          [](const StorageServer::PendingWatchNotification& a,
+		             const StorageServer::PendingWatchNotification& b) {
+			          if (a.priority != b.priority)
+				          return a.priority > b.priority; // Higher priority first
+			          return a.queueTime < b.queueTime; // Earlier time first
+		          });
+
+		// Process watches in priority order
+		std::vector<StorageServer::PendingWatchNotification> toProcess;
+		toProcess.swap(self->priorityWatchQueue);
+
+		for (const auto& notification : toProcess) {
+			self->watches.trigger(notification.key);
+		}
+	}
+}
+
 ACTOR Future<Void> storageServerCore(StorageServer* self, StorageServerInterface ssi) {
 	state Future<Void> doUpdate = Void();
 	state bool updateReceived = false; // true iff the current update() actor assigned to doUpdate has already
@@ -12154,6 +12208,7 @@ ACTOR Future<Void> storageServerCore(StorageServer* self, StorageServerInterface
 	self->actors.add(metricsCore(self, ssi));
 	self->actors.add(logLongByteSampleRecovery(self->byteSampleRecovery));
 	self->actors.add(checkBehind(self));
+	self->actors.add(processPriorityWatchQueue(self)); // Priority-based watch processing
 	self->actors.add(serveGetValueRequests(self, ssi.getValue.getFuture()));
 	self->actors.add(serveGetKeyValuesRequests(self, ssi.getKeyValues.getFuture()));
 	self->actors.add(serveGetMappedKeyValuesRequests(self, ssi.getMappedKeyValues.getFuture()));
