@@ -403,7 +403,10 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 	loop {
 		state Future<Void> timeout;
 		state std::vector<CommitTransactionRequest> batch;
+		state std::vector<CommitTransactionRequest> readOnlyBatch;  // Separate batch for read-only transactions
 		state int batchBytes = 0;
+		state int readOnlyBatchBytes = 0;
+		state bool hasWriteTransactions = false;
 		// TODO: Enable this assertion (currently failing with gcc)
 		// static_assert(std::is_nothrow_move_constructible_v<CommitTransactionRequest>);
 
@@ -476,10 +479,20 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						timeout = delayJittered(commitData->commitBatchInterval, TaskPriority::ProxyCommitBatcher);
 						batch.clear();
 						batchBytes = 0;
+						hasWriteTransactions = false;
 					}
 
-					batch.push_back(req);
-					batchBytes += bytes;
+					// Segregate transactions: read-only transactions go to a separate batch
+					// that is processed after write transactions
+					bool isReadOnly = req.transaction.mutations.size() == 0;
+					if (isReadOnly) {
+						readOnlyBatch.push_back(req);
+						readOnlyBatchBytes += bytes;
+					} else {
+						batch.push_back(req);
+						batchBytes += bytes;
+						hasWriteTransactions = true;
+					}
 					commitData->commitBatchesMemBytesCount += bytes;
 				}
 				when(wait(timeout)) {}
@@ -495,8 +508,29 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
-		out.send({ std::move(batch), batchBytes });
-		lastBatch = now();
+
+		// Send write transactions first (if any), then read-only transactions
+		if (batch.size() > 0 && readOnlyBatch.size() > 0) {
+			++commitData->stats.commitBatchSegregated;
+			commitData->stats.commitBatchWriteCount += batch.size();
+			commitData->stats.commitBatchReadOnlyCount += readOnlyBatch.size();
+			TraceEvent("CommitBatchSegregation", commitData->dbgid)
+			    .detail("WriteTxns", batch.size())
+			    .detail("ReadOnlyTxns", readOnlyBatch.size())
+			    .detail("WriteBytes", batchBytes)
+			    .detail("ReadOnlyBytes", readOnlyBatchBytes);
+		}
+
+		if (batch.size() > 0) {
+			out.send({ std::move(batch), batchBytes });
+			lastBatch = now();
+		}
+		if (readOnlyBatch.size() > 0) {
+			out.send({ std::move(readOnlyBatch), readOnlyBatchBytes });
+			if (batch.size() == 0) {
+				lastBatch = now();
+			}
+		}
 	}
 }
 
