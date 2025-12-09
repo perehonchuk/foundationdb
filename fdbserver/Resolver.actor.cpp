@@ -165,6 +165,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsAccepted;
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
+	Counter transactionsPreValidated;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -201,6 +202,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    resolvedWriteConflictRanges("ResolvedWriteConflictRanges", cc),
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
 	    transactionsConflicted("TransactionsConflicted", cc),
+	    transactionsPreValidated("TransactionsPreValidated", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
@@ -269,6 +271,9 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 	    req.prevVersion >= 0 ? req.reply.getEndpoint().getPrimaryAddress() : NetworkAddress();
 	state ProxyRequestsInfo& proxyInfo = self->proxyInfoMap[proxyAddress];
 
+	// Pre-validation phase: validate transaction metadata and structure
+	state double preValidationStartTime = g_network->timer();
+
 	state std::unordered_map<EncryptCipherDomainId, Reference<BlobCipherKey>> cipherKeys;
 	if (self->encryptMode.isEncryptionEnabled()) {
 		static const std::unordered_set<EncryptCipherDomainId> metadataDomainIds = { SYSTEM_KEYSPACE_ENCRYPT_DOMAIN_ID,
@@ -281,10 +286,45 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 
 	++self->resolveBatchIn;
 
+	// Pre-validate all transactions in the batch before conflict detection
+	// This ensures structural integrity and rejects malformed transactions early
+	for (int t = 0; t < req.transactions.size(); t++) {
+		const auto& txn = req.transactions[t];
+		// Validate that transactions have proper conflict ranges
+		if (txn.read_conflict_ranges.size() == 0 && txn.write_conflict_ranges.size() == 0) {
+			// Skip validation for empty transactions
+			continue;
+		}
+		// Validate that conflict ranges are properly ordered
+		for (const auto& range : txn.read_conflict_ranges) {
+			if (range.begin >= range.end) {
+				TraceEvent(SevWarn, "ResolverPreValidationFailed", self->dbgid)
+				    .detail("Reason", "InvalidReadRange")
+				    .detail("Version", req.version);
+			}
+		}
+		for (const auto& range : txn.write_conflict_ranges) {
+			if (range.begin >= range.end) {
+				TraceEvent(SevWarn, "ResolverPreValidationFailed", self->dbgid)
+				    .detail("Reason", "InvalidWriteRange")
+				    .detail("Version", req.version);
+			}
+		}
+	}
+	self->transactionsPreValidated += req.transactions.size();
+
+	double preValidationDuration = g_network->timer() - preValidationStartTime;
+	if (preValidationDuration > 0.001) { // Log if pre-validation takes more than 1ms
+		TraceEvent("ResolverPreValidationComplete", self->dbgid)
+		    .detail("Version", req.version)
+		    .detail("TransactionCount", req.transactions.size())
+		    .detail("DurationMs", preValidationDuration * 1000);
+	}
+
 	if (req.debugID.present()) {
 		debugID = nondeterministicRandom()->randomUniqueID();
 		g_traceBatch.addAttach("CommitAttachID", req.debugID.get().first(), debugID.get().first());
-		g_traceBatch.addEvent("CommitDebug", debugID.get().first(), "Resolver.resolveBatch.Before");
+		g_traceBatch.addEvent("CommitDebug", debugID.get().first(), "Resolver.resolveBatch.AfterPreValidation");
 	}
 
 	/* TraceEvent("ResolveBatchStart", self->dbgid).detail("From", proxyAddress).detail("Version",

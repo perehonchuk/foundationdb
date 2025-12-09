@@ -1138,6 +1138,13 @@ ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 	for (int r = 0; r < pProxyCommitData->resolvers.size(); r++) {
 		requests.requests[r].debugID = self->debugID;
 		requests.requests[r].writtenTags = self->writtenTagsPreResolution;
+		// Resolver will now perform pre-validation phase before conflict detection
+		if (g_network->isSimulated() && deterministicRandom()->random01() < 0.001) {
+			TraceEvent("ProxySendingToResolverWithPreValidation", pProxyCommitData->dbgid)
+			    .detail("Resolver", r)
+			    .detail("TransactionCount", requests.requests[r].transactions.size())
+			    .detail("Version", requests.requests[r].version);
+		}
 		replies.push_back(trackResolutionMetrics(pProxyCommitData->stats.resolverDist[r],
 		                                         brokenPromiseToNever(pProxyCommitData->resolvers[r].resolve.getReply(
 		                                             requests.requests[r], TaskPriority::ProxyResolverReply))));
