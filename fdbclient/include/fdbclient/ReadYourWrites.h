@@ -139,6 +139,9 @@ public:
 	VersionVector getVersionVector() const override { return tr.getVersionVector(); }
 	SpanContext getSpanContext() const override { return tr.getSpanContext(); }
 
+	Standalone<StringRef> getCausalToken() const { return tr.getCausalToken(); }
+	void setCausalReadToken(StringRef token) { tr.setCausalReadToken(token); }
+
 	double getTagThrottledDuration() const override { return tr.getTagThrottledDuration(); }
 	int64_t getTotalCost() const override { return tr.getTotalCost(); }
 	int64_t getApproximateSize() const override { return approximateSize; }

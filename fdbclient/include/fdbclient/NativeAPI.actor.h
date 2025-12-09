@@ -308,6 +308,9 @@ struct TransactionState : ReferenceCounted<TransactionState> {
 
 	Version committedVersion{ invalidVersion };
 
+	// Minimum read version for causal consistency
+	Optional<Version> minReadVersion;
+
 	// Used to save conflicting keys if FDBTransactionOptions::REPORT_CONFLICTING_KEYS is enabled
 	// prefix/<key1> : '1' - any keys equal or larger than this key are (probably) conflicting keys
 	// prefix/<key2> : '0' - any keys equal or larger than this key are (definitely) not conflicting keys
@@ -486,6 +489,12 @@ public:
 
 	// May be called only after commit() returns success
 	Version getCommittedVersion() const { return trState->committedVersion; }
+
+	// Causal consistency token methods
+	// Returns a token representing the commit version that can be used to ensure causal consistency
+	Standalone<StringRef> getCausalToken() const;
+	// Sets the minimum read version using a causal token from a previous transaction
+	void setCausalReadToken(StringRef token);
 
 	int64_t getTotalCost() const { return trState->totalCost; }
 

@@ -5716,7 +5716,14 @@ ACTOR Future<Version> extractReadVersion(Reference<TransactionState> trState,
 			trState->cx->ssVersionVectorCache.clear();
 		}
 	}
-	return rep.version;
+
+	// Enforce causal consistency if minReadVersion is set
+	Version finalVersion = rep.version;
+	if (trState->minReadVersion.present() && rep.version < trState->minReadVersion.get()) {
+		finalVersion = trState->minReadVersion.get();
+	}
+
+	return finalVersion;
 }
 
 bool rkThrottlingCooledDown(DatabaseContext* cx, TransactionPriority priority) {
@@ -5888,6 +5895,26 @@ Future<Standalone<StringRef>> Transaction::getVersionstamp() {
 		return transaction_invalid_version();
 	}
 	return trState->versionstampPromise.getFuture();
+}
+
+Standalone<StringRef> Transaction::getCausalToken() const {
+	if (trState->committedVersion == invalidVersion) {
+		throw transaction_invalid_version();
+	}
+	Standalone<StringRef> token;
+	uint8_t* data = new (token.arena()) uint8_t[sizeof(Version)];
+	memcpy(data, &trState->committedVersion, sizeof(Version));
+	token.contents() = StringRef(data, sizeof(Version));
+	return token;
+}
+
+void Transaction::setCausalReadToken(StringRef token) {
+	if (token.size() != sizeof(Version)) {
+		throw client_invalid_operation();
+	}
+	Version minVersion;
+	memcpy(&minVersion, token.begin(), sizeof(Version));
+	trState->minReadVersion = minVersion;
 }
 
 // Gets the protocol version reported by a coordinator via the protocol info interface
