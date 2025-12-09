@@ -81,6 +81,7 @@ struct ProxyStats {
 	LatencySample commitBatchingWindowSize;
 
 	LatencySample computeLatency;
+	LatencySample metadataValidationLatency;
 
 	Future<Void> logger;
 
@@ -157,6 +158,10 @@ struct ProxyStats {
 	                   id,
 	                   SERVER_KNOBS->LATENCY_METRICS_LOGGING_INTERVAL,
 	                   SERVER_KNOBS->LATENCY_SKETCH_ACCURACY),
+	    metadataValidationLatency("MetadataValidationLatency",
+	                              id,
+	                              SERVER_KNOBS->LATENCY_METRICS_LOGGING_INTERVAL,
+	                              SERVER_KNOBS->LATENCY_SKETCH_ACCURACY),
 	    maxComputeNS(0), minComputeNS(1e12),
 	    commitBatchQueuingDist(
 	        Histogram::getHistogram("CommitProxy"_sr, "CommitBatchQueuing"_sr, Histogram::Unit::milliseconds)),

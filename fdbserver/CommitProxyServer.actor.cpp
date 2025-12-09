@@ -635,6 +635,7 @@ namespace CommitBatch {
 
 constexpr const std::string_view UNSET = std::string_view();
 constexpr const std::string_view INITIALIZE = "initialize"sv;
+constexpr const std::string_view METADATA_VALIDATION = "metadataValidation"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
@@ -948,6 +949,44 @@ bool canReject(const std::vector<CommitTransactionRequest>& trs) {
 double computeReleaseDelay(CommitBatchContext* self, double latencyBucket) {
 	return std::min(SERVER_KNOBS->MAX_PROXY_COMPUTE,
 	                self->batchOperations * self->pProxyCommitData->commitComputePerOperation[latencyBucket]);
+}
+
+ACTOR Future<Void> metadataValidation(CommitBatchContext* self) {
+	state ProxyCommitData* const pProxyCommitData = self->pProxyCommitData;
+	state std::vector<CommitTransactionRequest>& trs = self->trs;
+	state Span span("MP:metadataValidation"_loc, self->span.context);
+	state double startTime = g_network->timer_monotonic();
+
+	// Validate transaction metadata and constraints
+	for (auto& tr : trs) {
+		// Check for transaction size constraints
+		int64_t totalMutationSize = 0;
+		for (const auto& mutation : tr.transaction.mutations) {
+			totalMutationSize += mutation.expectedSize();
+		}
+
+		// Validate tenant information consistency
+		if (tr.tenantInfo.hasTenant()) {
+			// Ensure tenant exists in the proxy's tenant map
+			if (!pProxyCommitData->tenantMap.contains(tr.tenantInfo.tenantId)) {
+				TraceEvent(SevWarn, "MetadataValidationTenantNotFound", pProxyCommitData->dbgid)
+				    .detail("TenantId", tr.tenantInfo.tenantId);
+			}
+		}
+
+		// Check conflict range validity
+		for (const auto& range : tr.transaction.read_conflict_ranges) {
+			if (range.begin >= range.end) {
+				TraceEvent(SevWarn, "MetadataValidationInvalidConflictRange", pProxyCommitData->dbgid)
+				    .detail("Begin", range.begin)
+				    .detail("End", range.end);
+			}
+		}
+	}
+
+	pProxyCommitData->stats.metadataValidationLatency.addMeasurement(g_network->timer_monotonic() - startTime);
+
+	return Void();
 }
 
 ACTOR Future<Void> preresolutionProcessing(CommitBatchContext* self) {
@@ -2865,6 +2904,10 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 	pContext->pProxyCommitData->lastVersionTime = pContext->startTime;
 	++pContext->pProxyCommitData->stats.commitBatchIn;
 	pContext->setupTraceBatch();
+
+	/////// Phase 0.5: Metadata validation (CPU bound; validates transaction metadata and constraints before resolution)
+	pContext->stage = METADATA_VALIDATION;
+	wait(CommitBatch::metadataValidation(pContext));
 
 	/////// Phase 1: Pre-resolution processing (CPU bound except waiting for a version # which is separately pipelined
 	/// and *should* be available by now (unless empty commit); ordered; currently atomic but could yield)

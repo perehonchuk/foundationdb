@@ -1353,6 +1353,14 @@ public:
 		try {
 			ryw->commitStarted = true;
 
+			// Pre-commit metadata validation
+			// Validate that conflict ranges are properly ordered
+			for (const auto& range : ryw->readConflicts.ranges()) {
+				if (range.value() && range.begin() >= range.end()) {
+					throw invalid_read_conflict_range();
+				}
+			}
+
 			if (ryw->options.specialKeySpaceChangeConfiguration)
 				wait(ryw->getDatabase()->specialKeySpace->commit(ryw));
 
