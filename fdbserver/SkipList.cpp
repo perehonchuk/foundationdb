@@ -816,6 +816,7 @@ struct TransactionInfo {
 	VectorRef<std::pair<int, int>> writeRanges;
 	bool tooOld;
 	bool reportConflictingKeys;
+	TransactionPriority priority; // Priority for conflict resolution
 };
 
 bool ConflictBatch::ignoreTooOld() const {
@@ -836,6 +837,7 @@ void ConflictBatch::addTransaction(const CommitTransactionRef& tr, Version newOl
 	Arena& arena = transactionInfo.arena();
 	TransactionInfo* info = new (arena) TransactionInfo;
 	info->reportConflictingKeys = tr.report_conflicting_keys;
+	info->priority = tr.priority;
 	bool tooOld = tr.read_snapshot < newOldestVersion && tr.read_conflict_ranges.size();
 	if (tooOld && ignoreTooOld()) {
 		bugs->hit();
@@ -950,6 +952,7 @@ void ConflictBatch::checkIntraBatchConflicts() {
 		*points[p].pIndex = index++;
 
 	MiniConflictSet mcs(index);
+	std::vector<int> rangeOwners(index, -1); // Track which transaction owns each write range
 	for (int t = 0; t < transactionInfo.size(); t++) {
 		const TransactionInfo& tr = *transactionInfo[t];
 		if (transactionConflictStatus[t])
@@ -957,17 +960,34 @@ void ConflictBatch::checkIntraBatchConflicts() {
 		bool conflict = tr.tooOld;
 		for (int i = 0; i < tr.readRanges.size(); i++) {
 			if (mcs.any(tr.readRanges[i].first, tr.readRanges[i].second)) {
-				if (tr.reportConflictingKeys) {
-					(*conflictingKeyRangeMap)[t].push_back(*resolveBatchReplyArena, i);
+				// Priority-based conflict resolution: check if we can abort the conflicting transaction
+				bool canWin = false;
+				for (int idx = tr.readRanges[i].first; idx < tr.readRanges[i].second; idx++) {
+					if (rangeOwners[idx] >= 0 && tr.priority > transactionInfo[rangeOwners[idx]]->priority) {
+						// Higher priority wins - abort the lower priority transaction
+						transactionConflictStatus[rangeOwners[idx]] = true;
+						canWin = true;
+					}
 				}
-				conflict = true;
-				break;
+				if (!canWin) {
+					if (tr.reportConflictingKeys) {
+						(*conflictingKeyRangeMap)[t].push_back(*resolveBatchReplyArena, i);
+					}
+					conflict = true;
+					break;
+				}
 			}
 		}
 		transactionConflictStatus[t] = conflict;
-		if (!conflict)
-			for (int i = 0; i < tr.writeRanges.size(); i++)
+		if (!conflict) {
+			for (int i = 0; i < tr.writeRanges.size(); i++) {
 				mcs.set(tr.writeRanges[i].first, tr.writeRanges[i].second);
+				// Track ownership for priority-based resolution
+				for (int idx = tr.writeRanges[i].first; idx < tr.writeRanges[i].second; idx++) {
+					rangeOwners[idx] = t;
+				}
+			}
+		}
 	}
 }
 
