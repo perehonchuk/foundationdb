@@ -363,6 +363,17 @@ ACTOR Future<Void> readHotDetector(DataDistributionTracker* self) {
 				    .detail("ReadDensityThreshold", SERVER_KNOBS->SHARD_MAX_READ_DENSITY_RATIO)
 				    .detail("KeyRangeBegin", keyRange.keys.begin)
 				    .detail("KeyRangeEnd", keyRange.keys.end);
+
+				// Trigger shard relocation for read-hot ranges when enabled
+				if (SERVER_KNOBS->ENABLE_READ_BASED_SHARD_RELOCATION) {
+					TraceEvent("ReadHotRangeRelocation", self->distributorId)
+					    .detail("ReadDensity", keyRange.density)
+					    .detail("ReadBandwidth", keyRange.readBandwidthSec)
+					    .detail("KeyRangeBegin", keyRange.keys.begin)
+					    .detail("KeyRangeEnd", keyRange.keys.end);
+					self->output.send(
+					    RelocateShard(keyRange.keys, DataMovementReason::REBALANCE_READ, RelocateReason::REBALANCE_READ));
+				}
 			}
 		}
 	} catch (Error& e) {
@@ -879,7 +890,12 @@ ACTOR Future<Void> shardSplitter(DataDistributionTracker* self,
 	splitMetrics.bytesWrittenPerKSecond =
 	    keys.begin >= keyServersKeys.begin ? splitMetrics.infinity : SERVER_KNOBS->SHARD_SPLIT_BYTES_PER_KSEC;
 	splitMetrics.iosPerKSecond = splitMetrics.infinity;
-	splitMetrics.bytesReadPerKSecond = splitMetrics.infinity; // Don't split by readBandwidthSec
+	// Enable read-based splitting when the feature flag is on and the reason is a read hotspot
+	if (SERVER_KNOBS->ENABLE_READ_BASED_SHARD_RELOCATION && reason == RelocateReason::REBALANCE_READ) {
+		splitMetrics.bytesReadPerKSecond = SERVER_KNOBS->SHARD_SPLIT_READ_BYTES_PER_KSEC;
+	} else {
+		splitMetrics.bytesReadPerKSecond = splitMetrics.infinity; // Don't split by readBandwidthSec
+	}
 
 	state Standalone<VectorRef<KeyRef>> splitKeys =
 	    wait(self->db->splitStorageMetrics(keys, splitMetrics, metrics, SERVER_KNOBS->MIN_SHARD_BYTES));
@@ -900,6 +916,8 @@ ACTOR Future<Void> shardSplitter(DataDistributionTracker* self,
 	            : bandwidthStatus == BandwidthStatusNormal ? "Normal"
 	                                                       : "Low")
 	    .detail("BytesWrittenPerKSec", metrics.bytesWrittenPerKSecond)
+	    .detail("BytesReadPerKSec", metrics.bytesReadPerKSecond)
+	    .detail("Reason", reason.toString())
 	    .detail("NumShards", numShards);
 
 	if (numShards > 1) {

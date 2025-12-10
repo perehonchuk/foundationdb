@@ -270,6 +270,8 @@ public:
 	// shard metrics will update immediately
 	int64_t SHARD_READ_OPS_CHANGE_THRESHOLD;
 	bool ENABLE_WRITE_BASED_SHARD_SPLIT; // Experimental. Enable to enforce shard split when write traffic is high
+	bool ENABLE_READ_BASED_SHARD_RELOCATION; // Enable read traffic based shard splitting and relocation
+	int64_t SHARD_SPLIT_READ_BYTES_PER_KSEC; // When splitting a read-hot shard, split into pieces with less than this read bandwidth
 	int DD_SHARD_USABLE_REGION_CHECK_RATE; // Assuming all shards need to repair, the (rough) number of shards moving
 	                                       // for usable region per second. Set 0 to disable shard usable region check
 	double SHARD_MAX_READ_DENSITY_RATIO;

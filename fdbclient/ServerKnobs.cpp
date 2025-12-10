@@ -292,6 +292,8 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 
 	init( DD_SHARD_USABLE_REGION_CHECK_RATE,                       2 );
 	init( ENABLE_WRITE_BASED_SHARD_SPLIT,                      false ); if( randomize && BUGGIFY ) ENABLE_WRITE_BASED_SHARD_SPLIT = true;
+	init( ENABLE_READ_BASED_SHARD_RELOCATION,                   true ); if( randomize && BUGGIFY ) ENABLE_READ_BASED_SHARD_RELOCATION = false;
+	init( SHARD_SPLIT_READ_BYTES_PER_KSEC,             500000 * 1000 ); if( buggifySmallBandwidthSplit ) SHARD_SPLIT_READ_BYTES_PER_KSEC = 50000 * 1000;
 	init( STORAGE_METRIC_TIMEOUT,         isSimulated ? 60.0 : 600.0 ); if( randomize && BUGGIFY ) STORAGE_METRIC_TIMEOUT = deterministicRandom()->coinflip() ? 10.0 : 30.0;
 	init( METRIC_DELAY,                                          0.1 ); if( randomize && BUGGIFY ) METRIC_DELAY = 1.0;
 	init( ALL_DATA_REMOVED_DELAY,                                1.0 );
