@@ -418,6 +418,8 @@ struct AddingShard : NonCopyable {
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
 		// not just flat out removal of CF-specific logic, so come back to this.
 		FetchingCF,
+		// During Validating phase, it verifies data integrity and prepares the transferred version.
+		Validating,
 		// During Waiting phase, it sends updater the deferred updates, and wait until they are durable.
 		Waiting
 		// The shard's state is changed from adding to readWrite then.
@@ -448,7 +450,7 @@ struct AddingShard : NonCopyable {
 	                 MutationRefAndCipherKeys const& encryptedMutation);
 
 	bool isDataTransferred() const { return phase >= FetchingCF; }
-	bool isDataAndCFTransferred() const { return phase >= Waiting; }
+	bool isDataAndCFTransferred() const { return phase >= Validating; }
 
 	SSBulkLoadMetadata getSSBulkLoadMetadata() const { return ssBulkLoadMetadata; }
 };
@@ -7333,14 +7335,32 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		// TOOD(gglass): eliminate the need for the FetchingCF phase here.
 		shard->phase = AddingShard::FetchingCF;
 		ASSERT(data->version.get() >= fetchVersion);
-		// Choose a transferredVersion.  This choice and timing ensure that
-		//   * The transferredVersion can be mutated in versionedData
-		//   * The transferredVersion isn't yet committed to storage (so we can write the availability status
-		//   change)
-		//   * The transferredVersion is <= the version of any of the updates in batch, and if there is an equal
-		//   version
-		//     its mutations haven't been processed yet
-		shard->transferredVersion = data->version.get() + 1;
+
+		// Enter Validating phase before choosing transferredVersion
+		shard->phase = AddingShard::Validating;
+
+		TraceEvent(SevDebug, "FetchKeysValidating", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("UpdatesSize", shard->updates.size())
+		    .detail("BatchChangesSize", batch->changes.size());
+
+		// Choose a transferredVersion using the first update's version if available,
+		// otherwise fall back to data->version.get() + 1. This ensures better alignment
+		// with actual mutation timing.
+		if (!shard->updates.empty() && batch->changes.size() > 0) {
+			shard->transferredVersion = std::min(batch->changes[0].version, shard->updates[0].version);
+		} else if (!shard->updates.empty()) {
+			shard->transferredVersion = shard->updates[0].version;
+		} else if (batch->changes.size() > 0) {
+			shard->transferredVersion = batch->changes[0].version;
+		} else {
+			shard->transferredVersion = data->version.get() + 1;
+		}
+
+		TraceEvent(SevDebug, "FetchKeysTransferredVersion", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("TransferredVersion", shard->transferredVersion)
+		    .detail("DataVersion", data->version.get());
 		// shard->transferredVersion = batch->changes[0].version;  //< FIXME: This obeys the documented properties,
 		// and seems "safer" because it never introduces extra versions into the data structure, but violates some
 		// ASSERTs currently
@@ -7517,7 +7537,7 @@ void AddingShard::addMutation(Version version,
 		}
 		// Add the mutation to the version.
 		updates.back().mutations.push_back_deep(updates.back().arena(), mutation);
-	} else if (phase == FetchingCF || phase == Waiting) {
+	} else if (phase == FetchingCF || phase == Validating || phase == Waiting) {
 		server->addMutation(version, fromFetch, mutation, encryptedMutation, keys, server->updateEagerReads);
 	} else
 		ASSERT(false);
