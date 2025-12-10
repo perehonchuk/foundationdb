@@ -80,6 +80,11 @@ struct GetRateInfoReply {
 	double leaseDuration;
 	HealthMetrics healthMetrics;
 
+	// Priority-based rate multipliers
+	double systemPriorityMultiplier{ 1.0 };
+	double defaultPriorityMultiplier{ 1.0 };
+	double batchPriorityMultiplier{ 1.0 };
+
 	// Depending on the value of SERVER_KNOBS->ENFORCE_TAG_THROTTLING_ON_PROXIES,
 	// one of these fields may be populated
 	Optional<PrioritizedTransactionTagMap<ClientTagThrottleLimits>> clientThrottledTags;
@@ -92,6 +97,9 @@ struct GetRateInfoReply {
 		           batchTransactionRate,
 		           leaseDuration,
 		           healthMetrics,
+		           systemPriorityMultiplier,
+		           defaultPriorityMultiplier,
+		           batchPriorityMultiplier,
 		           clientThrottledTags,
 		           proxyThrottledTags);
 	}
@@ -103,6 +111,10 @@ struct GetRateInfoRequest {
 	int64_t totalReleasedTransactions;
 	int64_t batchReleasedTransactions;
 	Version version;
+
+	// Priority-based transaction counts
+	int64_t systemPriorityTransactions{ 0 };
+	int64_t defaultPriorityTransactions{ 0 };
 
 	TransactionTagMap<uint64_t> throttledTagCounts;
 	bool detailed;
@@ -126,6 +138,8 @@ struct GetRateInfoRequest {
 		           totalReleasedTransactions,
 		           batchReleasedTransactions,
 		           version,
+		           systemPriorityTransactions,
+		           defaultPriorityTransactions,
 		           throttledTagCounts,
 		           detailed,
 		           reply);

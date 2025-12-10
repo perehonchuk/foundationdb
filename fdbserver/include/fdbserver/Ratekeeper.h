@@ -158,6 +158,10 @@ class Ratekeeper {
 		int64_t batchTransactions{ 0 };
 		uint64_t lastThrottledTagChangeId{ 0 };
 
+		// Priority-based transaction tracking
+		int64_t systemPriorityTransactions{ 0 };
+		int64_t defaultPriorityTransactions{ 0 };
+
 		double lastUpdateTime{ 0.0 };
 		double lastTagPushTime{ 0.0 };
 		Version version{ 0 };
@@ -182,6 +186,11 @@ class Ratekeeper {
 
 	std::map<UID, Ratekeeper::GrvProxyInfo> grvProxyInfo;
 	Smoother smoothReleasedTransactions, smoothBatchReleasedTransactions, smoothTotalDurableBytes;
+
+	// Priority-based transaction tracking
+	Smoother smoothSystemPriorityTransactions;
+	Smoother smoothDefaultPriorityTransactions;
+
 	HealthMetrics healthMetrics;
 	DatabaseConfiguration configuration;
 	PromiseStream<Future<Void>> addActor;

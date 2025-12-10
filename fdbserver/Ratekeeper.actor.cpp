@@ -473,8 +473,20 @@ public:
 						                                              p.batchTransactions);
 					}
 
+					// Track priority-based transactions
+					if (p.systemPriorityTransactions > 0) {
+						self.smoothSystemPriorityTransactions.addDelta(req.systemPriorityTransactions -
+						                                               p.systemPriorityTransactions);
+					}
+					if (p.defaultPriorityTransactions > 0) {
+						self.smoothDefaultPriorityTransactions.addDelta(req.defaultPriorityTransactions -
+						                                                p.defaultPriorityTransactions);
+					}
+
 					p.totalTransactions = req.totalReleasedTransactions;
 					p.batchTransactions = req.batchReleasedTransactions;
+					p.systemPriorityTransactions = req.systemPriorityTransactions;
+					p.defaultPriorityTransactions = req.defaultPriorityTransactions;
 					p.version = req.version;
 					self.maxVersion = std::max(self.maxVersion, req.version);
 
@@ -487,6 +499,21 @@ public:
 					}
 
 					p.lastUpdateTime = now();
+
+					// Calculate priority-based rate multipliers
+					double totalPriorityTransactions = self.smoothSystemPriorityTransactions.smoothRate() +
+					                                    self.smoothDefaultPriorityTransactions.smoothRate() +
+					                                    self.smoothBatchReleasedTransactions.smoothRate();
+					if (totalPriorityTransactions > 0) {
+						double systemRatio = self.smoothSystemPriorityTransactions.smoothRate() / totalPriorityTransactions;
+						double defaultRatio = self.smoothDefaultPriorityTransactions.smoothRate() / totalPriorityTransactions;
+						double batchRatio = self.smoothBatchReleasedTransactions.smoothRate() / totalPriorityTransactions;
+
+						// Apply priority multipliers: system gets 2x, default gets 1x, batch gets 0.5x
+						reply.systemPriorityMultiplier = systemRatio > 0.1 ? 2.0 : 1.0;
+						reply.defaultPriorityMultiplier = 1.0;
+						reply.batchPriorityMultiplier = batchRatio > 0.5 ? 0.5 : 1.0;
+					}
 
 					reply.transactionRate = self.normalLimits.tpsLimit / self.grvProxyInfo.size();
 					reply.batchTransactionRate = self.batchLimits.tpsLimit / self.grvProxyInfo.size();
@@ -626,7 +653,9 @@ Future<Void> Ratekeeper::run(RatekeeperInterface rkInterf, Reference<AsyncVar<Se
 Ratekeeper::Ratekeeper(UID id, Database db)
   : id(id), db(db), smoothReleasedTransactions(SERVER_KNOBS->SMOOTHING_AMOUNT),
     smoothBatchReleasedTransactions(SERVER_KNOBS->SMOOTHING_AMOUNT),
-    smoothTotalDurableBytes(SERVER_KNOBS->SLOW_SMOOTHING_AMOUNT), actualTpsMetric("Ratekeeper.ActualTPS"_sr),
+    smoothTotalDurableBytes(SERVER_KNOBS->SLOW_SMOOTHING_AMOUNT),
+    smoothSystemPriorityTransactions(SERVER_KNOBS->SMOOTHING_AMOUNT),
+    smoothDefaultPriorityTransactions(SERVER_KNOBS->SMOOTHING_AMOUNT), actualTpsMetric("Ratekeeper.ActualTPS"_sr),
     lastWarning(0), lastSSListFetchedTimestamp(now()), normalLimits(TransactionPriority::DEFAULT,
                                                                     "",
                                                                     SERVER_KNOBS->TARGET_BYTES_PER_STORAGE_SERVER,
