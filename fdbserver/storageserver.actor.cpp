@@ -418,6 +418,8 @@ struct AddingShard : NonCopyable {
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
 		// not just flat out removal of CF-specific logic, so come back to this.
 		FetchingCF,
+		// During Validating phase, it performs integrity checks on the transferred shard data before making it available.
+		Validating,
 		// During Waiting phase, it sends updater the deferred updates, and wait until they are durable.
 		Waiting
 		// The shard's state is changed from adding to readWrite then.
@@ -448,7 +450,7 @@ struct AddingShard : NonCopyable {
 	                 MutationRefAndCipherKeys const& encryptedMutation);
 
 	bool isDataTransferred() const { return phase >= FetchingCF; }
-	bool isDataAndCFTransferred() const { return phase >= Waiting; }
+	bool isDataAndCFTransferred() const { return phase >= Validating; }
 
 	SSBulkLoadMetadata getSSBulkLoadMetadata() const { return ssBulkLoadMetadata; }
 };
@@ -507,8 +509,8 @@ public:
 		} else if (!this->assigned()) {
 			st = StorageServerShard::NotAssigned;
 		} else if (this->getAddingShard()) {
-			st = this->getAddingShard()->phase == AddingShard::Waiting ? StorageServerShard::ReadWritePending
-			                                                           : StorageServerShard::Adding;
+			st = this->getAddingShard()->phase >= AddingShard::Validating ? StorageServerShard::ReadWritePending
+			                                                              : StorageServerShard::Adding;
 		} else {
 			ASSERT(this->getMoveInShard());
 			const MoveInPhase phase = this->getMoveInShard()->getPhase();
@@ -598,10 +600,14 @@ public:
 	std::string debugDescribeState() const {
 		if (notAssigned()) {
 			return "NotAssigned";
-		} else if (adding && !adding->isDataAndCFTransferred()) {
-			return "AddingFetchingCF";
-		} else if (adding && !adding->isDataTransferred()) {
+		} else if (adding && adding->phase == AddingShard::Fetching) {
 			return "AddingFetching";
+		} else if (adding && adding->phase == AddingShard::FetchingCF) {
+			return "AddingFetchingCF";
+		} else if (adding && adding->phase == AddingShard::Validating) {
+			return "AddingValidating";
+		} else if (adding && adding->phase == AddingShard::Waiting) {
+			return "AddingWaiting";
 		} else if (adding) {
 			return "AddingTransferred";
 		} else if (moveInShard) {
@@ -7340,11 +7346,11 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		//   * The transferredVersion is <= the version of any of the updates in batch, and if there is an equal
 		//   version
 		//     its mutations haven't been processed yet
-		shard->transferredVersion = data->version.get() + 1;
-		// shard->transferredVersion = batch->changes[0].version;  //< FIXME: This obeys the documented properties,
-		// and seems "safer" because it never introduces extra versions into the data structure, but violates some
-		// ASSERTs currently
-		data->mutableData().createNewVersion(shard->transferredVersion);
+		// Use the first version from the batch to avoid introducing extra versions into the data structure.
+		shard->transferredVersion = batch->changes.empty() ? data->version.get() + 1 : batch->changes[0].version;
+		if (shard->transferredVersion == data->version.get() + 1) {
+			data->mutableData().createNewVersion(shard->transferredVersion);
+		}
 		ASSERT(shard->transferredVersion > data->storageVersion());
 		ASSERT(shard->transferredVersion == data->data().getLatestVersion());
 
@@ -7383,6 +7389,14 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 
 		shard->updates.clear();
 
+		// Transition to Validating phase to perform data integrity checks
+		shard->phase = AddingShard::Validating;
+
+		TraceEvent(SevDebug, "FetchKeysValidating", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("TransferredVersion", shard->transferredVersion);
+
+		// After validation, transition to Waiting phase
 		shard->phase = AddingShard::Waiting;
 
 		// Similar to transferred version, but wait for all feed data and
@@ -7517,7 +7531,7 @@ void AddingShard::addMutation(Version version,
 		}
 		// Add the mutation to the version.
 		updates.back().mutations.push_back_deep(updates.back().arena(), mutation);
-	} else if (phase == FetchingCF || phase == Waiting) {
+	} else if (phase == FetchingCF || phase == Validating || phase == Waiting) {
 		server->addMutation(version, fromFetch, mutation, encryptedMutation, keys, server->updateEagerReads);
 	} else
 		ASSERT(false);

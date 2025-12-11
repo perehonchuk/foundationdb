@@ -101,10 +101,10 @@ A shard’s ownership is used in transaction systems (commit proxy and tLogs) to
 A shard’s ownership must be consistent across transaction systems and SSes, so that mutations can be correctly routed to SSes. Moving keys from a SS to another requires changing the shard’s ownership under ACID property. The ACID property is achieved by using FDB transactions to change the *serverKeys *(`\xff/serverKeys/`) and *keyServers* (`\xff/keyServers/`). The mutation on the *serverKeys *and* keyServers *will be categorized as private mutations in transaction system. Compared to normal mutation, the private mutations will change the transaction state store (txnStateStore) that maintains the *serverKeys* and *keyServers* for transaction systems (commit proxy and tLog) when it arrives on each transaction component (e.g., tLog). Because mutations are processed in total order with the ACID guarantees, the change to the txnStateStore will be executed in total order on each node and the change on the shard’s ownership will also be consistent.
 
 The data movement from one server (called source server) to another (called destination server) has four steps:
-(1) DD adds the destination server as the shard’s new owner;
-(2) The destination server will issue transactions to read the shard range and write the key-value pairs back. The key-value will be routed to the destination server and saved in the server’s storage engine;
-(3) DD removes the source server from the shard’s ownership by modifying the system keyspace;
-(4) DD removes the shard’s information owned by the source server from the server’s team information (i.e., *shardsAffectedByTeamFailure*).
+(1) DD adds the destination server as the shard's new owner;
+(2) The destination server will issue transactions to read the shard range and write the key-value pairs back. The key-value will be routed to the destination server and saved in the server's storage engine. During this process, the shard goes through several phases: Fetching (reading data), FetchingCF (fetching change feeds), Validating (performing data integrity checks), and Waiting (waiting for deferred updates to become durable);
+(3) DD removes the source server from the shard's ownership by modifying the system keyspace;
+(4) DD removes the shard's information owned by the source server from the server's team information (i.e., *shardsAffectedByTeamFailure*).
 
 # Read-aware Data Distribution
 
