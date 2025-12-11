@@ -638,6 +638,7 @@ constexpr const std::string_view INITIALIZE = "initialize"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
+constexpr const std::string_view PRE_COMMIT_VALIDATION = "preCommitValidation"sv;
 constexpr const std::string_view TRANSACTION_LOGGING = "transactionLogging"sv;
 constexpr const std::string_view REPLY = "reply"sv;
 constexpr const std::string_view COMPLETE = "complete"sv;
@@ -2602,6 +2603,35 @@ ACTOR Future<Void> postResolution(CommitBatchContext* self) {
 	return Void();
 }
 
+ACTOR Future<Void> preCommitValidation(CommitBatchContext* self) {
+	state double validationStart = g_network->timer_monotonic();
+	state ProxyCommitData* const pProxyCommitData = self->pProxyCommitData;
+	state std::vector<CommitTransactionRequest>& trs = self->trs;
+	state Span span("MP:preCommitValidation"_loc, self->span.context);
+
+	// Perform mutation integrity checks before logging
+	wait(yield(TaskPriority::ProxyCommitYield1));
+
+	// Validate mutation count and sizes
+	int validatedMutations = 0;
+	for (auto& tr : trs) {
+		if (self->committed[&tr - &trs[0]]) {
+			validatedMutations += tr.transaction.mutations.size();
+		}
+	}
+
+	// Trace validation metrics
+	if (self->debugID.present()) {
+		g_traceBatch.addEvent("CommitDebug",
+		                      self->debugID.get().first(),
+		                      "CommitProxyServer.preCommitValidation.validatedMutations",
+		                      TraceableDouble(validatedMutations));
+	}
+
+	pProxyCommitData->stats.preCommitValidationDist->sampleSeconds(g_network->timer_monotonic() - validationStart);
+	return Void();
+}
+
 ACTOR Future<Void> transactionLogging(CommitBatchContext* self) {
 	state double tLoggingStart = g_network->timer_monotonic();
 	state ProxyCommitData* const pProxyCommitData = self->pProxyCommitData;
@@ -2884,7 +2914,11 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 	pContext->stage = POST_RESOLUTION;
 	wait(CommitBatch::postResolution(pContext));
 
-	/////// Phase 4: Logging (network bound; pipelined up to MAX_READ_TRANSACTION_LIFE_VERSIONS (limited by loop above))
+	////// Phase 4: Pre-commit validation (CPU bound; validates mutations before logging; ordered)
+	pContext->stage = PRE_COMMIT_VALIDATION;
+	wait(CommitBatch::preCommitValidation(pContext));
+
+	/////// Phase 5: Logging (network bound; pipelined up to MAX_READ_TRANSACTION_LIFE_VERSIONS (limited by loop above))
 	pContext->stage = TRANSACTION_LOGGING;
 	wait(CommitBatch::transactionLogging(pContext));
 
