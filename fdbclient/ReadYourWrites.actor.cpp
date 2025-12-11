@@ -1380,6 +1380,12 @@ public:
 				}
 				wait(ryw->resetPromise.getFuture() || ryw->tr.commit());
 
+				// Circuit breaker: reset on successful commit
+				if (ryw->options.circuitBreakerEnabled) {
+					ryw->consecutiveFailures = 0;
+					ryw->circuitOpen = false;
+				}
+
 				ryw->debugLogRetries();
 
 				if (!ryw->tr.apiVersionAtLeast(410)) {
@@ -1403,6 +1409,12 @@ public:
 				throw transaction_timed_out();
 			}
 			wait(ryw->resetPromise.getFuture() || ryw->tr.commit());
+
+			// Circuit breaker: reset on successful commit
+			if (ryw->options.circuitBreakerEnabled) {
+				ryw->consecutiveFailures = 0;
+				ryw->circuitOpen = false;
+			}
 
 			ryw->debugLogRetries();
 			if (!ryw->tr.apiVersionAtLeast(410)) {
@@ -1514,7 +1526,40 @@ public:
 				throw e;
 			}
 
+			// Circuit breaker logic
+			if (ryw->options.circuitBreakerEnabled) {
+				// Check if circuit is open and cooldown has elapsed
+				if (ryw->circuitOpen) {
+					double elapsed = now() - ryw->circuitOpenedAt;
+					if (elapsed < ryw->options.circuitBreakerCooldownSeconds) {
+						TraceEvent(SevWarn, "CircuitBreakerOpen")
+						    .detail("ConsecutiveFailures", ryw->consecutiveFailures)
+						    .detail("ElapsedSeconds", elapsed)
+						    .detail("CooldownSeconds", ryw->options.circuitBreakerCooldownSeconds);
+						throw transaction_too_many_retries();
+					}
+					// Cooldown elapsed, transition to half-open state by resetting circuit
+					ryw->circuitOpen = false;
+					ryw->consecutiveFailures = 0;
+					TraceEvent("CircuitBreakerHalfOpen")
+					    .detail("CooldownSeconds", ryw->options.circuitBreakerCooldownSeconds);
+				}
+			}
+
 			wait(ryw->resetPromise.getFuture() || ryw->tr.onError(e));
+
+			// Circuit breaker: increment consecutive failures on retriable errors
+			if (ryw->options.circuitBreakerEnabled) {
+				ryw->consecutiveFailures++;
+				if (ryw->consecutiveFailures >= ryw->options.circuitBreakerFailureThreshold) {
+					ryw->circuitOpen = true;
+					ryw->circuitOpenedAt = now();
+					TraceEvent(SevWarn, "CircuitBreakerTripped")
+					    .detail("ConsecutiveFailures", ryw->consecutiveFailures)
+					    .detail("Threshold", ryw->options.circuitBreakerFailureThreshold)
+					    .detail("CooldownSeconds", ryw->options.circuitBreakerCooldownSeconds);
+				}
+			}
 
 			ryw->debugLogRetries(e);
 
@@ -1549,7 +1594,8 @@ public:
 
 ReadYourWritesTransaction::ReadYourWritesTransaction(Database const& cx, Optional<Reference<Tenant>> const& tenant)
   : ISingleThreadTransaction(cx->deferredError), tr(cx, tenant), cache(&arena), writes(&arena), retries(0),
-    approximateSize(0), creationTime(now()), commitStarted(false), versionStampFuture(tr.getVersionstamp()),
+    approximateSize(0), creationTime(now()), commitStarted(false), consecutiveFailures(0), circuitOpenedAt(0.0),
+    circuitOpen(false), versionStampFuture(tr.getVersionstamp()),
     specialKeySpaceWriteMap(std::make_pair(false, Optional<Value>()), specialKeys.end), options(tr) {
 	std::copy(
 	    cx.getTransactionDefaults().begin(), cx.getTransactionDefaults().end(), std::back_inserter(persistentOptions));
@@ -2017,6 +2063,10 @@ void ReadYourWritesTransactionOptions::reset(Transaction const& tr) {
 	timeoutInSeconds = 0.0;
 	maxRetries = -1;
 	snapshotRywEnabled = tr.getDatabase()->snapshotRywEnabled;
+	// Circuit breaker defaults
+	circuitBreakerEnabled = false;
+	circuitBreakerFailureThreshold = 5;
+	circuitBreakerCooldownSeconds = 10.0;
 }
 
 bool ReadYourWritesTransactionOptions::getAndResetWriteConflictDisabled() {
@@ -2514,6 +2564,24 @@ void ReadYourWritesTransaction::setOptionImpl(FDBTransactionOptions::Option opti
 	case FDBTransactionOptions::RETRY_LIMIT:
 		options.maxRetries = (int)extractIntOption(value, -1, std::numeric_limits<int>::max());
 		TraceEvent(SevDebug, "TransactionRetryLimit").detail("MaxRetries", options.maxRetries);
+		break;
+
+	case FDBTransactionOptions::CIRCUIT_BREAKER_ENABLE:
+		validateOptionValueNotPresent(value);
+		options.circuitBreakerEnabled = true;
+		TraceEvent(SevDebug, "CircuitBreakerEnabled");
+		break;
+
+	case FDBTransactionOptions::CIRCUIT_BREAKER_FAILURE_THRESHOLD:
+		options.circuitBreakerFailureThreshold = (int)extractIntOption(value, 1, std::numeric_limits<int>::max());
+		TraceEvent(SevDebug, "CircuitBreakerThreshold")
+		    .detail("FailureThreshold", options.circuitBreakerFailureThreshold);
+		break;
+
+	case FDBTransactionOptions::CIRCUIT_BREAKER_COOLDOWN:
+		options.circuitBreakerCooldownSeconds = extractIntOption(value, 0, std::numeric_limits<int>::max()) / 1000.0;
+		TraceEvent(SevDebug, "CircuitBreakerCooldown")
+		    .detail("CooldownSeconds", options.circuitBreakerCooldownSeconds);
 		break;
 
 	case FDBTransactionOptions::DEBUG_RETRY_LOGGING:

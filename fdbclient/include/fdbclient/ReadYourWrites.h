@@ -46,6 +46,10 @@ struct ReadYourWritesTransactionOptions {
 	int maxRetries;
 	int snapshotRywEnabled;
 	bool bypassUnreadable : 1;
+	// Circuit breaker configuration
+	bool circuitBreakerEnabled : 1;
+	int circuitBreakerFailureThreshold;
+	double circuitBreakerCooldownSeconds;
 
 	ReadYourWritesTransactionOptions() {}
 	explicit ReadYourWritesTransactionOptions(Transaction const& tr);
@@ -232,6 +236,10 @@ private:
 	Future<Void> timeoutActor;
 	double creationTime;
 	bool commitStarted;
+	// Circuit breaker state
+	int consecutiveFailures;
+	double circuitOpenedAt;
+	bool circuitOpen;
 
 	// For reading conflict ranges from the special key space
 	VectorRef<KeyRef> versionStampKeys;
