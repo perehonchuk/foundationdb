@@ -833,14 +833,16 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	int priority; // Priority level for batched watch notifications
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
 	                    Version version,
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
-	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	                    int64_t tenantId,
+	                    int priority = 0)
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId), priority(priority) {}
 };
 
 struct BusiestWriteTagContext {
@@ -914,6 +916,10 @@ private:
 	using WatchMapValue = Reference<ServerWatchMetadata>;
 	using WatchMap_t = std::unordered_map<WatchMapKey, WatchMapValue, WatchMapKeyHasher>;
 	WatchMap_t watchMap; // keep track of server watches
+
+	// Priority-based watch batching structures
+	std::map<int, std::vector<WatchMapKey>> watchPriorityBatches; // Batch watches by priority level
+	AsyncVar<bool> watchBatchTrigger; // Trigger for processing priority batches
 
 public:
 	struct PendingNewShard {
@@ -1915,16 +1921,34 @@ KeyRef StorageServer::setWatchMetadata(Reference<ServerWatchMetadata> metadata) 
 	const WatchMapKey mapKey(tenantId, keyRef);
 
 	watchMap[mapKey] = metadata;
+
+	// Add to priority batch for grouped processing
+	watchPriorityBatches[metadata->priority].push_back(mapKey);
+	watchBatchTrigger.set(!watchBatchTrigger.get()); // Signal batch update
+
 	return keyRef;
 }
 
 void StorageServer::deleteWatchMetadata(KeyRef key, int64_t tenantId) {
 	const WatchMapKey mapKey(tenantId, key);
+
+	// Remove from priority batches
+	auto watchIt = watchMap.find(mapKey);
+	if (watchIt != watchMap.end()) {
+		int priority = watchIt->second->priority;
+		auto& batch = watchPriorityBatches[priority];
+		batch.erase(std::remove(batch.begin(), batch.end(), mapKey), batch.end());
+		if (batch.empty()) {
+			watchPriorityBatches.erase(priority);
+		}
+	}
+
 	watchMap.erase(mapKey);
 }
 
 void StorageServer::clearWatchMetadata() {
 	watchMap.clear();
+	watchPriorityBatches.clear();
 }
 
 #ifndef __INTEL_COMPILER
@@ -2622,6 +2646,48 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 			data->sendErrorWithPenalty(req.reply, e, data->getPenalty());
 			return Void();
 		}
+	}
+}
+
+// Process watch notifications in priority-based batches
+ACTOR Future<Void> processPriorityWatchBatches(StorageServer* self) {
+	loop {
+		wait(self->watchBatchTrigger.onChange());
+
+		// Process batches from highest to lowest priority
+		for (auto it = self->watchPriorityBatches.rbegin(); it != self->watchPriorityBatches.rend(); ++it) {
+			int priority = it->first;
+			auto& batch = it->second;
+
+			if (!batch.empty()) {
+				TraceEvent("ProcessPriorityWatchBatch", self->thisServerID)
+				    .detail("Priority", priority)
+				    .detail("BatchSize", batch.size());
+
+				// Process all watches in this priority batch together
+				std::vector<WatchMapKey> processedKeys;
+				for (const auto& mapKey : batch) {
+					auto watchIt = self->watchMap.find(mapKey);
+					if (watchIt != self->watchMap.end()) {
+						auto& metadata = watchIt->second;
+						// Trigger watch notification for this priority group
+						if (!metadata->versionPromise.isSet()) {
+							Version currentVersion = self->version.get();
+							metadata->versionPromise.send(currentVersion);
+							processedKeys.push_back(mapKey);
+						}
+					}
+				}
+
+				// Remove processed watches from batch
+				for (const auto& key : processedKeys) {
+					batch.erase(std::remove(batch.begin(), batch.end(), key), batch.end());
+				}
+			}
+		}
+
+		// Small delay to batch watches within same priority window
+		wait(delay(0.001));
 	}
 }
 
@@ -11892,8 +11958,10 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
+			// Calculate priority based on key hash to distribute watches across priority levels
+			int priority = hashlittle(req.key.begin(), req.key.size(), 0) % 3;
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, priority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11927,8 +11995,10 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 			metadata->versionPromise.send(req.version);
 			metadata->watch_impl.cancel();
 
+			// Calculate priority based on key hash to distribute watches across priority levels
+			int priority = hashlittle(req.key.begin(), req.key.size(), 0) % 3;
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, priority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11961,8 +12031,10 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 					}
 
 					if (reply.value == req.value) { // valSS == valreq
+						// Calculate priority based on key hash to distribute watches across priority levels
+						int priority = hashlittle(req.key.begin(), req.key.size(), 0) % 3;
 						metadata = makeReference<ServerWatchMetadata>(
-						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, priority);
 						KeyRef key = self->setWatchMetadata(metadata);
 						metadata->watch_impl =
 						    forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
@@ -12160,6 +12232,7 @@ ACTOR Future<Void> storageServerCore(StorageServer* self, StorageServerInterface
 	self->actors.add(serveGetKeyValuesStreamRequests(self, ssi.getKeyValuesStream.getFuture()));
 	self->actors.add(serveGetKeyRequests(self, ssi.getKey.getFuture()));
 	self->actors.add(serveWatchValueRequests(self, ssi.watchValue.getFuture()));
+	self->actors.add(processPriorityWatchBatches(self)); // Add priority watch batch processor
 	self->actors.add(serveChangeFeedStreamRequests(self, ssi.changeFeedStream.getFuture()));
 	self->actors.add(serveOverlappingChangeFeedsRequests(self, ssi.overlappingChangeFeeds.getFuture()));
 	self->actors.add(serveChangeFeedPopRequests(self, ssi.changeFeedPop.getFuture()));
