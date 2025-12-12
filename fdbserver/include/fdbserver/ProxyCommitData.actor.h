@@ -63,6 +63,7 @@ struct ProxyStats {
 	Counter commitBatchIn, commitBatchOut;
 	Counter mutationBytes;
 	Counter mutations;
+	Counter deduplicatedMutations;
 	Counter conflictRanges;
 	Counter keyServerLocationIn, keyServerLocationOut, keyServerLocationErrors;
 	Counter tenantIdRequestIn;
@@ -131,7 +132,7 @@ struct ProxyStats {
 	    txnCommitOutSuccess("TxnCommitOutSuccess", cc), txnCommitErrors("TxnCommitErrors", cc),
 	    txnConflicts("TxnConflicts", cc), txnRejectedForQueuedTooLong("TxnRejectedForQueuedTooLong", cc),
 	    commitBatchIn("CommitBatchIn", cc), commitBatchOut("CommitBatchOut", cc), mutationBytes("MutationBytes", cc),
-	    mutations("Mutations", cc), conflictRanges("ConflictRanges", cc),
+	    mutations("Mutations", cc), deduplicatedMutations("DeduplicatedMutations", cc), conflictRanges("ConflictRanges", cc),
 	    keyServerLocationIn("KeyServerLocationIn", cc), keyServerLocationOut("KeyServerLocationOut", cc),
 	    keyServerLocationErrors("KeyServerLocationErrors", cc), tenantIdRequestIn("TenantIdRequestIn", cc),
 	    tenantIdRequestOut("TenantIdRequestOut", cc), tenantIdRequestErrors("TenantIdRequestErrors", cc),

@@ -737,6 +737,11 @@ struct CommitBatchContext {
 
 	IdempotencyIdKVBuilder idempotencyKVBuilder;
 
+	// Mutation deduplication tracking
+	std::unordered_map<StringRef, int> mutationDeduplicationMap; // Maps mutation key to original transaction index
+	std::vector<bool> transactionHadDuplicates; // Tracks which transactions had deduplicated mutations
+	int deduplicatedMutationCount = 0;
+
 	CommitBatchContext(ProxyCommitData*, const std::vector<CommitTransactionRequest>*, const int);
 
 	void setupTraceBatch();
@@ -1047,6 +1052,60 @@ ACTOR Future<Void> preresolutionProcessing(CommitBatchContext* self) {
 
 	if (debugID.present()) {
 		g_traceBatch.addEvent("CommitDebug", debugID.get().first(), "CommitProxyServer.commitBatch.GotCommitVersion");
+	}
+
+	// Perform mutation deduplication within this batch
+	wait(deduplicateMutations(self));
+
+	if (debugID.present()) {
+		g_traceBatch.addEvent("CommitDebug", debugID.get().first(), "CommitProxyServer.commitBatch.AfterDeduplication");
+	}
+
+	return Void();
+}
+
+ACTOR Future<Void> deduplicateMutations(CommitBatchContext* self) {
+	state ProxyCommitData* pProxyCommitData = self->pProxyCommitData;
+	state std::vector<CommitTransactionRequest>& trs = self->trs;
+	state Span span("MP:deduplicateMutations"_loc, self->span.context);
+
+	// Initialize deduplication tracking for each transaction
+	self->transactionHadDuplicates.resize(trs.size(), false);
+
+	// Track mutations across all transactions in this batch
+	for (int t = 0; t < trs.size(); t++) {
+		VectorRef<MutationRef>& mutations = trs[t].transaction.mutations;
+		for (int m = 0; m < mutations.size(); m++) {
+			const MutationRef& mutation = mutations[m];
+
+			// Only deduplicate SetValue mutations for now
+			if (mutation.type == MutationRef::SetValue) {
+				StringRef key = mutation.param1;
+				auto it = self->mutationDeduplicationMap.find(key);
+
+				if (it != self->mutationDeduplicationMap.end()) {
+					// Found duplicate - mark this transaction as having duplicates
+					self->transactionHadDuplicates[t] = true;
+					self->deduplicatedMutationCount++;
+
+					CODE_PROBE(true, "Mutation deduplicated in commit batch");
+				} else {
+					// First occurrence - track it
+					self->mutationDeduplicationMap[key] = t;
+				}
+			}
+		}
+	}
+
+	if (self->deduplicatedMutationCount > 0) {
+		pProxyCommitData->stats.deduplicatedMutations += self->deduplicatedMutationCount;
+
+		TraceEvent("CommitBatchMutationDeduplication", pProxyCommitData->dbgid)
+		    .detail("CommitVersion", self->commitVersion)
+		    .detail("TotalTransactions", trs.size())
+		    .detail("DeduplicatedMutations", self->deduplicatedMutationCount)
+		    .detail("TransactionsAffected", std::count(self->transactionHadDuplicates.begin(),
+		                                               self->transactionHadDuplicates.end(), true));
 	}
 
 	return Void();
