@@ -39,6 +39,7 @@ enum class MockShardStatus {
 	EMPTY, // data loss
 	INFLIGHT,
 	FETCHED, // finish fetch but not change the serverKey mapping. Only can be set by MSS itself.
+	VALIDATING, // validating fetched data before completion
 	COMPLETED
 };
 
@@ -53,6 +54,8 @@ inline bool isStatusTransitionValid(MockShardStatus from, MockShardStatus to) {
 	case MockShardStatus::INFLIGHT:
 		return to == MockShardStatus::FETCHED || to == MockShardStatus::EMPTY;
 	case MockShardStatus::FETCHED:
+		return to == MockShardStatus::VALIDATING || to == MockShardStatus::COMPLETED;
+	case MockShardStatus::VALIDATING:
 		return to == MockShardStatus::COMPLETED;
 	case MockShardStatus::COMPLETED:
 		return to == MockShardStatus::EMPTY;

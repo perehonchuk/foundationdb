@@ -205,6 +205,11 @@ public:
 		}
 
 		self->setShardStatus(params.keys, MockShardStatus::FETCHED);
+
+		// Enter validation phase
+		wait(delay(0.01, TaskPriority::FetchKeys)); // Simulate validation
+		self->setShardStatus(params.keys, MockShardStatus::VALIDATING);
+
 		TraceEvent(SevDebug, interval.end(), self->id).log();
 		return Void();
 	}
