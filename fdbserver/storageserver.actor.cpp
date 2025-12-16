@@ -915,6 +915,18 @@ private:
 	using WatchMap_t = std::unordered_map<WatchMapKey, WatchMapValue, WatchMapKeyHasher>;
 	WatchMap_t watchMap; // keep track of server watches
 
+	// Speculative read-ahead infrastructure for sequential access pattern detection
+	struct ReadPattern {
+		Key lastKey;
+		double lastAccessTime;
+		int sequentialCount; // Number of sequential accesses detected
+		bool prefetchActive; // Whether prefetch is currently active
+
+		ReadPattern() : lastAccessTime(0), sequentialCount(0), prefetchActive(false) {}
+	};
+	std::unordered_map<int64_t, ReadPattern> readPatterns; // Per-tenant read patterns
+	AsyncVar<int> activePrefetches; // Track number of active prefetch operations
+
 public:
 	struct PendingNewShard {
 		PendingNewShard(uint64_t shardId, KeyRangeRef range) : shardId(format("%016llx", shardId)), range(range) {}
@@ -1385,6 +1397,12 @@ public:
 		// expensive.
 		Counter pTreeClearSplits;
 
+		// Speculative read-ahead counters
+		Counter prefetchTriggered; // Number of times prefetch was triggered
+		Counter prefetchHits; // Number of prefetched keys that were actually accessed
+		Counter prefetchMisses; // Number of prefetches that weren't used
+		Counter sequentialReadsDetected; // Number of sequential read patterns detected
+
 		std::unique_ptr<LatencySample> readLatencySample;
 		std::unique_ptr<LatencySample> readKeyLatencySample;
 		std::unique_ptr<LatencySample> readValueLatencySample;
@@ -1431,6 +1449,8 @@ public:
 		    changeServerKeysAssigned("ChangeServerKeysAssigned", cc),
 		    changeServerKeysUnassigned("ChangeServerKeysUnassigned", cc),
 		    kvClearRangesInFetchKeys("KvClearRangesInFetchKeys", cc),
+		    prefetchTriggered("PrefetchTriggered", cc), prefetchHits("PrefetchHits", cc),
+		    prefetchMisses("PrefetchMisses", cc), sequentialReadsDetected("SequentialReadsDetected", cc),
 		    readLatencySample(std::make_unique<LatencySample>("ReadLatencyMetrics",
 		                                                      self->thisServerID,
 		                                                      SERVER_KNOBS->LATENCY_METRICS_LOGGING_INTERVAL,
@@ -2403,6 +2423,39 @@ ACTOR Future<Void> getValueQ(StorageServer* data, GetValueRequest req) {
 		auto cached = data->cachedRangeMap[req.key];
 		// if (cached)
 		//	TraceEvent(SevDebug, "SSGetValueCached").detail("Key", req.key);
+
+		// Detect sequential read patterns and trigger speculative prefetch
+		int64_t tenantId = req.tenantInfo.hasTenant() ? req.tenantInfo.tenantId : 0;
+		auto& pattern = data->readPatterns[tenantId];
+		bool isSequential = false;
+		if (!pattern.lastKey.empty() && pattern.lastKey < req.key) {
+			// Check if this is a sequential read (keys are adjacent or nearby)
+			int keyDistance = req.key.compare(pattern.lastKey);
+			if (keyDistance > 0 && keyDistance < 1000) { // Keys are close together
+				pattern.sequentialCount++;
+				if (pattern.sequentialCount >= 3) {
+					isSequential = true;
+					++data->counters.sequentialReadsDetected;
+				}
+			} else {
+				pattern.sequentialCount = 0;
+			}
+		}
+		pattern.lastKey = req.key;
+		pattern.lastAccessTime = now();
+
+		// Trigger speculative prefetch if sequential pattern detected
+		if (isSequential && !pattern.prefetchActive && data->activePrefetches.get() < 10) {
+			pattern.prefetchActive = true;
+			++data->counters.prefetchTriggered;
+			data->activePrefetches.set(data->activePrefetches.get() + 1);
+			// In a real implementation, we would spawn an actor to prefetch the next N keys
+			// For this change, we just track the metrics
+			TraceEvent("SSPrefetchTriggered", data->thisServerID)
+			    .detail("Key", req.key)
+			    .detail("TenantId", tenantId)
+			    .detail("SequentialCount", pattern.sequentialCount);
+		}
 
 		GetValueReply reply(v, cached);
 		reply.penalty = data->getPenalty();

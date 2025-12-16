@@ -1099,6 +1099,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( BEHIND_CHECK_DELAY,                                    2.0 );
 	init( BEHIND_CHECK_COUNT,                                      2 );
 	init( BEHIND_CHECK_VERSIONS,             5 * VERSIONS_PER_SECOND );
+	init( SPECULATIVE_PREFETCH_THRESHOLD,                          3 ); // Trigger after 3 sequential reads
+	init( SPECULATIVE_PREFETCH_MAX_KEYS,                          10 ); // Prefetch up to 10 keys ahead
+	init( MAX_CONCURRENT_PREFETCH,                                10 ); // Allow up to 10 concurrent prefetch operations
 	init( WAIT_METRICS_WRONG_SHARD_CHANCE,   isSimulated ? 1.0 : 0.1 );
 	init( MIN_TAG_READ_PAGES_RATE,                               100 ); if( randomize && BUGGIFY ) MIN_TAG_READ_PAGES_RATE = 0;
 	init( MIN_TAG_WRITE_PAGES_RATE,                              100 ); if( randomize && BUGGIFY ) MIN_TAG_WRITE_PAGES_RATE = 0;

@@ -1147,6 +1147,11 @@ public:
 	double BEHIND_CHECK_DELAY;
 	int BEHIND_CHECK_COUNT;
 	int64_t BEHIND_CHECK_VERSIONS;
+
+	// Speculative read-ahead configuration
+	int SPECULATIVE_PREFETCH_THRESHOLD; // Number of sequential reads before triggering prefetch
+	int SPECULATIVE_PREFETCH_MAX_KEYS; // Maximum number of keys to prefetch
+	int MAX_CONCURRENT_PREFETCH; // Maximum number of concurrent prefetch operations
 	double WAIT_METRICS_WRONG_SHARD_CHANCE;
 	// Minimum read throughput (in pages/second) that a tag must register
 	// on a storage server in order for tag throughput statistics to be
