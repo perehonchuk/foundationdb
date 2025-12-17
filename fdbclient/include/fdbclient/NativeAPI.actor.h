@@ -315,6 +315,16 @@ struct TransactionState : ReferenceCounted<TransactionState> {
 
 	bool automaticIdempotency = false;
 
+	// Conflict classification for adaptive retry
+	enum class ConflictClass {
+		UNKNOWN,       // No conflict information available
+		HOT_KEY,       // Conflict on frequently accessed key
+		CROSS_SHARD,   // Conflict spans multiple storage shards
+		TENANT_LOCAL   // Conflict within single tenant boundary
+	};
+	ConflictClass lastConflictClass = ConflictClass::UNKNOWN;
+	int consecutiveSameClassConflicts = 0;
+
 	Future<Void> startFuture;
 
 	// Only available so that Transaction can have a default constructor, for use in state variables

@@ -1236,6 +1236,8 @@ DatabaseContext::DatabaseContext(Reference<AsyncVar<Reference<IClusterConnection
     transactionsExpensiveClearCostEstCount("ExpensiveClearCostEstCount", cc),
     transactionGrvFullBatches("NumGrvFullBatches", cc), transactionGrvTimedOutBatches("NumGrvTimedOutBatches", cc),
     transactionCommitVersionNotFoundForSS("CommitVersionNotFoundForSS", cc),
+    transactionsConflictHotKey("ConflictHotKey", cc), transactionsConflictCrossShard("ConflictCrossShard", cc),
+    transactionsConflictTenantLocal("ConflictTenantLocal", cc),
 
     latencies(), readLatencies(), commitLatencies(), GRVLatencies(), mutationsPerCommit(), bytesPerCommit(),
     outstandingWatches(0), sharedStatePtr(nullptr), lastGrvTime(0.0), cachedReadVersion(0),
@@ -1540,7 +1542,9 @@ DatabaseContext::DatabaseContext(const Error& err)
     transactionsLockRejected("LockRejected", cc),
     transactionsExpensiveClearCostEstCount("ExpensiveClearCostEstCount", cc),
     transactionGrvFullBatches("NumGrvFullBatches", cc), transactionGrvTimedOutBatches("NumGrvTimedOutBatches", cc),
-    transactionCommitVersionNotFoundForSS("CommitVersionNotFoundForSS", cc), latencies(), readLatencies(),
+    transactionCommitVersionNotFoundForSS("CommitVersionNotFoundForSS", cc),
+    transactionsConflictHotKey("ConflictHotKey", cc), transactionsConflictCrossShard("ConflictCrossShard", cc),
+    transactionsConflictTenantLocal("ConflictTenantLocal", cc), latencies(), readLatencies(),
     commitLatencies(), GRVLatencies(), mutationsPerCommit(), bytesPerCommit(), sharedStatePtr(nullptr),
     transactionTracingSample(false), smoothMidShardSize(CLIENT_KNOBS->SHARD_STAT_SMOOTH_AMOUNT),
     connectToDatabaseEventCacheHolder(format("ConnectToDatabase/%s", dbId.toString().c_str())), outstandingWatches(0) {

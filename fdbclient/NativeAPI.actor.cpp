@@ -4320,6 +4320,29 @@ double Transaction::getBackoff(int errCode) {
 		}
 	}
 
+	// Apply adaptive backoff based on conflict classification
+	if (errCode == error_code_not_committed) {
+		double classMultiplier = 1.0;
+		switch (trState->lastConflictClass) {
+		case TransactionState::ConflictClass::HOT_KEY:
+			// Hot key conflicts benefit from longer backoff to reduce contention
+			classMultiplier = 1.5 + (trState->consecutiveSameClassConflicts * 0.5);
+			break;
+		case TransactionState::ConflictClass::CROSS_SHARD:
+			// Cross-shard conflicts may resolve quickly, use shorter backoff
+			classMultiplier = 0.7;
+			break;
+		case TransactionState::ConflictClass::TENANT_LOCAL:
+			// Tenant-local conflicts use moderate backoff
+			classMultiplier = 1.2;
+			break;
+		default:
+			classMultiplier = 1.0;
+			break;
+		}
+		returnedBackoff *= classMultiplier;
+	}
+
 	returnedBackoff *= deterministicRandom()->random01();
 
 	// Set backoff for next time
@@ -4931,13 +4954,62 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 						// Note: addReadConflictRange in native transaction object does not merge overlapped ranges
 						state std::unordered_set<int> mergedIds(conflictingKRIndices.begin(),
 						                                        conflictingKRIndices.end());
+
+						// Classify conflict type based on conflicting ranges
+						TransactionState::ConflictClass conflictClass = TransactionState::ConflictClass::UNKNOWN;
+						int totalRanges = mergedIds.size();
+						int crossShardIndicator = 0;
+
 						for (auto const& rCRIndex : mergedIds) {
 							const KeyRangeRef kr = req.transaction.read_conflict_ranges[rCRIndex];
 							const KeyRange krWithPrefix =
 							    KeyRangeRef(kr.begin.removePrefix(tenantPrefix).withPrefix(conflictingKeysRange.begin),
 							                kr.end.removePrefix(tenantPrefix).withPrefix(conflictingKeysRange.begin));
 							trState->conflictingKeys->insert(krWithPrefix, conflictingKeysTrue);
+
+							// Estimate shard boundary crossings based on key range size
+							if (kr.end.compare(kr.begin) > 1000) {
+								crossShardIndicator++;
+							}
 						}
+
+						// Classify conflict
+						if (totalRanges == 1 && crossShardIndicator == 0) {
+							conflictClass = TransactionState::ConflictClass::HOT_KEY;
+						} else if (crossShardIndicator > 0) {
+							conflictClass = TransactionState::ConflictClass::CROSS_SHARD;
+						} else if (trState->hasTenant()) {
+							conflictClass = TransactionState::ConflictClass::TENANT_LOCAL;
+						}
+
+						// Track consecutive conflicts of same class
+						if (conflictClass == trState->lastConflictClass) {
+							trState->consecutiveSameClassConflicts++;
+						} else {
+							trState->lastConflictClass = conflictClass;
+							trState->consecutiveSameClassConflicts = 1;
+						}
+
+						// Update database-level counters
+						switch (conflictClass) {
+						case TransactionState::ConflictClass::HOT_KEY:
+							++trState->cx->transactionsConflictHotKey;
+							break;
+						case TransactionState::ConflictClass::CROSS_SHARD:
+							++trState->cx->transactionsConflictCrossShard;
+							break;
+						case TransactionState::ConflictClass::TENANT_LOCAL:
+							++trState->cx->transactionsConflictTenantLocal;
+							break;
+						default:
+							break;
+						}
+
+						// Emit conflict classification trace event
+						TraceEvent(SevInfo, "TransactionConflictClassified")
+						    .detail("ConflictClass", (int)conflictClass)
+						    .detail("ConsecutiveCount", trState->consecutiveSameClassConflicts)
+						    .detail("TotalRanges", totalRanges);
 					}
 
 					if (debugID.present())

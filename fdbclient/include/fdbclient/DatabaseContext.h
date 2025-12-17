@@ -496,6 +496,9 @@ public:
 	Counter transactionGrvFullBatches;
 	Counter transactionGrvTimedOutBatches;
 	Counter transactionCommitVersionNotFoundForSS;
+	Counter transactionsConflictHotKey;
+	Counter transactionsConflictCrossShard;
+	Counter transactionsConflictTenantLocal;
 
 	DDSketch<double> latencies, readLatencies, commitLatencies, GRVLatencies, mutationsPerCommit, bytesPerCommit;
 
