@@ -773,6 +773,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( SECONDS_BEFORE_NO_FAILURE_DELAY,                  8 * 3600 );
 	init( MAX_TXS_SEND_MEMORY,                                   1e7 ); if( randomize && BUGGIFY ) MAX_TXS_SEND_MEMORY = 1e5;
 	init( MAX_RECOVERY_VERSIONS,           200 * VERSIONS_PER_SECOND );
+	init( PROXY_RECOVERY_VERSION_INCREMENT,      120 * VERSIONS_PER_SECOND );
+	init( TLOG_RECOVERY_VERSION_INCREMENT,       150 * VERSIONS_PER_SECOND );
+	init( STORAGE_RECOVERY_VERSION_INCREMENT,    180 * VERSIONS_PER_SECOND );
 	init( MAX_RECOVERY_TIME,                                    20.0 ); if( randomize && BUGGIFY ) MAX_RECOVERY_TIME = 1.0;
 	init( PROVISIONAL_START_DELAY,                               1.0 );
 	init( PROVISIONAL_MAX_DELAY,                                60.0 );

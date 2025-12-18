@@ -65,6 +65,19 @@ static std::set<int> const& normalClusterRecoveryErrors() {
 	return s;
 }
 
+static RecoveryFailureType determineRecoveryFailureType(Error const& err) {
+	if (err.code() == error_code_commit_proxy_failed || err.code() == error_code_grv_proxy_failed) {
+		return RecoveryFailureType::PROXY_FAILURE;
+	} else if (err.code() == error_code_tlog_stopped || err.code() == error_code_tlog_failed) {
+		return RecoveryFailureType::TLOG_FAILURE;
+	} else if (err.code() == error_code_coordinated_state_conflict ||
+	           err.code() == error_code_new_coordinators_timed_out) {
+		return RecoveryFailureType::COORDINATOR_FAILURE;
+	} else {
+		return RecoveryFailureType::OTHER;
+	}
+}
+
 ACTOR Future<Void> recoveryTerminateOnConflict(UID dbgid,
                                                Promise<Void> fullyRecovered,
                                                Future<Void> onConflict,
@@ -1230,11 +1243,29 @@ ACTOR Future<Void> readTransactionSystemState(Reference<ClusterRecoveryData> sel
 	if (self->lastEpochEnd == 0) {
 		self->recoveryTransactionVersion = 1;
 	} else {
+		int64_t versionIncrement;
 		if (self->forceRecovery) {
-			self->recoveryTransactionVersion = self->lastEpochEnd + SERVER_KNOBS->MAX_VERSIONS_IN_FLIGHT_FORCED;
+			versionIncrement = SERVER_KNOBS->MAX_VERSIONS_IN_FLIGHT_FORCED;
 		} else {
-			self->recoveryTransactionVersion = self->lastEpochEnd + SERVER_KNOBS->MAX_VERSIONS_IN_FLIGHT;
+			// Determine version increment based on failure type
+			RecoveryFailureType failureType = RecoveryFailureType::UNKNOWN;
+			// Check recent trace events to determine failure type
+			// For now, use a simplified heuristic based on existing state
+			if (self->configuration.regions.size() > 0) {
+				failureType = RecoveryFailureType::STORAGE_FAILURE;
+				versionIncrement = SERVER_KNOBS->STORAGE_RECOVERY_VERSION_INCREMENT;
+			} else {
+				// Default to proxy failure for other cases
+				failureType = RecoveryFailureType::PROXY_FAILURE;
+				versionIncrement = SERVER_KNOBS->PROXY_RECOVERY_VERSION_INCREMENT;
+			}
+
+			TraceEvent("RecoveryVersionIncrement", self->dbgid)
+			    .detail("FailureType", (int)failureType)
+			    .detail("VersionIncrement", versionIncrement);
 		}
+
+		self->recoveryTransactionVersion = self->lastEpochEnd + versionIncrement;
 
 		if (self->recoveryTransactionVersion < minRequiredCommitVersion)
 			self->recoveryTransactionVersion = minRequiredCommitVersion;

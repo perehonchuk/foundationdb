@@ -75,6 +75,19 @@
 
 #include "flow/actorcompiler.h" // This must be the last #include.
 
+static RecoveryFailureType determineRecoveryFailureType(Error const& err) {
+	if (err.code() == error_code_commit_proxy_failed || err.code() == error_code_grv_proxy_failed) {
+		return RecoveryFailureType::PROXY_FAILURE;
+	} else if (err.code() == error_code_tlog_stopped || err.code() == error_code_tlog_failed) {
+		return RecoveryFailureType::TLOG_FAILURE;
+	} else if (err.code() == error_code_coordinated_state_conflict ||
+	           err.code() == error_code_new_coordinators_timed_out) {
+		return RecoveryFailureType::COORDINATOR_FAILURE;
+	} else {
+		return RecoveryFailureType::OTHER;
+	}
+}
+
 ACTOR Future<Optional<Value>> getPreviousCoordinators(ClusterControllerData* self) {
 	state ReadYourWritesTransaction tr(self->db.db);
 	loop {
@@ -338,7 +351,11 @@ ACTOR Future<Void> clusterWatchDatabase(ClusterControllerData* cluster,
 			TraceEvent(SevWarn, "DetectedFailedRecovery", cluster->id).detail("OldMaster", iMaster.id());
 		} catch (Error& e) {
 			state Error err = e;
-			TraceEvent("CCWDB", cluster->id).errorUnsuppressed(e).detail("Master", iMaster.id());
+			RecoveryFailureType failureType = determineRecoveryFailureType(e);
+			TraceEvent("CCWDB", cluster->id)
+			    .errorUnsuppressed(e)
+			    .detail("Master", iMaster.id())
+			    .detail("FailureType", (int)failureType);
 			if (e.code() != error_code_actor_cancelled)
 				wait(delay(0.0));
 

@@ -41,6 +41,15 @@ enum class RecoveryState {
 	FULLY_RECOVERED = 9
 };
 
+enum class RecoveryFailureType {
+	UNKNOWN = 0,
+	PROXY_FAILURE = 1,
+	TLOG_FAILURE = 2,
+	STORAGE_FAILURE = 3,
+	COORDINATOR_FAILURE = 4,
+	OTHER = 5
+};
+
 namespace RecoveryStatus {
 enum RecoveryStatus {
 	reading_coordinated_state,
