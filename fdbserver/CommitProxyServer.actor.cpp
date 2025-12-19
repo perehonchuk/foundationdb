@@ -495,6 +495,18 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
+
+		// Sort transactions by priority (higher priority first)
+		if (batch.size() > 1) {
+			std::stable_sort(batch.begin(), batch.end(), [](const CommitTransactionRequest& a, const CommitTransactionRequest& b) {
+				return a.priority > b.priority;
+			});
+			TraceEvent("CommitBatchPrioritySorted")
+			    .detail("BatchSize", batch.size())
+			    .detail("HighestPriority", batch.front().priority)
+			    .detail("LowestPriority", batch.back().priority);
+		}
+
 		out.send({ std::move(batch), batchBytes });
 		lastBatch = now();
 	}
