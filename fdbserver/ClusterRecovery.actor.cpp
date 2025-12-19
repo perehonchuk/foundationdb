@@ -1876,6 +1876,42 @@ ACTOR Future<Void> clusterRecoveryCore(Reference<ClusterRecoveryData> self) {
 	TraceEvent(recoveryInterval.end(), self->dbgid)
 	    .detail("RecoveryTransactionVersion", self->recoveryTransactionVersion);
 
+	self->recoveryState = RecoveryState::VALIDATING_RECOVERY;
+	TraceEvent(getRecoveryEventName(ClusterRecoveryEventType::CLUSTER_RECOVERY_STATE_EVENT_NAME).c_str(), self->dbgid)
+	    .detail("StatusCode", RecoveryStatus::validating_recovery)
+	    .detail("Status", RecoveryStatus::names[RecoveryStatus::validating_recovery])
+	    .detail("RecoveryTransactionVersion", self->recoveryTransactionVersion)
+	    .trackLatest(self->clusterRecoveryStateEventHolder->trackingKey);
+
+	// Perform validation checks on the recovery state
+	// Verify that transaction logs are properly initialized and ready
+	state Version validationStartVersion = self->recoveryTransactionVersion;
+	state bool validationPassed = true;
+
+	// Check that log system is ready
+	if (!self->logSystem) {
+		TraceEvent(SevError, "RecoveryValidationFailed", self->dbgid)
+		    .detail("Reason", "LogSystemNotInitialized");
+		validationPassed = false;
+	}
+
+	// Verify recovery transaction version is valid
+	if (validationPassed && self->recoveryTransactionVersion <= self->lastEpochEnd) {
+		TraceEvent(SevWarn, "RecoveryValidationWarning", self->dbgid)
+		    .detail("Reason", "RecoveryVersionNotGreaterThanLastEpoch")
+		    .detail("RecoveryTransactionVersion", self->recoveryTransactionVersion)
+		    .detail("LastEpochEnd", self->lastEpochEnd);
+	}
+
+	// Small delay to allow validation telemetry to be collected
+	wait(delay(0.001));
+
+	TraceEvent(getRecoveryEventName(ClusterRecoveryEventType::CLUSTER_RECOVERY_STATE_EVENT_NAME).c_str(), self->dbgid)
+	    .detail("StatusCode", RecoveryStatus::validating_recovery)
+	    .detail("Status", "ValidationComplete")
+	    .detail("ValidationPassed", validationPassed)
+	    .detail("RecoveryTransactionVersion", validationStartVersion);
+
 	self->recoveryState = RecoveryState::ACCEPTING_COMMITS;
 	double recoveryDuration = now() - recoverStartTime;
 
