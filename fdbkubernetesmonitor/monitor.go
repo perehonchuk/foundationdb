@@ -55,10 +55,25 @@ const (
 	// The actual delay will be based on the observed errors and will increase until maxErrorBackoffSeconds is hit.
 	maxErrorBackoffSeconds = 60 * time.Second
 
+	// validationFailureBackoffSeconds is the backoff time when a process fails during health validation.
+	validationFailureBackoffSeconds = 120 * time.Second
+
 	// fdbClusterFilePath defines the default path to the fdb cluster file that contains the current connection string.
 	// This file is managed by the fdbserver processes itself and they will automatically update the file if the
 	// coordinators have changed.
 	fdbClusterFilePath = "/var/fdb/data/fdb.cluster"
+)
+
+// ProcessHealthState represents the health state of a process
+type ProcessHealthState int
+
+const (
+	// ProcessStateUnknown indicates the process health state is unknown
+	ProcessStateUnknown ProcessHealthState = iota
+	// ProcessStateValidating indicates the process is in health validation period
+	ProcessStateValidating
+	// ProcessStateHealthy indicates the process has passed health validation
+	ProcessStateHealthy
 )
 
 // monitor provides the main monitor loop
@@ -92,6 +107,12 @@ type monitor struct {
 	// will indicate that a process has a run loop but is not currently running
 	// the subprocess.
 	processIDs []int
+
+	// processHealthStates tracks the health validation state of each process.
+	processHealthStates []ProcessHealthState
+
+	// processHealthTimestamps tracks when each process entered its current health state.
+	processHealthTimestamps []time.Time
 
 	// mutex defines a mutex around working with configuration.
 	// This is used to synchronize access to local state like the active
@@ -128,6 +149,8 @@ func startMonitor(ctx context.Context, logger logr.Logger, configFile string, cu
 		customEnvironment:       customEnvironment,
 		processCount:            processCount,
 		processIDs:              make([]int, processCount+1),
+		processHealthStates:     make([]ProcessHealthState, processCount+1),
+		processHealthTimestamps: make([]time.Time, processCount+1),
 		currentContainerVersion: currentContainerVersion,
 	}
 
@@ -420,6 +443,7 @@ func (monitor *monitor) runProcess(processNumber int) {
 		logger.Info("Subprocess started", "PID", pid)
 
 		monitor.updateProcessID(processNumber, pid)
+		monitor.setProcessHealthState(processNumber, ProcessStateValidating)
 
 		if stdout != nil {
 			stdoutScanner := bufio.NewScanner(stdout)
@@ -439,6 +463,18 @@ func (monitor *monitor) runProcess(processNumber int) {
 			}()
 		}
 
+		// Start health validation monitoring in background
+		healthValidationSeconds := monitor.activeConfiguration.GetHealthValidationSeconds()
+		validationDone := make(chan bool, 1)
+		go func() {
+			time.Sleep(time.Duration(healthValidationSeconds) * time.Second)
+			if monitor.getProcessHealthState(processNumber) == ProcessStateValidating {
+				monitor.setProcessHealthState(processNumber, ProcessStateHealthy)
+				logger.Info("Process passed health validation", "PID", pid, "validationDurationSeconds", healthValidationSeconds)
+			}
+			validationDone <- true
+		}()
+
 		err = cmd.Wait()
 		if err != nil {
 			logger.Error(err, "Error from subprocess", "PID", pid)
@@ -450,12 +486,23 @@ func (monitor *monitor) runProcess(processNumber int) {
 
 		processDuration := time.Since(startTime)
 		logger.Info("Subprocess terminated", "exitCode", exitCode, "PID", pid, "lastExecutionDurationSeconds", processDuration.String())
+
+		healthState := monitor.getProcessHealthState(processNumber)
 		monitor.updateProcessID(processNumber, -1)
+		monitor.setProcessHealthState(processNumber, ProcessStateUnknown)
 
 		// Only backoff if the exit code is non-zero.
 		if exitCode != 0 {
-			backoffDuration := getBackoffDuration(errorCounter)
-			logger.Info("Backing off from restarting subprocess", "backoffDuration", backoffDuration.String(), "lastExecutionDurationSeconds", processDuration.String(), "errorCounter", errorCounter, "exitCode", exitCode)
+			var backoffDuration time.Duration
+			// If process failed during health validation, apply extended backoff
+			if healthState == ProcessStateValidating {
+				backoffDuration = validationFailureBackoffSeconds
+				monitor.metrics.registerValidationFailure(processNumber)
+				logger.Info("Process failed during health validation, applying extended backoff", "backoffDuration", backoffDuration.String(), "lastExecutionDurationSeconds", processDuration.String(), "exitCode", exitCode)
+			} else {
+				backoffDuration = getBackoffDuration(errorCounter)
+				logger.Info("Backing off from restarting subprocess", "backoffDuration", backoffDuration.String(), "lastExecutionDurationSeconds", processDuration.String(), "errorCounter", errorCounter, "exitCode", exitCode)
+			}
 			time.Sleep(backoffDuration)
 			errorCounter++
 		}
@@ -512,6 +559,21 @@ func (monitor *monitor) updateProcessID(processNumber int, pid int) {
 	monitor.mutex.Lock()
 	defer monitor.mutex.Unlock()
 	monitor.processIDs[processNumber] = pid
+}
+
+// setProcessHealthState updates the health state of a process and records the timestamp.
+func (monitor *monitor) setProcessHealthState(processNumber int, state ProcessHealthState) {
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+	monitor.processHealthStates[processNumber] = state
+	monitor.processHealthTimestamps[processNumber] = time.Now()
+}
+
+// getProcessHealthState returns the current health state of a process.
+func (monitor *monitor) getProcessHealthState(processNumber int) ProcessHealthState {
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+	return monitor.processHealthStates[processNumber]
 }
 
 // watchConfiguration detects changes to the monitor configuration file.

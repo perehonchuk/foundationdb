@@ -45,6 +45,12 @@ type ProcessConfiguration struct {
 
 	// Arguments provides the arguments to the process.
 	Arguments []Argument `json:"arguments,omitempty"`
+
+	// HealthValidationSeconds defines how long a process must run without
+	// crashing before it's considered healthy. During this validation period,
+	// if the process crashes, it will enter a longer backoff period.
+	// This defaults to 30 seconds if not specified.
+	HealthValidationSeconds *int `json:"healthValidationSeconds,omitempty"`
 }
 
 // Argument defines an argument to the process.
@@ -193,4 +199,13 @@ func (configuration *ProcessConfiguration) ShouldRunServers() bool {
 	}
 
 	return pointer.BoolDeref(configuration.RunServers, true)
+}
+
+// GetHealthValidationSeconds returns the health validation period in seconds.
+// This defaults to 30 seconds if not specified.
+func (configuration *ProcessConfiguration) GetHealthValidationSeconds() int {
+	if configuration == nil || configuration.HealthValidationSeconds == nil {
+		return 30
+	}
+	return *configuration.HealthValidationSeconds
 }

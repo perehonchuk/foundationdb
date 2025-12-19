@@ -43,6 +43,8 @@ const (
 	runningVersionMetricName = "running_version"
 	// desiredVersionMetricName represents the desired_version metric.
 	desiredVersionMetricName = "desired_version"
+	// validationFailureCountMetricName represents the validation_failure_count metric.
+	validationFailureCountMetricName = "validation_failure_count"
 )
 
 // metrics represents the custom prometheus metrics for the monitor.
@@ -59,6 +61,8 @@ type metrics struct {
 	runningVersion *prometheus.GaugeVec
 	// desiredVersion represents the desired running version of the binaries.
 	desiredVersion *prometheus.GaugeVec
+	// validationFailureCount represents the total number of process failures during health validation.
+	validationFailureCount *prometheus.CounterVec
 	// previousDesiredVersion keeps the previous seen desired version.
 	previousDesiredVersion string
 	// previousRunningVersion keeps the prvious seen running version.
@@ -91,6 +95,12 @@ func (metrics *metrics) registerProcessStartup(processNumber int, version string
 		metrics.runningVersion.With(prometheus.Labels{versionLabel: metrics.previousRunningVersion}).Set(0.0)
 	}
 	metrics.previousRunningVersion = version
+}
+
+// registerValidationFailure records a process failure during health validation.
+func (metrics *metrics) registerValidationFailure(processNumber int) {
+	castedProcessNumber := strconv.Itoa(processNumber)
+	metrics.validationFailureCount.With(prometheus.Labels{processLabel: castedProcessNumber}).Inc()
 }
 
 // registerMetrics will register the monitor metrics and returns a metrics struct to update the current metrics.
@@ -127,6 +137,12 @@ func registerMetrics(reg prometheus.Registerer) *metrics {
 			Name:      desiredVersionMetricName,
 			Help:      "The desired running version of the fdbserver processes started by this monitor.",
 		}, []string{versionLabel}),
+		validationFailureCount: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: prometheusNamespace,
+				Name:      validationFailureCountMetricName,
+				Help:      "Number of process failures during health validation period.",
+			}, []string{processLabel}),
 	}
 
 	reg.MustRegister(monitorMetrics.restartCount)
@@ -135,6 +151,7 @@ func registerMetrics(reg prometheus.Registerer) *metrics {
 	reg.MustRegister(monitorMetrics.startTimestamp)
 	reg.MustRegister(monitorMetrics.runningVersion)
 	reg.MustRegister(monitorMetrics.desiredVersion)
+	reg.MustRegister(monitorMetrics.validationFailureCount)
 
 	return monitorMetrics
 }
