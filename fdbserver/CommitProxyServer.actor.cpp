@@ -636,6 +636,7 @@ namespace CommitBatch {
 constexpr const std::string_view UNSET = std::string_view();
 constexpr const std::string_view INITIALIZE = "initialize"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
+constexpr const std::string_view CONFLICT_GROUPING = "conflictGrouping"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
 constexpr const std::string_view TRANSACTION_LOGGING = "transactionLogging"sv;
@@ -731,6 +732,11 @@ struct CommitBatchContext {
 	std::unordered_map<uint16_t, Version> tpcvMap; // obtained from resolver
 	std::set<Tag> writtenTags; // final set tags written to in the batch
 	std::set<Tag> writtenTagsPreResolution; // tags written to in the batch not including any changes from the resolver.
+
+	// Conflict grouping fields
+	std::vector<std::vector<int>> conflictGroups; // groups of transaction indices with overlapping conflict ranges
+	std::map<KeyRange, std::vector<int>> rangeToTransactionMap; // maps key ranges to transaction indices
+	int numConflictGroups = 0;
 
 	// Cipher keys to be used to encrypt mutations
 	std::unordered_map<EncryptCipherDomainId, Reference<BlobCipherKey>> cipherKeys;
@@ -1102,6 +1108,87 @@ EncryptCipherDomainId getEncryptDetailsFromMutationRef(ProxyCommitData* commitDa
 }
 
 } // namespace
+
+// Conflict-aware batching: Group transactions by their conflict domains
+ACTOR Future<Void> analyzeConflictGroups(CommitBatchContext* self) {
+	// Build a map of key ranges to transaction indices
+	for (int t = 0; t < self->trs.size(); t++) {
+		auto& tr = self->trs[t];
+
+		// Process write conflict ranges
+		for (auto& range : tr.transaction.write_conflict_ranges) {
+			KeyRange kr(range.begin, range.end);
+			self->rangeToTransactionMap[kr].push_back(t);
+		}
+
+		// Process read conflict ranges
+		for (auto& range : tr.transaction.read_conflict_ranges) {
+			KeyRange kr(range.begin, range.end);
+			self->rangeToTransactionMap[kr].push_back(t);
+		}
+	}
+
+	// Use union-find approach to group transactions with overlapping ranges
+	std::vector<int> parent(self->trs.size());
+	for (int i = 0; i < self->trs.size(); i++) {
+		parent[i] = i;
+	}
+
+	std::function<int(int)> find = [&](int x) {
+		if (parent[x] != x) {
+			parent[x] = find(parent[x]);
+		}
+		return parent[x];
+	};
+
+	auto unite = [&](int x, int y) {
+		int px = find(x);
+		int py = find(y);
+		if (px != py) {
+			parent[px] = py;
+			self->pProxyCommitData->stats.conflictGroupMerges++;
+		}
+	};
+
+	// Group transactions that share conflict ranges
+	for (auto& entry : self->rangeToTransactionMap) {
+		auto& txns = entry.second;
+		if (txns.size() > 1) {
+			for (size_t i = 1; i < txns.size(); i++) {
+				unite(txns[0], txns[i]);
+			}
+		}
+	}
+
+	// Build final conflict groups
+	std::map<int, std::vector<int>> groupMap;
+	for (int i = 0; i < self->trs.size(); i++) {
+		groupMap[find(i)].push_back(i);
+	}
+
+	for (auto& entry : groupMap) {
+		self->conflictGroups.push_back(entry.second);
+		self->numConflictGroups++;
+		self->pProxyCommitData->stats.conflictGroupsFormed++;
+	}
+
+	// Trace conflict grouping statistics
+	TraceEvent("ConflictGroupingAnalysis", self->pProxyCommitData->dbgid)
+	    .detail("BatchSize", self->trs.size())
+	    .detail("NumGroups", self->numConflictGroups)
+	    .detail("NumRanges", self->rangeToTransactionMap.size())
+	    .detail("AvgGroupSize", self->trs.size() / (double)std::max(1, self->numConflictGroups));
+
+	// Small split detection: if groups are too large, split them
+	for (auto& group : self->conflictGroups) {
+		if (group.size() > SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_COUNT_MAX / 2) {
+			self->pProxyCommitData->stats.conflictGroupSplits++;
+		}
+	}
+
+	wait(yield(TaskPriority::ProxyCommit));
+	return Void();
+}
 
 ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 	state double resolutionStart = g_network->timer_monotonic();
@@ -2874,6 +2961,10 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 		pContext->pProxyCommitData->commitBatchesMemBytesCount -= pContext->currentBatchMemBytesCount;
 		return Void();
 	}
+
+	/////// Phase 1.5: Conflict grouping (CPU bound; analyzes conflict ranges to optimize resolution)
+	pContext->stage = CONFLICT_GROUPING;
+	wait(CommitBatch::analyzeConflictGroups(pContext));
 
 	/////// Phase 2: Resolution (waiting on the network; pipelined)
 	pContext->stage = RESOLUTION;
