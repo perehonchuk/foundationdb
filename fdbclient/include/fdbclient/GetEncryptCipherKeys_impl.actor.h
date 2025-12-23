@@ -142,11 +142,31 @@ Future<std::unordered_map<EncryptCipherDomainId, Reference<BlobCipherKey>>> _get
 		throw encrypt_ops_error();
 	}
 
-	// Collect cached cipher keys.
+	// Collect cached cipher keys with early eviction validation.
+	int64_t currTS = (int64_t)now();
+	int64_t earlyEvictionThreshold = FLOW_KNOBS->ENCRYPT_KEY_REFRESH_INTERVAL / 2;
+
 	for (auto& domainId : domainIds) {
 		Reference<BlobCipherKey> cachedCipherKey = cipherKeyCache->getLatestCipherKey(domainId);
 		if (cachedCipherKey.isValid()) {
-			cipherKeys[domainId] = cachedCipherKey;
+			// New behavior: validate key is not nearing expiry/refresh thresholds
+			int64_t timeUntilRefresh = cachedCipherKey->getRefreshAtTS() - currTS;
+			int64_t timeUntilExpire = cachedCipherKey->getExpireAtTS() - currTS;
+			bool nearingRefresh = timeUntilRefresh < earlyEvictionThreshold;
+			bool nearingExpiry = timeUntilExpire < earlyEvictionThreshold;
+
+			// Skip keys that are approaching their rotation window
+			if (nearingRefresh || nearingExpiry) {
+				TraceEvent(SevDebug, "GetCipherKeys_EarlyEviction")
+				    .detail("DomainId", domainId)
+				    .detail("NearingRefresh", nearingRefresh)
+				    .detail("NearingExpiry", nearingExpiry)
+				    .detail("TimeUntilRefresh", timeUntilRefresh)
+				    .detail("TimeUntilExpire", timeUntilExpire);
+				request.encryptDomainIds.emplace_back(domainId);
+			} else {
+				cipherKeys[domainId] = cachedCipherKey;
+			}
 		} else {
 			request.encryptDomainIds.emplace_back(domainId);
 		}

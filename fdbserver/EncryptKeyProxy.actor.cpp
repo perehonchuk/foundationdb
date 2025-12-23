@@ -394,21 +394,42 @@ getLookupDetails(
 		}
 	}
 
+	int64_t currTS = (int64_t)now();
+	int64_t earlyEvictionThreshold = FLOW_KNOBS->ENCRYPT_KEY_REFRESH_INTERVAL / 2;
+
 	for (const auto& item : dedupedCipherInfos) {
 		const EncryptBaseCipherDomainIdKeyIdCacheKey cacheKey =
 		    ekpProxyData->getBaseCipherDomainIdKeyIdCacheKey(item.domainId, item.baseCipherId);
-		const auto itr = ekpProxyData->baseCipherDomainIdKeyIdCache.find(cacheKey);
-		if (itr != ekpProxyData->baseCipherDomainIdKeyIdCache.end() && !itr->second.isExpired()) {
-			keyIdsReply.baseCipherDetails.emplace_back(
-			    itr->second.domainId, itr->second.baseCipherId, itr->second.baseCipherKey, itr->second.baseCipherKCV);
-			numHits++;
+		auto itr = ekpProxyData->baseCipherDomainIdKeyIdCache.find(cacheKey);
+		if (itr != ekpProxyData->baseCipherDomainIdKeyIdCache.end()) {
+			// New behavior: early eviction if key will expire within threshold
+			int64_t timeUntilExpire = itr->second.expireAt - currTS;
+			bool nearingExpiry = timeUntilExpire < earlyEvictionThreshold;
 
-			if (dbgTrace.present()) {
-				// {encryptId, baseCipherId} forms a unique tuple across encryption domains
-				dbgTrace.get().detail(getEncryptDbgTraceKey(ENCRYPT_DBG_TRACE_CACHED_PREFIX,
-				                                            itr->second.domainId,
-				                                            itr->second.baseCipherId),
-				                      "");
+			if (nearingExpiry) {
+				TraceEvent(SevDebug, "EKP_EarlyEvictionById")
+				    .detail("DomainId", item.domainId)
+				    .detail("BaseCipherId", item.baseCipherId)
+				    .detail("TimeUntilExpire", timeUntilExpire);
+				ekpProxyData->baseCipherDomainIdKeyIdCache.erase(itr);
+				lookupCipherInfoMap.emplace(std::make_pair(item.domainId, item.baseCipherId), item);
+				continue;
+			}
+
+			if (!itr->second.isExpired()) {
+				keyIdsReply.baseCipherDetails.emplace_back(
+				    itr->second.domainId, itr->second.baseCipherId, itr->second.baseCipherKey, itr->second.baseCipherKCV);
+				numHits++;
+
+				if (dbgTrace.present()) {
+					// {encryptId, baseCipherId} forms a unique tuple across encryption domains
+					dbgTrace.get().detail(getEncryptDbgTraceKey(ENCRYPT_DBG_TRACE_CACHED_PREFIX,
+					                                            itr->second.domainId,
+					                                            itr->second.baseCipherId),
+					                      "");
+				}
+			} else {
+				lookupCipherInfoMap.emplace(std::make_pair(item.domainId, item.baseCipherId), item);
 			}
 		} else {
 			lookupCipherInfoMap.emplace(std::make_pair(item.domainId, item.baseCipherId), item);
@@ -531,26 +552,52 @@ std::unordered_set<EncryptCipherDomainId> getLookupDetailsLatest(
     int& numHits,
     std::unordered_set<EncryptCipherDomainId> dedupedDomainIds) {
 	std::unordered_set<EncryptCipherDomainId> lookupCipherDomainIds;
-	for (const auto domainId : dedupedDomainIds) {
-		const auto itr = ekpProxyData->baseCipherDomainIdCache.find(domainId);
-		if (itr != ekpProxyData->baseCipherDomainIdCache.end() && !itr->second.needsRefresh() &&
-		    !itr->second.isExpired()) {
-			latestCipherReply.baseCipherDetails.emplace_back(domainId,
-			                                                 itr->second.baseCipherId,
-			                                                 itr->second.baseCipherKey,
-			                                                 itr->second.baseCipherKCV,
-			                                                 itr->second.refreshAt,
-			                                                 itr->second.expireAt);
-			numHits++;
+	int64_t currTS = (int64_t)now();
+	int64_t earlyEvictionThreshold = FLOW_KNOBS->ENCRYPT_KEY_REFRESH_INTERVAL / 2;
 
-			if (dbgTrace.present()) {
-				// {encryptDomainId, baseCipherId} forms a unique tuple across encryption domains
-				dbgTrace.get().detail(getEncryptDbgTraceKeyWithTS(ENCRYPT_DBG_TRACE_CACHED_PREFIX,
-				                                                  domainId,
-				                                                  itr->second.baseCipherId,
-				                                                  itr->second.refreshAt,
-				                                                  itr->second.expireAt),
-				                      "");
+	for (const auto domainId : dedupedDomainIds) {
+		auto itr = ekpProxyData->baseCipherDomainIdCache.find(domainId);
+		if (itr != ekpProxyData->baseCipherDomainIdCache.end()) {
+			// New behavior: early eviction if key will expire/refresh within threshold
+			int64_t timeUntilRefresh = itr->second.refreshAt - currTS;
+			int64_t timeUntilExpire = itr->second.expireAt - currTS;
+			bool nearingRefresh = timeUntilRefresh < earlyEvictionThreshold;
+			bool nearingExpiry = timeUntilExpire < earlyEvictionThreshold;
+
+			// Evict keys early if they're approaching refresh/expiry thresholds
+			if (nearingRefresh || nearingExpiry) {
+				TraceEvent(SevDebug, "EKP_EarlyEviction")
+				    .detail("DomainId", domainId)
+				    .detail("NearingRefresh", nearingRefresh)
+				    .detail("NearingExpiry", nearingExpiry)
+				    .detail("TimeUntilRefresh", timeUntilRefresh)
+				    .detail("TimeUntilExpire", timeUntilExpire);
+				ekpProxyData->baseCipherDomainIdCache.erase(itr);
+				lookupCipherDomainIds.emplace(domainId);
+				continue;
+			}
+
+			// Standard validation: key must not need refresh and not be expired
+			if (!itr->second.needsRefresh() && !itr->second.isExpired()) {
+				latestCipherReply.baseCipherDetails.emplace_back(domainId,
+				                                                 itr->second.baseCipherId,
+				                                                 itr->second.baseCipherKey,
+				                                                 itr->second.baseCipherKCV,
+				                                                 itr->second.refreshAt,
+				                                                 itr->second.expireAt);
+				numHits++;
+
+				if (dbgTrace.present()) {
+					// {encryptDomainId, baseCipherId} forms a unique tuple across encryption domains
+					dbgTrace.get().detail(getEncryptDbgTraceKeyWithTS(ENCRYPT_DBG_TRACE_CACHED_PREFIX,
+					                                                  domainId,
+					                                                  itr->second.baseCipherId,
+					                                                  itr->second.refreshAt,
+					                                                  itr->second.expireAt),
+					                      "");
+				}
+			} else {
+				lookupCipherDomainIds.emplace(domainId);
 			}
 		} else {
 			lookupCipherDomainIds.emplace(domainId);
@@ -672,14 +719,21 @@ ACTOR Future<Void> getLatestCipherKeys(Reference<EncryptKeyProxyData> ekpProxyDa
 }
 
 bool isCipherKeyEligibleForRefresh(const EncryptBaseCipherKey& cipherKey, int64_t currTS) {
-	// Candidate eligible for refresh iff either is true:
+	// Enhanced proactive refresh logic with earlier rotation thresholds:
 	// 1. CipherKey cell is either expired/needs-refresh right now.
 	// 2. CipherKey cell 'will' be expired/needs-refresh before next refresh cycle interval (proactive refresh)
+	// 3. NEW: CipherKey is within half the refresh interval from expiry/refresh (aggressive batching)
 	if (BUGGIFY_WITH_PROB(0.01)) {
 		return true;
 	}
 	int64_t nextRefreshCycleTS = currTS + FLOW_KNOBS->ENCRYPT_KEY_REFRESH_INTERVAL;
-	return nextRefreshCycleTS > cipherKey.expireAt || nextRefreshCycleTS > cipherKey.refreshAt;
+	int64_t aggressiveThreshold = currTS + (FLOW_KNOBS->ENCRYPT_KEY_REFRESH_INTERVAL / 2);
+
+	// Check if key needs rotation now or in the near future
+	bool needsRotationSoon = nextRefreshCycleTS > cipherKey.expireAt || nextRefreshCycleTS > cipherKey.refreshAt;
+	bool nearingThreshold = aggressiveThreshold > cipherKey.expireAt || aggressiveThreshold > cipherKey.refreshAt;
+
+	return needsRotationSoon || nearingThreshold;
 }
 
 ACTOR Future<bool> getHealthStatusImpl(Reference<EncryptKeyProxyData> ekpProxyData,
