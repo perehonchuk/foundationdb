@@ -59,6 +59,8 @@ struct GrvProxyStats {
 	Counter txnThrottled;
 	Counter updatesFromRatekeeper;
 	Counter leaseTimeouts;
+	Counter priorityBatchesCreated;
+	Counter systemPriorityBatchesCreated;
 	int systemGRVQueueSize;
 	int defaultGRVQueueSize;
 	int batchGRVQueueSize;
@@ -144,7 +146,9 @@ struct GrvProxyStats {
 	    txnDefaultPriorityStartIn("TxnDefaultPriorityStartIn", cc),
 	    txnDefaultPriorityStartOut("TxnDefaultPriorityStartOut", cc), txnTagThrottlerIn("TxnTagThrottlerIn", cc),
 	    txnTagThrottlerOut("TxnTagThrottlerOut", cc), txnThrottled("TxnThrottled", cc),
-	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc), systemGRVQueueSize(0),
+	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc),
+	    priorityBatchesCreated("PriorityBatchesCreated", cc),
+	    systemPriorityBatchesCreated("SystemPriorityBatchesCreated", cc), systemGRVQueueSize(0),
 	    defaultGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
 	    batchTransactionRateAllowed(0), transactionLimit(0), batchTransactionLimit(0),
 	    percentageOfDefaultGRVQueueProcessed(0), percentageOfBatchGRVQueueProcessed(0), lastBatchQueueThrottled(false),
@@ -949,14 +953,16 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 		grvProxyData->stats.transactionLimit = normalRateInfo.getLimit();
 		grvProxyData->stats.batchTransactionLimit = batchRateInfo.getLimit();
 
-		int transactionsStarted[2] = { 0, 0 };
-		int systemTransactionsStarted[2] = { 0, 0 };
-		int defaultPriTransactionsStarted[2] = { 0, 0 };
-		int batchPriTransactionsStarted[2] = { 0, 0 };
+		int transactionsStarted[4] = { 0, 0, 0, 0 };
+		int systemTransactionsStarted[4] = { 0, 0, 0, 0 };
+		int defaultPriTransactionsStarted[4] = { 0, 0, 0, 0 };
+		int batchPriTransactionsStarted[4] = { 0, 0, 0, 0 };
 
-		std::vector<std::vector<GetReadVersionRequest>> start(
-		    2); // start[0] is transactions starting with !(flags&CAUSAL_READ_RISKY), start[1] is transactions starting
-		        // with flags&CAUSAL_READ_RISKY
+		// start[0] = system priority, causal risky
+		// start[1] = system priority, non-risky
+		// start[2] = default/batch priority, causal risky
+		// start[3] = default/batch priority, non-risky
+		std::vector<std::vector<GetReadVersionRequest>> start(4);
 		Optional<UID> debugID;
 
 		int requestsToStart = 0;
@@ -993,24 +999,33 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 				g_traceBatch.addAttach("TransactionAttachID", req.debugID.get().first(), debugID.get().first());
 			}
 
-			transactionsStarted[req.flags & 1] += tc;
+			// Calculate batch index based on priority and causal read flag
+			// System priority gets batches 0-1, default/batch get batches 2-3
+			int batchIndex;
+			if (req.priority >= TransactionPriority::IMMEDIATE) {
+				batchIndex = (req.flags & GetReadVersionRequest::FLAG_CAUSAL_READ_RISKY) ? 0 : 1;
+			} else {
+				batchIndex = (req.flags & GetReadVersionRequest::FLAG_CAUSAL_READ_RISKY) ? 2 : 3;
+			}
+
+			transactionsStarted[batchIndex] += tc;
 			double currentTime = g_network->timer();
 			if (req.priority >= TransactionPriority::IMMEDIATE) {
-				systemTransactionsStarted[req.flags & 1] += tc;
+				systemTransactionsStarted[batchIndex] += tc;
 				--grvProxyData->stats.systemGRVQueueSize;
 			} else if (req.priority >= TransactionPriority::DEFAULT) {
-				defaultPriTransactionsStarted[req.flags & 1] += tc;
+				defaultPriTransactionsStarted[batchIndex] += tc;
 				grvProxyData->stats.defaultTxnGRVTimeInQueue.addMeasurement(currentTime - req.requestTime());
 				--grvProxyData->stats.defaultGRVQueueSize;
 			} else {
-				batchPriTransactionsStarted[req.flags & 1] += tc;
+				batchPriTransactionsStarted[batchIndex] += tc;
 				grvProxyData->stats.batchTxnGRVTimeInQueue.addMeasurement(currentTime - req.requestTime());
 				--grvProxyData->stats.batchGRVQueueSize;
 			}
 			for (auto tag : req.tags) {
 				transactionTagCounter[tag.first] += tag.second;
 			}
-			start[req.flags & 1].push_back(std::move(req));
+			start[batchIndex].push_back(std::move(req));
 			static_assert(GetReadVersionRequest::FLAG_CAUSAL_READ_RISKY == 1, "Implementation dependent on flag value");
 			transactionQueue->pop_front();
 			requestsToStart++;
@@ -1050,11 +1065,15 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 		    .detail("TransactionBudget", transactionBudget)
 		    .detail("BatchTransactionBudget", batchTransactionBudget);*/
 
-		int systemTotalStarted = systemTransactionsStarted[0] + systemTransactionsStarted[1];
-		int normalTotalStarted = defaultPriTransactionsStarted[0] + defaultPriTransactionsStarted[1];
-		int batchTotalStarted = batchPriTransactionsStarted[0] + batchPriTransactionsStarted[1];
+		int systemTotalStarted = systemTransactionsStarted[0] + systemTransactionsStarted[1] +
+		                         systemTransactionsStarted[2] + systemTransactionsStarted[3];
+		int normalTotalStarted = defaultPriTransactionsStarted[0] + defaultPriTransactionsStarted[1] +
+		                         defaultPriTransactionsStarted[2] + defaultPriTransactionsStarted[3];
+		int batchTotalStarted = batchPriTransactionsStarted[0] + batchPriTransactionsStarted[1] +
+		                        batchPriTransactionsStarted[2] + batchPriTransactionsStarted[3];
 
-		transactionCount += transactionsStarted[0] + transactionsStarted[1];
+		transactionCount +=
+		    transactionsStarted[0] + transactionsStarted[1] + transactionsStarted[2] + transactionsStarted[3];
 		batchTransactionCount += batchTotalStarted;
 
 		normalRateInfo.endReleaseWindow(
@@ -1096,11 +1115,28 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 				                             midShardSize));
 
 				// Use normal priority transaction's GRV latency to dynamically calculate transaction batching interval.
-				if (i == 0) {
+				// Use batch 3 (default/batch priority, non-risky) for latency measurement
+				if (i == 3) {
 					addActor.send(timeReply(readVersionReply, normalGRVLatency));
 				}
 				defaultGRVProcessed += defaultPriTransactionsStarted[i];
 				batchGRVProcessed += batchPriTransactionsStarted[i];
+
+				// Trace priority-based batching for visibility
+				if (systemTransactionsStarted[i] > 0 || defaultPriTransactionsStarted[i] > 0 || batchPriTransactionsStarted[i] > 0) {
+					++grvProxyData->stats.priorityBatchesCreated;
+					if (i < 2) {
+						++grvProxyData->stats.systemPriorityBatchesCreated;
+					}
+					TraceEvent("GrvProxyPriorityBatch", grvProxyData->dbgid)
+					    .detail("BatchIndex", i)
+					    .detail("BatchType", i < 2 ? "SystemPriority" : "DefaultBatchPriority")
+					    .detail("CausalReadRisky", (i == 0 || i == 2) ? "Yes" : "No")
+					    .detail("SystemTransactions", systemTransactionsStarted[i])
+					    .detail("DefaultTransactions", defaultPriTransactionsStarted[i])
+					    .detail("BatchTransactions", batchPriTransactionsStarted[i])
+					    .detail("TotalInBatch", transactionsStarted[i]);
+				}
 			}
 		}
 
