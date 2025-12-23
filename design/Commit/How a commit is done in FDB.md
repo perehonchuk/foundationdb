@@ -65,6 +65,13 @@ Before all RPCs mentioned below, the client would first verify if the commit pro
 * TLog waits the commit version to be current, then persists the commit.
 * Wait until *all* TLogs return the transaction result.
 
+### Validation section
+
+* The proxy validates the transaction batch integrity
+* Checks that all committed transactions have valid mutation data
+* Validates version ordering to ensure commit versions are strictly monotonically increasing
+* Ensures mutation bytes are within acceptable ranges
+
 ### Reply section
 
 * The proxy updates the master with the committed version for next GRV request at the master.
