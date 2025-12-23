@@ -90,6 +90,10 @@ void GrvTransactionRateInfo::startReleaseWindow() {
 	//
 	// Limit can be negative in the event that we are releasing more transactions than we are allowed (due to the
 	// use of our budget or because of higher priority transactions).
+	//
+	// Note: This limit applies globally across all transaction priority levels. The GRV proxy implements
+	// priority-based batching which separates system priority transactions into isolated batches, but
+	// the rate limit budget is shared across all priorities.
 	double releaseRate = smoothRate.smoothTotal() - smoothReleased.smoothRate();
 	limit = rateWindow * releaseRate;
 }

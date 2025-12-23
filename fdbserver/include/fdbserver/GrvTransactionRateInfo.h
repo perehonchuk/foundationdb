@@ -33,6 +33,11 @@
 // Meanwhile, the desired rate is updated through the setRate method.
 //
 // Smoothers are used to avoid turbulent throttling behaviour.
+//
+// Note: The GRV proxy creates separate transaction batches based on priority level
+// (system vs default/batch) to isolate high-priority system transactions from user
+// transactions. Rate limiting applies across all priorities, but batching ensures
+// system priority transactions are processed independently.
 class GrvTransactionRateInfo {
 	double rateWindow{ 1.0 };
 	double maxEmptyQueueBudget{ 0.0 };
