@@ -215,6 +215,11 @@ struct ConsistencyScanState : public KeyBackedClass {
 		// Whether the scan finished, useful for history round stats.
 		bool complete = false;
 
+		// Whether the round is in validation phase
+		bool validating = false;
+		double validationStartTime = 0;
+		double validationEndTime = 0;
+
 		// Amount of FDB keyspace read, regardless of replication
 		int64_t logicalBytesScanned = 0;
 		// Actual amount of data read from shard replicas
@@ -244,6 +249,9 @@ struct ConsistencyScanState : public KeyBackedClass {
 			           lastProgressVersion,
 			           lastProgressTime,
 			           complete,
+			           validating,
+			           validationStartTime,
+			           validationEndTime,
 			           logicalBytesScanned,
 			           replicatedBytesRead,
 			           errorCount,
@@ -254,6 +262,7 @@ struct ConsistencyScanState : public KeyBackedClass {
 		json_spirit::mObject toJSON() const {
 			json_spirit::mObject doc;
 			doc["complete"] = complete;
+			doc["validating"] = validating;
 			doc["start_version"] = startVersion;
 			if (startTime != 0) {
 				doc["start_timestamp"] = startTime;
@@ -264,6 +273,16 @@ struct ConsistencyScanState : public KeyBackedClass {
 			if (endTime != 0) {
 				doc["end_timestamp"] = endTime;
 				doc["end_datetime"] = epochsToGMTString(endTime);
+			}
+
+			if (validationStartTime != 0) {
+				doc["validation_start_timestamp"] = validationStartTime;
+				doc["validation_start_datetime"] = epochsToGMTString(validationStartTime);
+			}
+
+			if (validationEndTime != 0) {
+				doc["validation_end_timestamp"] = validationEndTime;
+				doc["validation_end_datetime"] = epochsToGMTString(validationEndTime);
 			}
 
 			doc["last_progress_version"] = lastProgressVersion;

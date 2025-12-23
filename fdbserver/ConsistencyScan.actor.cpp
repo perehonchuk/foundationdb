@@ -798,6 +798,20 @@ ACTOR Future<Void> consistencyScanCore(Database db,
 					state bool noMoreRecords = statsCurrentRound.lastEndKey == allKeys.end;
 					state Optional<Error> failedRequest;
 
+					// If in validation phase, perform additional integrity checks
+					if (statsCurrentRound.validating && scanRange) {
+						// During validation, rescan from the beginning to verify data integrity
+						// Reset scan progress to perform validation scan
+						if (statsCurrentRound.lastEndKey == allKeys.end) {
+							statsCurrentRound.lastEndKey = allKeys.begin;
+							noMoreRecords = false;
+
+							TraceEvent("ConsistencyScan_ValidationRescanning", memState->csId)
+							    .detail("RoundStartVersion", statsCurrentRound.startVersion)
+							    .detail("RescanStartKey", statsCurrentRound.lastEndKey);
+						}
+					}
+
 					if (scanRange) {
 						// inject corruption if desired in simulation
 						if (g_network->isSimulated() &&
@@ -986,26 +1000,49 @@ ACTOR Future<Void> consistencyScanCore(Database db,
 						}
 					}
 
-					// If we reached the end of the database then end the round
+					// If we reached the end of the database then enter validation phase or complete the round
 					if (noMoreRecords) {
-						CODE_PROBE(true, "Consistency Scan completed a round");
-						// Complete the current round and write it to history
-						statsCurrentRound.endVersion = tr->getReadVersion().get();
-						statsCurrentRound.endTime = now();
-						statsCurrentRound.lastEndKey = Key();
-						statsCurrentRound.complete = true;
+						if (!statsCurrentRound.validating) {
+							CODE_PROBE(true, "Consistency Scan entering validation phase");
+							// Enter validation phase
+							statsCurrentRound.endVersion = tr->getReadVersion().get();
+							statsCurrentRound.endTime = now();
+							statsCurrentRound.lastEndKey = Key();
+							statsCurrentRound.validating = true;
+							statsCurrentRound.validationStartTime = now();
 
-						if (DEBUG_SCAN_PROGRESS) {
-							TraceEvent(SevDebug, "ConsistencyScanProgressRoundComplete", memState->csId)
-							    .detail("BytesRead", statsCurrentRound.logicalBytesScanned);
+							TraceEvent("ConsistencyScan_EnteringValidation", memState->csId)
+							    .detail("RoundStartVersion", statsCurrentRound.startVersion)
+							    .detail("BytesScanned", statsCurrentRound.logicalBytesScanned)
+							    .detail("ValidationStartTime", statsCurrentRound.validationStartTime);
+
+							if (DEBUG_SCAN_PROGRESS) {
+								TraceEvent(SevDebug, "ConsistencyScanProgressEnteringValidation", memState->csId)
+								    .detail("BytesRead", statsCurrentRound.logicalBytesScanned);
+							}
+						} else {
+							CODE_PROBE(true, "Consistency Scan completed validation and round");
+							// Validation phase complete, mark round as complete
+							statsCurrentRound.validationEndTime = now();
+							statsCurrentRound.complete = true;
+
+							TraceEvent("ConsistencyScan_ValidationComplete", memState->csId)
+							    .detail("RoundStartVersion", statsCurrentRound.startVersion)
+							    .detail("ValidationDuration", statsCurrentRound.validationEndTime - statsCurrentRound.validationStartTime)
+							    .detail("TotalRoundDuration", statsCurrentRound.endTime - statsCurrentRound.startTime);
+
+							if (DEBUG_SCAN_PROGRESS) {
+								TraceEvent(SevDebug, "ConsistencyScanProgressRoundComplete", memState->csId)
+								    .detail("BytesRead", statsCurrentRound.logicalBytesScanned);
+							}
+
+							// Return to main loop after this commit, but delay first for the difference between the time
+							// the round took and minRoundTimeSeconds
+							restartMainLoop = true;
+							delayBeforeMainLoopRestart = delay(std::max<double>(
+							    config.minRoundTimeSeconds - (statsCurrentRound.endTime - statsCurrentRound.startTime),
+							    0.0));
 						}
-
-						// Return to main loop after this commit, but delay first for the difference between the time
-						// the round took and minRoundTimeSeconds
-						restartMainLoop = true;
-						delayBeforeMainLoopRestart = delay(std::max<double>(
-						    config.minRoundTimeSeconds - (statsCurrentRound.endTime - statsCurrentRound.startTime),
-						    0.0));
 					}
 
 					// fmt::print("CONSISTENCY SCAN PROGRESS: {}\n",
