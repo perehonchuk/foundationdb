@@ -276,6 +276,18 @@ struct Traceable<Tenant> : std::true_type {
 FDB_BOOLEAN_PARAM(AllowInvalidTenantID);
 FDB_BOOLEAN_PARAM(ResolveDefaultTenant);
 
+enum class TransactionCommitPhase : uint8_t {
+	CREATED = 0,           // Transaction just created
+	READING = 1,           // Executing reads
+	WRITING = 2,           // Mutations added
+	VALIDATING = 3,        // Pre-commit validation in progress
+	PREPARING = 4,         // Preparing commit request
+	SUBMITTING = 5,        // Submitting to proxy
+	RESOLVING = 6,         // Waiting for conflict resolution
+	COMMITTED = 7,         // Successfully committed
+	FAILED = 8             // Failed to commit
+};
+
 struct TransactionState : ReferenceCounted<TransactionState> {
 	Database cx;
 	Future<Version> readVersionFuture;
@@ -307,6 +319,12 @@ struct TransactionState : ReferenceCounted<TransactionState> {
 	Promise<Standalone<StringRef>> versionstampPromise;
 
 	Version committedVersion{ invalidVersion };
+
+	// Track current phase of transaction commit lifecycle
+	TransactionCommitPhase currentPhase{ TransactionCommitPhase::CREATED };
+	double phaseStartTime = 0.0;
+	// Validation result from pre-commit phase
+	bool preCommitValidationPassed = false;
 
 	// Used to save conflicting keys if FDBTransactionOptions::REPORT_CONFLICTING_KEYS is enabled
 	// prefix/<key1> : '1' - any keys equal or larger than this key are (probably) conflicting keys

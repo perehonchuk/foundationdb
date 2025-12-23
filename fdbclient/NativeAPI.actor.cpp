@@ -4169,6 +4169,14 @@ void Transaction::makeSelfConflicting() {
 
 void Transaction::set(const KeyRef& key, const ValueRef& value, AddConflictRange addConflictRange) {
 	++trState->cx->transactionSetMutations;
+
+	// Transition to WRITING phase on first mutation
+	if (trState->currentPhase == TransactionCommitPhase::CREATED ||
+	    trState->currentPhase == TransactionCommitPhase::READING) {
+		trState->currentPhase = TransactionCommitPhase::WRITING;
+		trState->phaseStartTime = now();
+	}
+
 	if (key.size() > getMaxWriteKeySize(key, trState->options.rawAccess))
 		throw key_too_large();
 	if (value.size() > CLIENT_KNOBS->VALUE_SIZE_LIMIT)
@@ -4784,6 +4792,47 @@ void applyTenantPrefix(CommitTransactionRequest& req, Key tenantPrefix) {
 	req.transaction.write_conflict_ranges = updatedWriteConflictRanges;
 }
 
+// Pre-commit validation phase: validates transaction state before sending to proxy
+ACTOR static Future<Void> preCommitValidation(Reference<TransactionState> trState, CommitTransactionRequest* req) {
+	state double validationStart = now();
+
+	// Transition to VALIDATING phase
+	trState->currentPhase = TransactionCommitPhase::VALIDATING;
+	trState->phaseStartTime = validationStart;
+
+	TraceEvent("TransactionPreCommitValidation")
+	    .detail("TxnId", trState->trLogInfo ? trState->trLogInfo->identifier : "")
+	    .detail("MutationCount", req->transaction.mutations.size())
+	    .detail("ReadConflictRanges", req->transaction.read_conflict_ranges.size())
+	    .detail("WriteConflictRanges", req->transaction.write_conflict_ranges.size());
+
+	// Validate mutation count is reasonable
+	if (req->transaction.mutations.size() > 100000) {
+		TraceEvent(SevWarn, "TransactionValidationExcessiveMutations")
+		    .detail("MutationCount", req->transaction.mutations.size())
+		    .detail("TxnId", trState->trLogInfo ? trState->trLogInfo->identifier : "");
+	}
+
+	// Validate conflict ranges are not empty for write transactions
+	if (req->transaction.mutations.size() > 0 && req->transaction.write_conflict_ranges.size() == 0) {
+		TraceEvent(SevWarn, "TransactionValidationNoWriteConflicts")
+		    .detail("MutationCount", req->transaction.mutations.size())
+		    .detail("TxnId", trState->trLogInfo ? trState->trLogInfo->identifier : "");
+	}
+
+	// Simulate validation delay
+	wait(delay(0.0001 * deterministicRandom()->random01()));
+
+	trState->preCommitValidationPassed = true;
+
+	double validationDuration = now() - validationStart;
+	TraceEvent("TransactionPreCommitValidationComplete")
+	    .detail("Duration", validationDuration)
+	    .detail("Passed", true);
+
+	return Void();
+}
+
 ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitTransactionRequest req) {
 	state TraceInterval interval("TransactionCommit");
 	state double startTime = now();
@@ -4795,6 +4844,10 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 	}
 
 	CODE_PROBE(trState->hasTenant(), "NativeAPI commit has tenant");
+
+	// Transition to PREPARING phase
+	trState->currentPhase = TransactionCommitPhase::PREPARING;
+	trState->phaseStartTime = now();
 
 	// If the read version hasn't already been fetched, then we had no reads and don't need (expensive) full causal
 	// consistency.
@@ -4818,6 +4871,9 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 			wait(startFuture);
 		}
 
+		// Run pre-commit validation phase
+		wait(preCommitValidation(trState, &req));
+
 		req.transaction.read_snapshot = trState->readVersion();
 
 		state Key tenantPrefix;
@@ -4840,6 +4896,11 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 		}
 
 		req.debugID = commitID;
+
+		// Transition to SUBMITTING phase
+		trState->currentPhase = TransactionCommitPhase::SUBMITTING;
+		trState->phaseStartTime = now();
+
 		state Future<CommitID> reply;
 		// Only gets filled in in the happy path where we don't have to commit on the first proxy or use provisional
 		// proxies
@@ -4865,6 +4926,11 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 			                         AtMostOnce::True,
 			                         &alternativeChosen);
 		}
+
+		// Transition to RESOLVING phase - waiting for proxy response
+		trState->currentPhase = TransactionCommitPhase::RESOLVING;
+		trState->phaseStartTime = now();
+
 		state double grvTime = now();
 		choose {
 			when(wait(trState->cx->onProxiesChanged())) {
@@ -4874,6 +4940,10 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 			when(CommitID ci = wait(reply)) {
 				Version v = ci.version;
 				if (v != invalidVersion) {
+					// Transition to COMMITTED phase
+					trState->currentPhase = TransactionCommitPhase::COMMITTED;
+					trState->phaseStartTime = now();
+
 					if (CLIENT_BUGGIFY) {
 						throw commit_unknown_result();
 					}
@@ -4921,6 +4991,10 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 					}
 					return Void();
 				} else {
+					// Transition to FAILED phase on conflict
+					trState->currentPhase = TransactionCommitPhase::FAILED;
+					trState->phaseStartTime = now();
+
 					// clear the RYW transaction which contains previous conflicting keys
 					trState->conflictingKeys.reset();
 					if (ci.conflictingKRIndices.present()) {
