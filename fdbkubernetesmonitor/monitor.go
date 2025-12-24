@@ -59,6 +59,15 @@ const (
 	// This file is managed by the fdbserver processes itself and they will automatically update the file if the
 	// coordinators have changed.
 	fdbClusterFilePath = "/var/fdb/data/fdb.cluster"
+
+	// healthCheckInterval defines how often to check process health
+	healthCheckInterval = 30 * time.Second
+
+	// circuitBreakerThreshold defines how many consecutive failures before circuit breaker opens
+	circuitBreakerThreshold = 5
+
+	// circuitBreakerCooldownPeriod defines how long to wait before attempting to close circuit breaker
+	circuitBreakerCooldownPeriod = 5 * time.Minute
 )
 
 // monitor provides the main monitor loop
@@ -93,6 +102,10 @@ type monitor struct {
 	// the subprocess.
 	processIDs []int
 
+	// processHealthStates tracks the health state of each process including failure counts
+	// and circuit breaker status
+	processHealthStates map[int]*processHealthState
+
 	// mutex defines a mutex around working with configuration.
 	// This is used to synchronize access to local state like the active
 	// configuration and the process IDs from multiple goroutines.
@@ -113,6 +126,20 @@ type httpConfig struct {
 	listenAddr, certPath, keyPath, rootCaPath string
 }
 
+// processHealthState tracks the health status and circuit breaker state for a process
+type processHealthState struct {
+	// consecutiveFailures tracks the number of consecutive failures
+	consecutiveFailures int
+	// circuitBreakerOpen indicates if the circuit breaker is open (preventing restarts)
+	circuitBreakerOpen bool
+	// circuitBreakerOpenTime tracks when the circuit breaker was opened
+	circuitBreakerOpenTime time.Time
+	// lastHealthCheck tracks the last time the process health was checked
+	lastHealthCheck time.Time
+	// lastSuccessfulStart tracks the last time the process started successfully
+	lastSuccessfulStart time.Time
+}
+
 // startMonitor starts the monitor loop.
 func startMonitor(ctx context.Context, logger logr.Logger, configFile string, customEnvironment map[string]string, processCount int, promConfig httpConfig, enableDebug bool, currentContainerVersion api.Version, enableNodeWatcher bool) {
 	client, err := createPodClient(ctx, logger, enableNodeWatcher, setupCache)
@@ -128,10 +155,12 @@ func startMonitor(ctx context.Context, logger logr.Logger, configFile string, cu
 		customEnvironment:       customEnvironment,
 		processCount:            processCount,
 		processIDs:              make([]int, processCount+1),
+		processHealthStates:     make(map[int]*processHealthState),
 		currentContainerVersion: currentContainerVersion,
 	}
 
 	go func() { mon.watchPodTimestamps() }()
+	go func() { mon.watchProcessHealth() }()
 
 	mux := http.NewServeMux()
 	// Enable pprof endpoints for debugging purposes.
@@ -362,15 +391,30 @@ func (monitor *monitor) runProcess(processNumber int) {
 	// will be calculated.
 	var errorCounter int
 
+	// Initialize health state for this process
+	monitor.mutex.Lock()
+	if monitor.processHealthStates[processNumber] == nil {
+		monitor.processHealthStates[processNumber] = &processHealthState{}
+	}
+	monitor.mutex.Unlock()
+
 	for {
 		if !monitor.processRequired(processNumber) {
 			return
+		}
+
+		// Check if circuit breaker is open
+		if monitor.isCircuitBreakerOpen(processNumber) {
+			logger.Info("Circuit breaker is open, waiting for cooldown period")
+			time.Sleep(30 * time.Second)
+			continue
 		}
 
 		durationSinceLastStart := time.Since(startTime)
 		// If for more than 5 minutes no error have occurred we reset the error counter to reset the backoff time.
 		if durationSinceLastStart > 5*time.Minute {
 			errorCounter = 0
+			monitor.resetHealthState(processNumber)
 		}
 
 		arguments, err := monitor.activeConfiguration.GenerateArguments(processNumber, monitor.customEnvironment)
@@ -420,6 +464,7 @@ func (monitor *monitor) runProcess(processNumber int) {
 		logger.Info("Subprocess started", "PID", pid)
 
 		monitor.updateProcessID(processNumber, pid)
+		monitor.recordSuccessfulStart(processNumber)
 
 		if stdout != nil {
 			stdoutScanner := bufio.NewScanner(stdout)
@@ -456,6 +501,7 @@ func (monitor *monitor) runProcess(processNumber int) {
 		if exitCode != 0 {
 			backoffDuration := getBackoffDuration(errorCounter)
 			logger.Info("Backing off from restarting subprocess", "backoffDuration", backoffDuration.String(), "lastExecutionDurationSeconds", processDuration.String(), "errorCounter", errorCounter, "exitCode", exitCode)
+			monitor.recordFailure(processNumber)
 			time.Sleep(backoffDuration)
 			errorCounter++
 		}
@@ -651,5 +697,114 @@ func (monitor *monitor) watchPodTimestamps() {
 		if timestamp > monitor.lastConfigurationTime.Unix() {
 			monitor.loadConfiguration()
 		}
+	}
+}
+
+// watchProcessHealth periodically checks process health and manages circuit breaker states
+func (monitor *monitor) watchProcessHealth() {
+	ticker := time.NewTicker(healthCheckInterval)
+	defer ticker.Stop()
+
+	logger := monitor.logger.WithValues("area", "watchProcessHealth")
+
+	for range ticker.C {
+		monitor.mutex.Lock()
+		for processNumber, healthState := range monitor.processHealthStates {
+			if healthState == nil {
+				continue
+			}
+
+			// Check if circuit breaker should be attempted to close
+			if healthState.circuitBreakerOpen {
+				if time.Since(healthState.circuitBreakerOpenTime) > circuitBreakerCooldownPeriod {
+					logger.Info("Attempting to close circuit breaker after cooldown", "processNumber", processNumber)
+					healthState.circuitBreakerOpen = false
+					healthState.consecutiveFailures = 0
+					castedProcessNumber := strconv.Itoa(processNumber)
+					monitor.metrics.circuitBreakerStatus.With(prometheus.Labels{processLabel: castedProcessNumber}).Set(0.0)
+					monitor.metrics.consecutiveFailures.With(prometheus.Labels{processLabel: castedProcessNumber}).Set(0.0)
+				}
+			}
+
+			healthState.lastHealthCheck = time.Now()
+		}
+		monitor.mutex.Unlock()
+	}
+}
+
+// isCircuitBreakerOpen checks if the circuit breaker is open for a process
+func (monitor *monitor) isCircuitBreakerOpen(processNumber int) bool {
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+
+	healthState := monitor.processHealthStates[processNumber]
+	if healthState == nil {
+		return false
+	}
+
+	return healthState.circuitBreakerOpen
+}
+
+// recordFailure records a process failure and opens circuit breaker if threshold is reached
+func (monitor *monitor) recordFailure(processNumber int) {
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+
+	logger := monitor.logger.WithValues("processNumber", processNumber, "area", "recordFailure")
+
+	healthState := monitor.processHealthStates[processNumber]
+	if healthState == nil {
+		return
+	}
+
+	healthState.consecutiveFailures++
+	logger.Info("Process failure recorded", "consecutiveFailures", healthState.consecutiveFailures)
+
+	// Update metrics
+	castedProcessNumber := strconv.Itoa(processNumber)
+	monitor.metrics.consecutiveFailures.With(prometheus.Labels{processLabel: castedProcessNumber}).Set(float64(healthState.consecutiveFailures))
+
+	if healthState.consecutiveFailures >= circuitBreakerThreshold && !healthState.circuitBreakerOpen {
+		logger.Info("Circuit breaker threshold reached, opening circuit breaker", "threshold", circuitBreakerThreshold)
+		healthState.circuitBreakerOpen = true
+		healthState.circuitBreakerOpenTime = time.Now()
+		monitor.metrics.circuitBreakerStatus.With(prometheus.Labels{processLabel: castedProcessNumber}).Set(1.0)
+	}
+}
+
+// recordSuccessfulStart records a successful process start
+func (monitor *monitor) recordSuccessfulStart(processNumber int) {
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+
+	healthState := monitor.processHealthStates[processNumber]
+	if healthState == nil {
+		return
+	}
+
+	healthState.lastSuccessfulStart = time.Now()
+	healthState.consecutiveFailures = 0
+
+	// Update metrics
+	castedProcessNumber := strconv.Itoa(processNumber)
+	monitor.metrics.consecutiveFailures.With(prometheus.Labels{processLabel: castedProcessNumber}).Set(0.0)
+}
+
+// resetHealthState resets the health state for a process
+func (monitor *monitor) resetHealthState(processNumber int) {
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+
+	healthState := monitor.processHealthStates[processNumber]
+	if healthState == nil {
+		return
+	}
+
+	healthState.consecutiveFailures = 0
+	if healthState.circuitBreakerOpen {
+		monitor.logger.Info("Resetting circuit breaker", "processNumber", processNumber)
+		healthState.circuitBreakerOpen = false
+		castedProcessNumber := strconv.Itoa(processNumber)
+		monitor.metrics.circuitBreakerStatus.With(prometheus.Labels{processLabel: castedProcessNumber}).Set(0.0)
 	}
 }

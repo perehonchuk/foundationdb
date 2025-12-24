@@ -43,6 +43,10 @@ const (
 	runningVersionMetricName = "running_version"
 	// desiredVersionMetricName represents the desired_version metric.
 	desiredVersionMetricName = "desired_version"
+	// circuitBreakerStatusMetricName represents the circuit_breaker_status metric.
+	circuitBreakerStatusMetricName = "circuit_breaker_status"
+	// consecutiveFailuresMetricName represents the consecutive_failures metric.
+	consecutiveFailuresMetricName = "consecutive_failures"
 )
 
 // metrics represents the custom prometheus metrics for the monitor.
@@ -63,6 +67,10 @@ type metrics struct {
 	previousDesiredVersion string
 	// previousRunningVersion keeps the prvious seen running version.
 	previousRunningVersion string
+	// circuitBreakerStatus represents whether the circuit breaker is open (1) or closed (0) for each process.
+	circuitBreakerStatus *prometheus.GaugeVec
+	// consecutiveFailures tracks the number of consecutive failures for each process.
+	consecutiveFailures *prometheus.GaugeVec
 }
 
 // registerConfigurationChange will update the current prometheus metrics related to configuration changes.
@@ -127,6 +135,16 @@ func registerMetrics(reg prometheus.Registerer) *metrics {
 			Name:      desiredVersionMetricName,
 			Help:      "The desired running version of the fdbserver processes started by this monitor.",
 		}, []string{versionLabel}),
+		circuitBreakerStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: prometheusNamespace,
+			Name:      circuitBreakerStatusMetricName,
+			Help:      "Circuit breaker status for each process (1=open, 0=closed).",
+		}, []string{processLabel}),
+		consecutiveFailures: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: prometheusNamespace,
+			Name:      consecutiveFailuresMetricName,
+			Help:      "Number of consecutive failures for each process.",
+		}, []string{processLabel}),
 	}
 
 	reg.MustRegister(monitorMetrics.restartCount)
@@ -135,6 +153,8 @@ func registerMetrics(reg prometheus.Registerer) *metrics {
 	reg.MustRegister(monitorMetrics.startTimestamp)
 	reg.MustRegister(monitorMetrics.runningVersion)
 	reg.MustRegister(monitorMetrics.desiredVersion)
+	reg.MustRegister(monitorMetrics.circuitBreakerStatus)
+	reg.MustRegister(monitorMetrics.consecutiveFailures)
 
 	return monitorMetrics
 }
