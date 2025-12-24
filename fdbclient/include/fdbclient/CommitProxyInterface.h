@@ -479,14 +479,15 @@ struct SWIFT_CXX_IMPORT_OWNED GetRawCommittedVersionReply {
 	Optional<Value> metadataVersion;
 	Version minKnownCommittedVersion;
 	VersionVector ssVersionVectorDelta;
+	bool fromCache; // indicates if this version was served from cache
 
 	GetRawCommittedVersionReply()
 	  : debugID(Optional<UID>()), version(invalidVersion), locked(false), metadataVersion(Optional<Value>()),
-	    minKnownCommittedVersion(invalidVersion) {}
+	    minKnownCommittedVersion(invalidVersion), fromCache(false) {}
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, debugID, version, locked, metadataVersion, minKnownCommittedVersion, ssVersionVectorDelta);
+		serializer(ar, debugID, version, locked, metadataVersion, minKnownCommittedVersion, ssVersionVectorDelta, fromCache);
 	}
 };
 
@@ -496,16 +497,20 @@ struct SWIFT_CXX_IMPORT_OWNED GetRawCommittedVersionRequest {
 	Optional<UID> debugID;
 	ReplyPromise<GetRawCommittedVersionReply> reply;
 	Version maxVersion; // max version in the grv proxy's version vector cache
+	bool allowCachedVersion; // allows GRV proxy to return cached read version
 
 	explicit GetRawCommittedVersionRequest(SpanContext spanContext,
 	                                       Optional<UID> const& debugID = Optional<UID>(),
-	                                       Version maxVersion = invalidVersion)
-	  : spanContext(spanContext), debugID(debugID), maxVersion(maxVersion) {}
-	explicit GetRawCommittedVersionRequest() : spanContext(), debugID(), maxVersion(invalidVersion) {}
+	                                       Version maxVersion = invalidVersion,
+	                                       bool allowCachedVersion = true)
+	  : spanContext(spanContext), debugID(debugID), maxVersion(maxVersion),
+	    allowCachedVersion(allowCachedVersion) {}
+	explicit GetRawCommittedVersionRequest()
+	  : spanContext(), debugID(), maxVersion(invalidVersion), allowCachedVersion(true) {}
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, debugID, reply, spanContext, maxVersion);
+		serializer(ar, debugID, reply, spanContext, maxVersion, allowCachedVersion);
 	}
 };
 

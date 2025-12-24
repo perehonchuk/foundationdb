@@ -59,6 +59,8 @@ struct GrvProxyStats {
 	Counter txnThrottled;
 	Counter updatesFromRatekeeper;
 	Counter leaseTimeouts;
+	Counter grvCacheHits;
+	Counter grvCacheMisses;
 	int systemGRVQueueSize;
 	int defaultGRVQueueSize;
 	int batchGRVQueueSize;
@@ -144,7 +146,8 @@ struct GrvProxyStats {
 	    txnDefaultPriorityStartIn("TxnDefaultPriorityStartIn", cc),
 	    txnDefaultPriorityStartOut("TxnDefaultPriorityStartOut", cc), txnTagThrottlerIn("TxnTagThrottlerIn", cc),
 	    txnTagThrottlerOut("TxnTagThrottlerOut", cc), txnThrottled("TxnThrottled", cc),
-	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc), systemGRVQueueSize(0),
+	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc),
+	    grvCacheHits("GrvCacheHits", cc), grvCacheMisses("GrvCacheMisses", cc), systemGRVQueueSize(0),
 	    defaultGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
 	    batchTransactionRateAllowed(0), transactionLimit(0), batchTransactionLimit(0),
 	    percentageOfDefaultGRVQueueProcessed(0), percentageOfBatchGRVQueueProcessed(0), lastBatchQueueThrottled(false),
@@ -224,6 +227,11 @@ struct GrvProxyData {
 	// Cache of the latest commit versions of storage servers.
 	VersionVector ssVersionVectorCache;
 
+	// Read version caching mechanism
+	Version cachedReadVersion;
+	double cachedReadVersionTimestamp;
+	double readVersionCacheTTL; // Time-to-live in seconds
+
 	void updateLatencyBandConfig(Optional<LatencyBandConfig> newLatencyBandConfig) {
 		if (newLatencyBandConfig.present() != latencyBandConfig.present() ||
 		    (newLatencyBandConfig.present() &&
@@ -249,7 +257,8 @@ struct GrvProxyData {
 	    cx(openDBOnServer(db, TaskPriority::DefaultEndpoint, LockAware::True)), db(db), lastStartCommit(0),
 	    lastCommitLatency(SERVER_KNOBS->REQUIRED_MIN_RECOVERY_DURATION), updateCommitRequests(0), lastCommitTime(0),
 	    version(0), minKnownCommittedVersion(invalidVersion),
-	    tagThrottler(CLIENT_KNOBS->PROXY_MAX_TAG_THROTTLE_DURATION) {
+	    tagThrottler(CLIENT_KNOBS->PROXY_MAX_TAG_THROTTLE_DURATION), cachedReadVersion(invalidVersion),
+	    cachedReadVersionTimestamp(0.0), readVersionCacheTTL(0.050) {
 		if (SERVER_KNOBS->ENABLE_VERSION_VECTOR) {
 			versionVectorSizeOnGRVReply =
 			    std::make_unique<LatencySample>("VersionVectorSizeOnGRVReply",
@@ -630,6 +639,11 @@ ACTOR Future<Void> updateLastCommit(GrvProxyData* self, Optional<UID> debugID = 
 	self->updateCommitRequests--;
 	self->lastCommitLatency = now() - confirmStart;
 	self->lastCommitTime = std::max(self->lastCommitTime.get(), confirmStart);
+
+	// Invalidate cached read version since new commits have occurred
+	self->cachedReadVersion = invalidVersion;
+	self->cachedReadVersionTimestamp = 0.0;
+
 	return Void();
 }
 
@@ -673,10 +687,27 @@ ACTOR Future<GetReadVersionReply> getLiveCommittedVersion(std::vector<SpanContex
 	++grvProxyData->stats.txnStartBatch;
 
 	state double grvStart = now();
+
+	// Check if we can use cached read version
+	state bool usedCache = false;
+	if (grvProxyData->cachedReadVersion != invalidVersion &&
+	    (grvStart - grvProxyData->cachedReadVersionTimestamp) < grvProxyData->readVersionCacheTTL) {
+		// Use cached version
+		usedCache = true;
+		++grvProxyData->stats.grvCacheHits;
+		TraceEvent("GrvProxyUsingCachedVersion", grvProxyData->dbgid)
+		    .detail("CachedVersion", grvProxyData->cachedReadVersion)
+		    .detail("Age", grvStart - grvProxyData->cachedReadVersionTimestamp);
+	} else {
+		++grvProxyData->stats.grvCacheMisses;
+	}
+
 	state Future<GetRawCommittedVersionReply> replyFromMasterFuture;
-	replyFromMasterFuture = grvProxyData->master.getLiveCommittedVersion.getReply(
-	    GetRawCommittedVersionRequest(span.context, debugID, grvProxyData->ssVersionVectorCache.getMaxVersion()),
-	    TaskPriority::GetLiveCommittedVersionReply);
+	if (!usedCache) {
+		replyFromMasterFuture = grvProxyData->master.getLiveCommittedVersion.getReply(
+		    GetRawCommittedVersionRequest(span.context, debugID, grvProxyData->ssVersionVectorCache.getMaxVersion()),
+		    TaskPriority::GetLiveCommittedVersionReply);
+	}
 
 	if (!SERVER_KNOBS->ALWAYS_CAUSAL_READ_RISKY && !(flags & GetReadVersionRequest::FLAG_CAUSAL_READ_RISKY)) {
 		wait(transformError(updateLastCommit(grvProxyData, debugID), broken_promise(), tlog_failed()));
@@ -692,16 +723,31 @@ ACTOR Future<GetReadVersionReply> getLiveCommittedVersion(std::vector<SpanContex
 		    "TransactionDebug", debugID.get().first(), "GrvProxyServer.getLiveCommittedVersion.confirmEpochLive");
 	}
 
-	GetRawCommittedVersionReply repFromMaster =
-	    wait(transformError(replyFromMasterFuture, broken_promise(), master_failed()));
-	grvProxyData->version = std::max(grvProxyData->version, repFromMaster.version);
-	grvProxyData->minKnownCommittedVersion =
-	    std::max(grvProxyData->minKnownCommittedVersion, repFromMaster.minKnownCommittedVersion);
-	if (SERVER_KNOBS->ENABLE_VERSION_VECTOR) {
-		// TODO add to "status json"
-		grvProxyData->ssVersionVectorCache.applyDelta(repFromMaster.ssVersionVectorDelta);
+	state GetRawCommittedVersionReply repFromMaster;
+	if (!usedCache) {
+		GetRawCommittedVersionReply reply =
+		    wait(transformError(replyFromMasterFuture, broken_promise(), master_failed()));
+		repFromMaster = reply;
+		grvProxyData->version = std::max(grvProxyData->version, repFromMaster.version);
+		grvProxyData->minKnownCommittedVersion =
+		    std::max(grvProxyData->minKnownCommittedVersion, repFromMaster.minKnownCommittedVersion);
+		if (SERVER_KNOBS->ENABLE_VERSION_VECTOR) {
+			// TODO add to "status json"
+			grvProxyData->ssVersionVectorCache.applyDelta(repFromMaster.ssVersionVectorDelta);
+		}
+		grvProxyData->stats.grvGetCommittedVersionRpcDist->sampleSeconds(now() - grvConfirmEpochLive);
+
+		// Update cache with new version
+		grvProxyData->cachedReadVersion = repFromMaster.version;
+		grvProxyData->cachedReadVersionTimestamp = now();
+	} else {
+		// Use cached values
+		repFromMaster.version = grvProxyData->cachedReadVersion;
+		repFromMaster.locked = false;
+		repFromMaster.metadataVersion = grvProxyData->version;
+		repFromMaster.fromCache = true;
 	}
-	grvProxyData->stats.grvGetCommittedVersionRpcDist->sampleSeconds(now() - grvConfirmEpochLive);
+
 	GetReadVersionReply rep;
 	rep.version = repFromMaster.version;
 	rep.locked = repFromMaster.locked;
