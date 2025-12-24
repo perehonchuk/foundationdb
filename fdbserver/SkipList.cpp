@@ -816,6 +816,7 @@ struct TransactionInfo {
 	VectorRef<std::pair<int, int>> writeRanges;
 	bool tooOld;
 	bool reportConflictingKeys;
+	int priority; // Transaction priority for conflict resolution
 };
 
 bool ConflictBatch::ignoreTooOld() const {
@@ -836,6 +837,7 @@ void ConflictBatch::addTransaction(const CommitTransactionRef& tr, Version newOl
 	Arena& arena = transactionInfo.arena();
 	TransactionInfo* info = new (arena) TransactionInfo;
 	info->reportConflictingKeys = tr.report_conflicting_keys;
+	info->priority = tr.priority;
 	bool tooOld = tr.read_snapshot < newOldestVersion && tr.read_conflict_ranges.size();
 	if (tooOld && ignoreTooOld()) {
 		bugs->hit();
@@ -950,13 +952,26 @@ void ConflictBatch::checkIntraBatchConflicts() {
 		*points[p].pIndex = index++;
 
 	MiniConflictSet mcs(index);
+	std::vector<int> writingTransaction(index, -1); // Track which transaction wrote to each index
 	for (int t = 0; t < transactionInfo.size(); t++) {
 		const TransactionInfo& tr = *transactionInfo[t];
 		if (transactionConflictStatus[t])
 			continue;
 		bool conflict = tr.tooOld;
 		for (int i = 0; i < tr.readRanges.size(); i++) {
-			if (mcs.any(tr.readRanges[i].first, tr.readRanges[i].second)) {
+			// Check if this read range conflicts with any previous writes
+			bool hasConflict = false;
+			for (int idx = tr.readRanges[i].first; idx < tr.readRanges[i].second; idx++) {
+				if (mcs.any(idx, idx + 1)) {
+					int conflictingTxn = writingTransaction[idx];
+					// Priority-based conflict resolution: lower or equal priority loses
+					if (conflictingTxn >= 0 && transactionInfo[conflictingTxn]->priority > tr.priority) {
+						hasConflict = true;
+						break;
+					}
+				}
+			}
+			if (hasConflict || mcs.any(tr.readRanges[i].first, tr.readRanges[i].second)) {
 				if (tr.reportConflictingKeys) {
 					(*conflictingKeyRangeMap)[t].push_back(*resolveBatchReplyArena, i);
 				}
@@ -965,9 +980,15 @@ void ConflictBatch::checkIntraBatchConflicts() {
 			}
 		}
 		transactionConflictStatus[t] = conflict;
-		if (!conflict)
-			for (int i = 0; i < tr.writeRanges.size(); i++)
+		if (!conflict) {
+			for (int i = 0; i < tr.writeRanges.size(); i++) {
 				mcs.set(tr.writeRanges[i].first, tr.writeRanges[i].second);
+				// Record this transaction as the writer for priority checking
+				for (int idx = tr.writeRanges[i].first; idx < tr.writeRanges[i].second; idx++) {
+					writingTransaction[idx] = t;
+				}
+			}
+		}
 	}
 }
 

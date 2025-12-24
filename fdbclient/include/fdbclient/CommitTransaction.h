@@ -617,7 +617,7 @@ struct CommitTransactionRef {
 	  : read_conflict_ranges(a, from.read_conflict_ranges), write_conflict_ranges(a, from.write_conflict_ranges),
 	    mutations(a, from.mutations), read_snapshot(from.read_snapshot),
 	    report_conflicting_keys(from.report_conflicting_keys), lock_aware(from.lock_aware),
-	    spanContext(from.spanContext) {}
+	    spanContext(from.spanContext), priority(from.priority) {}
 
 	VectorRef<KeyRangeRef> read_conflict_ranges;
 	VectorRef<KeyRangeRef> write_conflict_ranges;
@@ -631,6 +631,7 @@ struct CommitTransactionRef {
 	bool report_conflicting_keys = false;
 	bool lock_aware = false; // set when metadata mutations are present
 	Optional<SpanContext> spanContext;
+	int priority = 0; // Transaction priority for conflict resolution (higher values win conflicts)
 
 	// set by Commit Proxy
 	// The tenants associated with this transaction. This field only existing
@@ -648,6 +649,7 @@ struct CommitTransactionRef {
 			           report_conflicting_keys,
 			           lock_aware,
 			           spanContext,
+			           priority,
 			           tenantIds);
 		} else {
 			serializer(
@@ -666,6 +668,7 @@ struct CommitTransactionRef {
 			if (ar.protocolVersion().hasOTELSpanContext()) {
 				serializer(ar, spanContext);
 			}
+			serializer(ar, priority);
 		}
 	}
 

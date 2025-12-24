@@ -4360,6 +4360,7 @@ void TransactionOptions::clear() {
 	tags = TagSet{};
 	readTags = TagSet{};
 	priority = TransactionPriority::DEFAULT;
+	conflictResolutionPriority = 0;
 	expensiveClearCostEstimation = false;
 	useGrvCache = false;
 	skipGrvCache = false;
@@ -5111,6 +5112,8 @@ Future<Void> Transaction::commitMutations() {
 		if (trState->options.reportConflictingKeys) {
 			tr.transaction.report_conflicting_keys = true;
 		}
+		// Set conflict resolution priority for resolver
+		tr.transaction.priority = trState->options.conflictResolutionPriority;
 
 		Future<Void> commitResult = tryCommit(trState, tr);
 

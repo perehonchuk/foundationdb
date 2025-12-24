@@ -173,6 +173,7 @@ struct TransactionOptions {
 	int requiredReplicas;
 
 	TransactionPriority priority;
+	int conflictResolutionPriority; // Numeric priority for resolver conflict ordering (higher wins)
 
 	TagSet tags; // All tags set on transaction
 	TagSet readTags; // Tags that can be sent with read requests
