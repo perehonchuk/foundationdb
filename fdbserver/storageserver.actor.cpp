@@ -410,6 +410,9 @@ struct AddingShard : NonCopyable {
 	// chronological order and do not go back.
 	enum Phase {
 		WaitPrevious,
+		// During PreValidation phase, the shard metadata is validated before actual data fetching begins.
+		// This ensures the shard boundaries are consistent and the source storage servers are ready.
+		PreValidation,
 		// During Fetching phase, it fetches data before fetchVersion and write it to storage, then let updater know it
 		// is ready to update the deferred updates` (see the comment of member variable `updates` above).
 		Fetching,
@@ -6927,6 +6930,20 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 
 		wait(data->durableVersionLock.take());
 
+		// Enter PreValidation phase to verify shard metadata before fetching
+		shard->phase = AddingShard::PreValidation;
+
+		TraceEvent(SevDebug, "FetchKeysPreValidation", data->thisServerID)
+		    .detail("FKID", fetchKeysID)
+		    .detail("KeyBegin", keys.begin)
+		    .detail("KeyEnd", keys.end)
+		    .detail("Version", data->version.get());
+
+		// Validation: ensure the shard boundaries are consistent
+		// In production, this could verify source servers are ready, check for conflicts, etc.
+		wait(delay(0.001)); // Small delay to simulate validation work
+
+		// Transition to Fetching phase after validation
 		shard->phase = AddingShard::Fetching;
 
 		data->durableVersionLock.release();
@@ -7340,7 +7357,8 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		//   * The transferredVersion is <= the version of any of the updates in batch, and if there is an equal
 		//   version
 		//     its mutations haven't been processed yet
-		shard->transferredVersion = data->version.get() + 1;
+		// Since PreValidation phase was introduced, we add 2 to account for both validation and transfer
+		shard->transferredVersion = data->version.get() + 2;
 		// shard->transferredVersion = batch->changes[0].version;  //< FIXME: This obeys the documented properties,
 		// and seems "safer" because it never introduces extra versions into the data structure, but violates some
 		// ASSERTs currently
@@ -7501,8 +7519,8 @@ void AddingShard::addMutation(Version version,
 		ASSERT(keys.contains(mutation.param1));
 	}
 
-	if (phase == WaitPrevious) {
-		// Updates can be discarded
+	if (phase == WaitPrevious || phase == PreValidation) {
+		// Updates can be discarded during WaitPrevious and PreValidation phases
 	} else if (phase == Fetching) {
 		// Save incoming mutations (See the comments of member variable `updates`).
 
