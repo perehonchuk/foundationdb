@@ -816,6 +816,7 @@ struct TransactionInfo {
 	VectorRef<std::pair<int, int>> writeRanges;
 	bool tooOld;
 	bool reportConflictingKeys;
+	uint32_t priority; // Priority for conflict resolution (higher wins)
 };
 
 bool ConflictBatch::ignoreTooOld() const {
@@ -836,6 +837,7 @@ void ConflictBatch::addTransaction(const CommitTransactionRef& tr, Version newOl
 	Arena& arena = transactionInfo.arena();
 	TransactionInfo* info = new (arena) TransactionInfo;
 	info->reportConflictingKeys = tr.report_conflicting_keys;
+	info->priority = tr.priority;
 	bool tooOld = tr.read_snapshot < newOldestVersion && tr.read_conflict_ranges.size();
 	if (tooOld && ignoreTooOld()) {
 		bugs->hit();
@@ -950,24 +952,45 @@ void ConflictBatch::checkIntraBatchConflicts() {
 		*points[p].pIndex = index++;
 
 	MiniConflictSet mcs(index);
+	std::vector<uint32_t> committedPriorities(transactionInfo.size(), 0);
+
 	for (int t = 0; t < transactionInfo.size(); t++) {
 		const TransactionInfo& tr = *transactionInfo[t];
 		if (transactionConflictStatus[t])
 			continue;
 		bool conflict = tr.tooOld;
+		uint32_t maxConflictingPriority = 0;
 		for (int i = 0; i < tr.readRanges.size(); i++) {
 			if (mcs.any(tr.readRanges[i].first, tr.readRanges[i].second)) {
+				// Check if any committed transaction in this range has higher priority
+				for (int ct = 0; ct < t; ct++) {
+					if (!transactionConflictStatus[ct] && committedPriorities[ct] > 0) {
+						const TransactionInfo& committedTr = *transactionInfo[ct];
+						// Check if committed transaction's write ranges overlap with our read range
+						for (int w = 0; w < committedTr.writeRanges.size(); w++) {
+							if (!(committedTr.writeRanges[w].second <= tr.readRanges[i].first ||
+							      committedTr.writeRanges[w].first >= tr.readRanges[i].second)) {
+								maxConflictingPriority = std::max(maxConflictingPriority, committedTr.priority);
+							}
+						}
+					}
+				}
 				if (tr.reportConflictingKeys) {
 					(*conflictingKeyRangeMap)[t].push_back(*resolveBatchReplyArena, i);
 				}
-				conflict = true;
+				// Only mark as conflict if our priority is not higher than conflicting transactions
+				if (tr.priority <= maxConflictingPriority) {
+					conflict = true;
+				}
 				break;
 			}
 		}
 		transactionConflictStatus[t] = conflict;
-		if (!conflict)
+		if (!conflict) {
+			committedPriorities[t] = tr.priority;
 			for (int i = 0; i < tr.writeRanges.size(); i++)
 				mcs.set(tr.writeRanges[i].first, tr.writeRanges[i].second);
+		}
 	}
 }
 

@@ -165,6 +165,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsAccepted;
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
+	Counter transactionsPriorityWins;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -201,6 +202,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    resolvedWriteConflictRanges("ResolvedWriteConflictRanges", cc),
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
 	    transactionsConflicted("TransactionsConflicted", cc),
+	    transactionsPriorityWins("TransactionsPriorityWins", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
