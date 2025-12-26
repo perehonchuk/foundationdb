@@ -5142,6 +5142,23 @@ ACTOR Future<Void> commitAndWatch(Transaction* self) {
 		self->getDatabase()->transactionTracingSample =
 		    (self->getCommittedVersion() % 60000000) < (60000000 * FLOW_KNOBS->TRACING_SAMPLE_RATE);
 
+		// Handle circuit breaker state on successful commit
+		if (CLIENT_KNOBS->ENABLE_TRANSACTION_CIRCUIT_BREAKER) {
+			if (self->trState->circuitState == TransactionState::CircuitBreakerState::HALF_OPEN) {
+				self->trState->halfOpenSuccesses++;
+				if (self->trState->halfOpenSuccesses >= CLIENT_KNOBS->CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD) {
+					// Enough successes in HALF_OPEN -> close circuit
+					self->trState->circuitState = TransactionState::CircuitBreakerState::CLOSED;
+					self->trState->consecutiveErrors = 0;
+					TraceEvent("TransactionCircuitBreakerClosed")
+					    .detail("TransactionID", self->trState->spanContext.traceID);
+				}
+			} else if (self->trState->circuitState == TransactionState::CircuitBreakerState::CLOSED) {
+				// Reset error counter on success
+				self->trState->consecutiveErrors = 0;
+			}
+		}
+
 		if (!self->watches.empty()) {
 			self->setupWatches();
 		}
@@ -6028,6 +6045,28 @@ Future<Void> Transaction::onError(Error const& e) {
 	if (e.code() == error_code_success) {
 		return client_invalid_operation();
 	}
+
+	// Circuit breaker logic
+	if (CLIENT_KNOBS->ENABLE_TRANSACTION_CIRCUIT_BREAKER) {
+		double now = ::now();
+
+		// Check if circuit is OPEN
+		if (trState->circuitState == TransactionState::CircuitBreakerState::OPEN) {
+			if (now - trState->circuitOpenedAt >= CLIENT_KNOBS->CIRCUIT_BREAKER_TIMEOUT) {
+				// Transition to HALF_OPEN state
+				trState->circuitState = TransactionState::CircuitBreakerState::HALF_OPEN;
+				trState->halfOpenSuccesses = 0;
+				TraceEvent("TransactionCircuitBreakerHalfOpen").detail("TransactionID", trState->spanContext.traceID);
+			} else {
+				// Circuit is still open, fail fast
+				TraceEvent("TransactionCircuitBreakerOpen")
+				    .detail("TransactionID", trState->spanContext.traceID)
+				    .detail("TimeRemaining", CLIENT_KNOBS->CIRCUIT_BREAKER_TIMEOUT - (now - trState->circuitOpenedAt));
+				return transaction_cancelled();
+			}
+		}
+	}
+
 	if (e.code() == error_code_not_committed || e.code() == error_code_commit_unknown_result ||
 	    e.code() == error_code_database_locked || e.code() == error_code_commit_proxy_memory_limit_exceeded ||
 	    e.code() == error_code_grv_proxy_memory_limit_exceeded || e.code() == error_code_process_behind ||
@@ -6052,6 +6091,27 @@ Future<Void> Transaction::onError(Error const& e) {
 			trState->proxyTagThrottledDuration += CLIENT_KNOBS->PROXY_MAX_TAG_THROTTLE_DURATION;
 		} else if (e.code() == error_code_transaction_rejected_range_locked) {
 			++trState->cx->transactionsLockRejected;
+		}
+
+		// Update circuit breaker state on retriable errors
+		if (CLIENT_KNOBS->ENABLE_TRANSACTION_CIRCUIT_BREAKER) {
+			trState->consecutiveErrors++;
+			if (trState->circuitState == TransactionState::CircuitBreakerState::HALF_OPEN) {
+				// Failure in HALF_OPEN state -> reopen circuit
+				trState->circuitState = TransactionState::CircuitBreakerState::OPEN;
+				trState->circuitOpenedAt = ::now();
+				TraceEvent("TransactionCircuitBreakerReopened")
+				    .detail("TransactionID", trState->spanContext.traceID)
+				    .detail("ErrorCode", e.code());
+			} else if (trState->circuitState == TransactionState::CircuitBreakerState::CLOSED &&
+			           trState->consecutiveErrors >= CLIENT_KNOBS->CIRCUIT_BREAKER_ERROR_THRESHOLD) {
+				// Too many consecutive errors -> open circuit
+				trState->circuitState = TransactionState::CircuitBreakerState::OPEN;
+				trState->circuitOpenedAt = ::now();
+				TraceEvent("TransactionCircuitBreakerOpened")
+				    .detail("TransactionID", trState->spanContext.traceID)
+				    .detail("ConsecutiveErrors", trState->consecutiveErrors);
+			}
 		}
 
 		double backoff = getBackoff(e.code());

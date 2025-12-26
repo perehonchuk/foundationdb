@@ -68,6 +68,10 @@ void ClientKnobs::initialize(Randomize randomize) {
 	init( DEFAULT_MAX_BACKOFF,                     1.0 );
 	init( BACKOFF_GROWTH_RATE,                     2.0 );
 	init( RESOURCE_CONSTRAINED_MAX_BACKOFF,       30.0 );
+	init( ENABLE_TRANSACTION_CIRCUIT_BREAKER,     true );
+	init( CIRCUIT_BREAKER_ERROR_THRESHOLD,           5 );
+	init( CIRCUIT_BREAKER_TIMEOUT,                10.0 );
+	init( CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD, 3.0 );
 	init( PROXY_COMMIT_OVERHEAD_BYTES,              23 ); //The size of serializing 7 tags (3 primary, 3 remote, 1 log router) + 2 for the tag length
 	init( SHARD_STAT_SMOOTH_AMOUNT,                5.0 );
 	init( INIT_MID_SHARD_BYTES,               10000000 ); if( randomize && BUGGIFY ) INIT_MID_SHARD_BYTES = 40000; else if(randomize && BUGGIFY_WITH_PROB(0.75)) INIT_MID_SHARD_BYTES = 200000; // The same value as SERVER_KNOBS->MIN_SHARD_BYTES

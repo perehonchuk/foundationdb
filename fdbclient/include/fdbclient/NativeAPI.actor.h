@@ -317,6 +317,13 @@ struct TransactionState : ReferenceCounted<TransactionState> {
 
 	Future<Void> startFuture;
 
+	// Circuit breaker state
+	enum class CircuitBreakerState { CLOSED, OPEN, HALF_OPEN };
+	CircuitBreakerState circuitState = CircuitBreakerState::CLOSED;
+	int consecutiveErrors = 0;
+	double circuitOpenedAt = 0.0;
+	int halfOpenSuccesses = 0;
+
 	// Only available so that Transaction can have a default constructor, for use in state variables
 	TransactionState(TaskPriority taskID, SpanContext spanContext)
 	  : taskID(taskID), spanContext(spanContext), tenantSet(false) {}
