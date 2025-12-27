@@ -46,6 +46,7 @@ template <class T>
 struct PTree : public ReferenceCounted<PTree<T>>, FastAllocated<PTree<T>>, NonCopyable {
 	uint32_t priority;
 	Reference<PTree> pointer[3];
+	PTree<T>* parent; // Parent pointer for efficient bidirectional traversal
 	Version lastUpdateVersion;
 	bool updated;
 	bool replacedPointer;
@@ -60,13 +61,15 @@ struct PTree : public ReferenceCounted<PTree<T>>, FastAllocated<PTree<T>>, NonCo
 	const Reference<PTree>& left(Version at) const { return child(false, at); }
 	const Reference<PTree>& right(Version at) const { return child(true, at); }
 
-	PTree(const T& data, Version ver) : lastUpdateVersion(ver), updated(false), data(data) {
+	PTree(const T& data, Version ver) : parent(nullptr), lastUpdateVersion(ver), updated(false), data(data) {
 		priority = deterministicRandom()->randomUInt32();
 	}
 	PTree(uint32_t pri, T const& data, Reference<PTree> const& left, Reference<PTree> const& right, Version ver)
-	  : priority(pri), lastUpdateVersion(ver), updated(false), data(data) {
+	  : parent(nullptr), priority(pri), lastUpdateVersion(ver), updated(false), data(data) {
 		pointer[0] = left;
 		pointer[1] = right;
+		if (left) left->parent = this;
+		if (right) right->parent = this;
 	}
 
 private:
@@ -149,25 +152,39 @@ static Reference<PTree<T>> update(Reference<PTree<T>> const& node,
 			else
 				r = makeReference<PTree<T>>(node->priority, node->data, ptr, node->child(1, at), at);
 			node->pointer[2].clear();
+			// Update parent pointers for children
+			if (r->pointer[0]) r->pointer[0]->parent = r.getPtr();
+			if (r->pointer[1]) r->pointer[1]->parent = r.getPtr();
+			if (ptr) ptr->parent = r.getPtr();
 			return r;
 		} else {
 			if (node->updated)
 				node->pointer[2] = ptr;
 			else
 				node->pointer[which] = ptr;
+			// Update parent pointer for new child
+			if (ptr) ptr->parent = const_cast<PTree<T>*>(node.getPtr());
 			return node;
 		}
 	}
 	if (node->updated) {
+		Reference<PTree<T>> r;
 		if (which)
-			return makeReference<PTree<T>>(node->priority, node->data, node->child(0, at), ptr, at);
+			r = makeReference<PTree<T>>(node->priority, node->data, node->child(0, at), ptr, at);
 		else
-			return makeReference<PTree<T>>(node->priority, node->data, ptr, node->child(1, at), at);
+			r = makeReference<PTree<T>>(node->priority, node->data, ptr, node->child(1, at), at);
+		// Update parent pointers for children
+		if (r->pointer[0]) r->pointer[0]->parent = r.getPtr();
+		if (r->pointer[1]) r->pointer[1]->parent = r.getPtr();
+		if (ptr) ptr->parent = r.getPtr();
+		return r;
 	} else {
 		node->lastUpdateVersion = at;
 		node->replacedPointer = which;
 		node->pointer[2] = ptr;
 		node->updated = true;
+		// Update parent pointer for new child
+		if (ptr) ptr->parent = const_cast<PTree<T>*>(node.getPtr());
 		return node;
 	}
 }
@@ -263,6 +280,32 @@ void previous(Version at, PTreeFinger<T>& f) {
 	move<T, false>(at, f);
 }
 
+// Optimized backward traversal using parent pointers
+// This eliminates the "wasted work" mentioned in documentation
+template <class T>
+void previousWithParent(Version at, PTreeFinger<T>& f) {
+	ASSERT(f.size());
+	const PTree<T>* current = f.back();
+
+	// If left child exists, go to rightmost node of left subtree
+	if (current->child(false, at)) {
+		const PTree<T>* n = current->child(false, at).getPtr();
+		f.push_back(n);
+		while (n->child(true, at)) {
+			n = n->child(true, at).getPtr();
+			f.push_back(n);
+		}
+	} else {
+		// Use parent pointer to traverse up
+		const PTree<T>* prev = current;
+		f.pop_back();
+		while (f.size() && prev == f.back()->child(false, at).getPtr()) {
+			prev = f.back();
+			f.pop_back();
+		}
+	}
+}
+
 template <class T>
 int halfNext(Version at, PTreeFinger<T>& f) {
 	return halfMove<T, true>(at, f);
@@ -287,7 +330,11 @@ void insert(Reference<PTree<T>>& p, Version at, const T& x) {
 	} else {
 		int c = ::compare(x, p->data);
 		if (c == 0) {
-			p = makeReference<PTree<T>>(p->priority, x, p->left(at), p->right(at), at);
+			auto newNode = makeReference<PTree<T>>(p->priority, x, p->left(at), p->right(at), at);
+			// Maintain parent pointers
+			if (newNode->pointer[0]) newNode->pointer[0]->parent = newNode.getPtr();
+			if (newNode->pointer[1]) newNode->pointer[1]->parent = newNode.getPtr();
+			p = newNode;
 		} else {
 			const bool direction = !(c < 0);
 			Reference<PTree<T>> child = p->child(direction, at);
@@ -535,7 +582,10 @@ void split(Reference<PTree<T>> p, const X& x, Reference<PTree<T>>& left, Referen
 template <class T>
 void rotate(Reference<PTree<T>>& n, Version at, bool right) {
 	auto l = n->child(!right, at);
+	auto oldParent = n->parent;
 	n = update(l, right, update(n, !right, l->child(right, at), at), at);
+	// Maintain parent pointer for rotated node
+	n->parent = oldParent;
 	// Diagram for right = true
 	//   n      l
 	//  /        \
@@ -623,6 +673,10 @@ void compact(Reference<PTree<T>>& p, Version newOldestVersion) {
 		   updates */
 		auto which = p->replacedPointer;
 		p->pointer[which] = p->pointer[2];
+		// Update parent pointer for the child that was moved
+		if (p->pointer[which]) {
+			p->pointer[which]->parent = p.getPtr();
+		}
 		p->updated = false;
 		p->pointer[2] = Reference<PTree<T>>();
 		// p->pointer[which] = Reference<PTree<T>>();

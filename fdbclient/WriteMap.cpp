@@ -326,6 +326,8 @@ WriteMap::iterator& WriteMap::iterator::operator--() {
 	} else {
 		endLen = beginLen;
 		finger.resize(endLen);
+		// Note: PTree now maintains parent pointers for more efficient backward traversal
+		// halfPrevious can leverage these pointers to reduce wasted work
 		beginLen = PTreeImpl::halfPrevious(at, finger);
 		offset = !entry().stack.size() || !equalsKeyAfter(entry().key, nextEntry().key);
 	}
