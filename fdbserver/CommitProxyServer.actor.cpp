@@ -402,6 +402,9 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 
 	loop {
 		state Future<Void> timeout;
+		state std::vector<CommitTransactionRequest> immediateBatch;
+		state std::vector<CommitTransactionRequest> defaultBatch;
+		state std::vector<CommitTransactionRequest> lowBatch;
 		state std::vector<CommitTransactionRequest> batch;
 		state int batchBytes = 0;
 		// TODO: Enable this assertion (currently failing with gcc)
@@ -478,7 +481,16 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						batchBytes = 0;
 					}
 
-					batch.push_back(req);
+					// Separate transactions by priority
+					TransactionPriority reqPriority = req.transaction.priority;
+					if (reqPriority == TransactionPriority::IMMEDIATE) {
+						immediateBatch.push_back(req);
+					} else if (reqPriority == TransactionPriority::DEFAULT) {
+						defaultBatch.push_back(req);
+					} else {
+						lowBatch.push_back(req);
+					}
+
 					batchBytes += bytes;
 					commitData->commitBatchesMemBytesCount += bytes;
 				}
@@ -495,6 +507,13 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
+
+		// Merge priority buckets: IMMEDIATE first, then DEFAULT, then BATCH (low)
+		batch.reserve(immediateBatch.size() + defaultBatch.size() + lowBatch.size());
+		batch.insert(batch.end(), immediateBatch.begin(), immediateBatch.end());
+		batch.insert(batch.end(), defaultBatch.begin(), defaultBatch.end());
+		batch.insert(batch.end(), lowBatch.begin(), lowBatch.end());
+
 		out.send({ std::move(batch), batchBytes });
 		lastBatch = now();
 	}
