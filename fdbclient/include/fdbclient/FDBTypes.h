@@ -1364,12 +1364,13 @@ struct WorkerBackupStatus {
 	}
 };
 
-enum class TransactionPriority : uint8_t { BATCH, DEFAULT, IMMEDIATE, MIN = BATCH, MAX = IMMEDIATE };
+enum class TransactionPriority : uint8_t { BATCH, DEFAULT, IMMEDIATE, CRITICAL, MIN = BATCH, MAX = CRITICAL };
 
 const std::array<TransactionPriority, (int)TransactionPriority::MAX + 1> allTransactionPriorities = {
 	TransactionPriority::BATCH,
 	TransactionPriority::DEFAULT,
-	TransactionPriority::IMMEDIATE
+	TransactionPriority::IMMEDIATE,
+	TransactionPriority::CRITICAL
 };
 
 inline const char* transactionPriorityToString(TransactionPriority priority, bool capitalize = true) {
@@ -1380,6 +1381,8 @@ inline const char* transactionPriorityToString(TransactionPriority priority, boo
 		return capitalize ? "Default" : "default";
 	case TransactionPriority::IMMEDIATE:
 		return capitalize ? "Immediate" : "immediate";
+	case TransactionPriority::CRITICAL:
+		return capitalize ? "Critical" : "critical";
 	}
 
 	ASSERT(false);
