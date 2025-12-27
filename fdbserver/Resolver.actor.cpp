@@ -326,6 +326,22 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		// resolver. There's no wait before it's done.
 		const double beginComputeTime = g_network->timer();
 
+		// NEW: Process pre-validated idempotency information from commit proxy
+		int preValidatedCount = 0;
+		if (req.preValidatedIdempotency.size() > 0) {
+			for (int i = 0; i < req.preValidatedIdempotency.size(); i++) {
+				if (req.preValidatedIdempotency[i] != 0) {
+					preValidatedCount++;
+				}
+			}
+			if (preValidatedCount > 0) {
+				TraceEvent("ResolverReceivedPreValidation", self->dbgid)
+				    .detail("PreValidatedTransactions", preValidatedCount)
+				    .detail("TotalTransactions", req.transactions.size())
+				    .detail("Version", req.version);
+			}
+		}
+
 		++self->resolveBatchStart;
 		self->resolvedTransactions += req.transactions.size();
 		self->resolvedBytes += req.transactions.expectedSize();

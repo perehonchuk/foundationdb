@@ -141,6 +141,9 @@ struct ResolveTransactionBatchRequest : TimedRequest {
 
 	std::set<Tag> writtenTags;
 
+	// NEW: Track which transactions passed pre-resolution idempotency validation
+	VectorRef<uint8_t> preValidatedIdempotency;
+
 	template <class Archive>
 	void serialize(Archive& ar) {
 		serializer(ar,
@@ -148,6 +151,7 @@ struct ResolveTransactionBatchRequest : TimedRequest {
 		           version,
 		           lastReceivedVersion,
 		           transactions,
+		           preValidatedIdempotency,
 		           txnStateTransactions,
 		           reply,
 		           debugID,

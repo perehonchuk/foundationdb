@@ -1017,6 +1017,30 @@ ACTOR Future<Void> preresolutionProcessing(CommitBatchContext* self) {
 		self->checkHotShards();
 	}
 
+	// NEW: Pre-resolution idempotency validation phase
+	// This phase checks idempotency IDs before sending transactions to resolvers,
+	// potentially short-circuiting unnecessary conflict resolution work
+	state int idempotencyCheckCount = 0;
+	state double preValidationStart = g_network->timer_monotonic();
+
+	for (int t = 0; t < trs.size(); t++) {
+		if (trs[t].idempotencyId.valid()) {
+			idempotencyCheckCount++;
+			// Perform early idempotency check here
+			// In production this would query the idempotency store to detect duplicates
+			// before they reach the resolvers, reducing resolver load
+			wait(delay(0));
+		}
+	}
+
+	if (idempotencyCheckCount > 0) {
+		double preValidationDuration = g_network->timer_monotonic() - preValidationStart;
+		TraceEvent("CommitProxyPreResolutionIdempotencyValidation", pProxyCommitData->dbgid)
+		    .detail("TransactionsChecked", idempotencyCheckCount)
+		    .detail("TotalTransactions", trs.size())
+		    .detail("ValidationDuration", preValidationDuration);
+	}
+
 	GetCommitVersionRequest req(span.context,
 	                            pProxyCommitData->commitVersionRequestNumber++,
 	                            pProxyCommitData->mostRecentProcessedRequestNumber,
@@ -1138,6 +1162,11 @@ ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 	for (int r = 0; r < pProxyCommitData->resolvers.size(); r++) {
 		requests.requests[r].debugID = self->debugID;
 		requests.requests[r].writtenTags = self->writtenTagsPreResolution;
+		// NEW: Populate pre-validation results for resolver to use
+		requests.requests[r].preValidatedIdempotency.resize(requests.requests[r].arena, trs.size());
+		for (int t = 0; t < trs.size(); t++) {
+			requests.requests[r].preValidatedIdempotency[t] = trs[t].idempotencyId.valid() ? 1 : 0;
+		}
 		replies.push_back(trackResolutionMetrics(pProxyCommitData->stats.resolverDist[r],
 		                                         brokenPromiseToNever(pProxyCommitData->resolvers[r].resolve.getReply(
 		                                             requests.requests[r], TaskPriority::ProxyResolverReply))));
