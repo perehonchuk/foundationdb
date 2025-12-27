@@ -314,6 +314,7 @@ struct TransactionState : ReferenceCounted<TransactionState> {
 	std::shared_ptr<CoalescedKeyRangeMap<Value>> conflictingKeys;
 
 	bool automaticIdempotency = false;
+	uint8_t transactionPriority = 1; // 0=low, 1=normal, 2=high
 
 	Future<Void> startFuture;
 
@@ -483,6 +484,9 @@ public:
 	[[nodiscard]] Future<Void> commit();
 
 	void setOption(FDBTransactionOptions::Option option, Optional<StringRef> value = Optional<StringRef>());
+
+	// Set transaction priority (0=low, 1=normal, 2=high)
+	void setPriority(uint8_t priority) { trState->transactionPriority = priority; }
 
 	// May be called only after commit() returns success
 	Version getCommittedVersion() const { return trState->committedVersion; }

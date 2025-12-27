@@ -5112,6 +5112,9 @@ Future<Void> Transaction::commitMutations() {
 			tr.transaction.report_conflicting_keys = true;
 		}
 
+		// Set transaction priority on the request
+		tr.priority = trState->transactionPriority;
+
 		Future<Void> commitResult = tryCommit(trState, tr);
 
 		if (isCheckingWrites) {
