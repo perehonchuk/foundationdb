@@ -145,9 +145,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( HEALTH_POLL_TIME,                                      1.0 );
 	init( BEST_TEAM_STUCK_DELAY,                                 1.0 );
 	init( DEST_OVERLOADED_DELAY,                                 0.2 );
-	init( BG_REBALANCE_POLLING_INTERVAL,                         1.0 );
-	init( BG_REBALANCE_MAX_POLLING_INTERVAL,                    10.0 );
-	init( BG_REBALANCE_SWITCH_CHECK_INTERVAL,                    5.0 ); if (randomize && BUGGIFY) BG_REBALANCE_SWITCH_CHECK_INTERVAL = 1.0;
+	init( BG_REBALANCE_POLLING_INTERVAL,                         0.5 );
+	init( BG_REBALANCE_MAX_POLLING_INTERVAL,                     5.0 );
+	init( BG_REBALANCE_SWITCH_CHECK_INTERVAL,                    2.0 ); if (randomize && BUGGIFY) BG_REBALANCE_SWITCH_CHECK_INTERVAL = 0.5;
 	init( DD_QUEUE_LOGGING_INTERVAL,                             5.0 );
 	init( DD_QUEUE_COUNTER_REFRESH_INTERVAL,                    60.0 );
 	// 100 / 60 < 2 trace/sec ~ 2 * 200 = 400b/sec
@@ -213,14 +213,14 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
  	init( PHYSICAL_SHARD_METRICS_DELAY,                        300.0 ); // 300 seconds; for ENABLE_DD_PHYSICAL_SHARD
 	init( ANONYMOUS_PHYSICAL_SHARD_TRANSITION_TIME,            600.0 ); if( randomize && BUGGIFY )  ANONYMOUS_PHYSICAL_SHARD_TRANSITION_TIME = 0.0; // 600 seconds; for ENABLE_DD_PHYSICAL_SHARD
 	init( PHYSICAL_SHARD_MOVE_VERBOSE_TRACKING,                false );
-	init( READ_REBALANCE_CPU_THRESHOLD,                         15.0 );
-	init( READ_REBALANCE_SRC_PARALLELISM,                         20 );
+	init( READ_REBALANCE_CPU_THRESHOLD,                         10.0 );
+	init( READ_REBALANCE_SRC_PARALLELISM,                         30 );
 	init( READ_REBALANCE_SHARD_TOPK,  READ_REBALANCE_SRC_PARALLELISM * 2 );
-	init( READ_REBALANCE_DIFF_FRAC,                               0.3);
-	init( READ_REBALANCE_MAX_SHARD_FRAC,                          0.2); // FIXME: add buggify here when we have DD test, seems DD is pretty sensitive to this parameter
+	init( READ_REBALANCE_DIFF_FRAC,                               0.2);
+	init( READ_REBALANCE_MAX_SHARD_FRAC,                          0.3); // FIXME: add buggify here when we have DD test, seems DD is pretty sensitive to this parameter
 
-	// TODO: now we set it to a large number  so that the shard average traffic can guard this change. Consider change it to a lower value in the future.
-	init( READ_REBALANCE_MIN_READ_BYTES_KS, std::numeric_limits<double>::max() );
+	// Enable read rebalancing for shards with at least 100KB/s read traffic
+	init( READ_REBALANCE_MIN_READ_BYTES_KS, 100000.0 );
 	init( RETRY_RELOCATESHARD_DELAY,                             0.1 );
 	init( DATA_DISTRIBUTION_FAILURE_REACTION_TIME,              60.0 ); if( randomize && BUGGIFY ) DATA_DISTRIBUTION_FAILURE_REACTION_TIME = 1.0;
 	bool buggifySmallShards = randomize && BUGGIFY;
@@ -1025,12 +1025,12 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( SPLIT_JITTER_AMOUNT,                                  0.05 ); if( randomize && BUGGIFY ) SPLIT_JITTER_AMOUNT = 0.2;
 	init( IOPS_UNITS_PER_SAMPLE,                                10000 * 1000 / STORAGE_METRICS_AVERAGE_INTERVAL_PER_KSECONDS / 100 );
 	init( BYTES_WRITTEN_UNITS_PER_SAMPLE,                           SHARD_MIN_BYTES_PER_KSEC / STORAGE_METRICS_AVERAGE_INTERVAL_PER_KSECONDS / 25 );
-	init( BYTES_READ_UNITS_PER_SAMPLE,                          100000 ); // 100K bytes
-	init( OPS_READ_UNITS_PER_SAMPLE, 100 * STORAGE_METRICS_AVERAGE_INTERVAL ); // during a sampling interval, in average every 100 op being sampled once
+	init( BYTES_READ_UNITS_PER_SAMPLE,                          50000 ); // 50K bytes - more frequent sampling
+	init( OPS_READ_UNITS_PER_SAMPLE, 50 * STORAGE_METRICS_AVERAGE_INTERVAL ); // during a sampling interval, in average every 50 op being sampled once
 	init( READ_HOT_SUB_RANGE_CHUNK_SIZE,                        10000000); // 10MB
 	init( EMPTY_READ_PENALTY,                                   20 ); // 20 bytes
 	init( DD_SHARD_COMPARE_LIMIT,                               1000 );
-	init( READ_SAMPLING_ENABLED,                                false ); if ( randomize && BUGGIFY ) READ_SAMPLING_ENABLED = true;// enable/disable read sampling
+	init( READ_SAMPLING_ENABLED,                                true ); if ( randomize && BUGGIFY ) READ_SAMPLING_ENABLED = !READ_SAMPLING_ENABLED;// enable/disable read sampling
 	init( DD_PREFER_LOW_READ_UTIL_TEAM,                          true );
 	init( DD_TRACE_MOVE_BYTES_AVERAGE_INTERVAL,                   120);
 	init( MOVING_WINDOW_SAMPLE_SIZE,                         10000000); // 10MB
