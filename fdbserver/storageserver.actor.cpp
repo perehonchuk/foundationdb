@@ -7861,7 +7861,7 @@ ACTOR Future<Void> fetchShardIngestCheckpoint(StorageServer* data, MoveInShard* 
 		}
 	}
 
-	moveInShard->setPhase(MoveInPhase::ApplyingUpdates);
+	moveInShard->setPhase(MoveInPhase::Validating);
 	updateMoveInShardMetaData(data, moveInShard);
 
 	moveInShard->fetchComplete.send(Void());
@@ -7873,6 +7873,38 @@ ACTOR Future<Void> fetchShardIngestCheckpoint(StorageServer* data, MoveInShard* 
 	    .detail("Bytes", totalBytes)
 	    .detail("Duration", duration)
 	    .detail("Rate", static_cast<double>(totalBytes) / duration);
+
+	return Void();
+}
+
+ACTOR Future<Void> fetchShardValidate(StorageServer* data, MoveInShard* moveInShard) {
+	TraceEvent(SevInfo, "FetchShardValidateBegin", data->thisServerID)
+	    .detail("MoveInShard", moveInShard->toString());
+	ASSERT(moveInShard->getPhase() == MoveInPhase::Validating);
+	state double startTime = now();
+
+	if (moveInShard->failed()) {
+		return Void();
+	}
+
+	// Perform validation of ingested data
+	for (const auto& range : moveInShard->ranges()) {
+		// Validate that the range is properly mapped
+		if (!data->storage.isRangeMapped(range)) {
+			TraceEvent(SevWarn, "FetchShardValidationRangeNotMapped", data->thisServerID)
+			    .detail("Range", range)
+			    .detail("MoveInShard", moveInShard->toString());
+		}
+	}
+
+	// Transition to ApplyingUpdates phase after validation
+	moveInShard->setPhase(MoveInPhase::ApplyingUpdates);
+	updateMoveInShardMetaData(data, moveInShard);
+
+	const double duration = now() - startTime;
+	TraceEvent(SevInfo, "FetchShardValidateEnd", data->thisServerID)
+	    .detail("MoveInShard", moveInShard->toString())
+	    .detail("Duration", duration);
 
 	return Void();
 }
@@ -8110,6 +8142,8 @@ ACTOR Future<Void> fetchShard(StorageServer* data, MoveInShard* moveInShard) {
 				}
 			} else if (phase == MoveInPhase::Ingesting) {
 				wait(fetchShardIngestCheckpoint(data, moveInShard));
+			} else if (phase == MoveInPhase::Validating) {
+				wait(fetchShardValidate(data, moveInShard));
 			} else if (phase == MoveInPhase::ApplyingUpdates) {
 				wait(fetchShardApplyUpdates(data, moveInShard, moveInUpdates));
 			} else if (phase == MoveInPhase::Complete) {

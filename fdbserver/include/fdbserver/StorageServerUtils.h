@@ -30,11 +30,12 @@ enum class MoveInPhase : std::int8_t {
 	Pending = 0,
 	Fetching = 1,
 	Ingesting = 2,
-	ApplyingUpdates = 3,
-	ReadWritePending = 4,
-	Complete = 5,
-	Cancel = 6,
-	Error = 7,
+	Validating = 3,
+	ApplyingUpdates = 4,
+	ReadWritePending = 5,
+	Complete = 6,
+	Cancel = 7,
+	Error = 8,
 };
 
 // MoveInShardMetaData contains all the necessary information to start/resume fetching a physical
