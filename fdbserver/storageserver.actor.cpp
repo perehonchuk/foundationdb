@@ -832,6 +832,7 @@ public:
 	Promise<Version> versionPromise;
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
+	Optional<UID> groupID;
 	int64_t tenantId;
 
 	ServerWatchMetadata(Key key,
@@ -839,8 +840,10 @@ public:
 	                    Version version,
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
+	                    Optional<UID> groupID,
 	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), groupID(groupID), tenantId(tenantId) {
+	}
 };
 
 struct BusiestWriteTagContext {
@@ -915,6 +918,9 @@ private:
 	using WatchMap_t = std::unordered_map<WatchMapKey, WatchMapValue, WatchMapKeyHasher>;
 	WatchMap_t watchMap; // keep track of server watches
 
+	using WatchGroupMap_t = std::unordered_map<UID, std::vector<WatchMapKey>>;
+	WatchGroupMap_t watchGroupMap; // track watches by group ID for batch triggering
+
 public:
 	struct PendingNewShard {
 		PendingNewShard(uint64_t shardId, KeyRangeRef range) : shardId(format("%016llx", shardId)), range(range) {}
@@ -983,6 +989,7 @@ public:
 	KeyRef setWatchMetadata(Reference<ServerWatchMetadata> metadata);
 	void deleteWatchMetadata(KeyRef key, int64_t tenantId);
 	void clearWatchMetadata();
+	void triggerWatchGroup(UID groupID, Version version);
 
 	// tenant map operations
 	void insertTenant(TenantMapEntry const& tenant, Version version, bool persist);
@@ -1915,16 +1922,59 @@ KeyRef StorageServer::setWatchMetadata(Reference<ServerWatchMetadata> metadata) 
 	const WatchMapKey mapKey(tenantId, keyRef);
 
 	watchMap[mapKey] = metadata;
+
+	// Register watch in group if groupID is present
+	if (metadata->groupID.present()) {
+		watchGroupMap[metadata->groupID.get()].push_back(mapKey);
+	}
+
 	return keyRef;
 }
 
 void StorageServer::deleteWatchMetadata(KeyRef key, int64_t tenantId) {
 	const WatchMapKey mapKey(tenantId, key);
-	watchMap.erase(mapKey);
+	auto it = watchMap.find(mapKey);
+	if (it != watchMap.end()) {
+		// Remove from group if part of one
+		if (it->second->groupID.present()) {
+			UID groupID = it->second->groupID.get();
+			auto& groupMembers = watchGroupMap[groupID];
+			groupMembers.erase(std::remove(groupMembers.begin(), groupMembers.end(), mapKey), groupMembers.end());
+			if (groupMembers.empty()) {
+				watchGroupMap.erase(groupID);
+			}
+		}
+		watchMap.erase(it);
+	}
 }
 
 void StorageServer::clearWatchMetadata() {
 	watchMap.clear();
+	watchGroupMap.clear();
+}
+
+void StorageServer::triggerWatchGroup(UID groupID, Version version) {
+	auto groupIt = watchGroupMap.find(groupID);
+	if (groupIt == watchGroupMap.end()) {
+		return;
+	}
+
+	// Trigger all watches in the group
+	std::vector<WatchMapKey> keysToTrigger = groupIt->second;
+	for (const auto& mapKey : keysToTrigger) {
+		auto watchIt = watchMap.find(mapKey);
+		if (watchIt != watchMap.end()) {
+			auto& metadata = watchIt->second;
+			metadata->versionPromise.send(version);
+			metadata->watch_impl.cancel();
+		}
+	}
+
+	// Clean up triggered watches
+	for (const auto& mapKey : keysToTrigger) {
+		watchMap.erase(mapKey);
+	}
+	watchGroupMap.erase(groupID);
 }
 
 #ifndef __INTEL_COMPILER
@@ -11893,7 +11943,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.groupID, req.tenantInfo.tenantId);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11923,12 +11973,17 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 		}
 		// case 3: version in map has a lower version so trigger watch and create a new entry in map
 		else if (req.version > metadata->version) {
-			self->deleteWatchMetadata(req.key.contents(), req.tenantInfo.tenantId);
-			metadata->versionPromise.send(req.version);
-			metadata->watch_impl.cancel();
+			// If watch is part of a group, trigger entire group
+			if (metadata->groupID.present()) {
+				self->triggerWatchGroup(metadata->groupID.get(), req.version);
+			} else {
+				self->deleteWatchMetadata(req.key.contents(), req.tenantInfo.tenantId);
+				metadata->versionPromise.send(req.version);
+				metadata->watch_impl.cancel();
+			}
 
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.groupID, req.tenantInfo.tenantId);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11955,14 +12010,19 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 					metadata = self->getWatchMetadata(req.key.contents(), req.tenantInfo.tenantId);
 
 					if (metadata.isValid() && reply.value != metadata->value) { // valSS != valMap
-						self->deleteWatchMetadata(req.key.contents(), req.tenantInfo.tenantId);
-						metadata->versionPromise.send(req.version);
-						metadata->watch_impl.cancel();
+						// If watch is part of a group, trigger entire group
+						if (metadata->groupID.present()) {
+							self->triggerWatchGroup(metadata->groupID.get(), req.version);
+						} else {
+							self->deleteWatchMetadata(req.key.contents(), req.tenantInfo.tenantId);
+							metadata->versionPromise.send(req.version);
+							metadata->watch_impl.cancel();
+						}
 					}
 
 					if (reply.value == req.value) { // valSS == valreq
 						metadata = makeReference<ServerWatchMetadata>(
-						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+						    req.key, req.value, req.version, req.tags, req.debugID, req.groupID, req.tenantInfo.tenantId);
 						KeyRef key = self->setWatchMetadata(metadata);
 						metadata->watch_impl =
 						    forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),

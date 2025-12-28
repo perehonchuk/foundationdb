@@ -337,6 +337,7 @@ struct WatchValueRequest {
 	Version version;
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
+	Optional<UID> groupID;
 	ReplyPromise<WatchValueReply> reply;
 
 	WatchValueRequest() {}
@@ -355,7 +356,7 @@ struct WatchValueRequest {
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, key, value, version, tags, debugID, reply, spanContext, tenantInfo);
+		serializer(ar, key, value, version, tags, debugID, groupID, reply, spanContext, tenantInfo);
 	}
 };
 
