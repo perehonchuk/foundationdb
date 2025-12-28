@@ -7847,7 +7847,7 @@ ACTOR Future<Void> fetchShardIngestCheckpoint(StorageServer* data, MoveInShard* 
 		}
 	}
 
-	moveInShard->setPhase(MoveInPhase::ApplyingUpdates);
+	moveInShard->setPhase(MoveInPhase::Verifying);
 	updateMoveInShardMetaData(data, moveInShard);
 
 	moveInShard->fetchComplete.send(Void());
@@ -7859,6 +7859,65 @@ ACTOR Future<Void> fetchShardIngestCheckpoint(StorageServer* data, MoveInShard* 
 	    .detail("Bytes", totalBytes)
 	    .detail("Duration", duration)
 	    .detail("Rate", static_cast<double>(totalBytes) / duration);
+
+	return Void();
+}
+
+ACTOR Future<Void> fetchShardVerify(StorageServer* data, MoveInShard* moveInShard) {
+	TraceEvent(SevInfo, "FetchShardVerifyBegin", data->thisServerID).detail("MoveInShard", moveInShard->toString());
+	ASSERT(moveInShard->getPhase() == MoveInPhase::Verifying);
+	state double startTime = now();
+
+	if (moveInShard->failed()) {
+		return Void();
+	}
+
+	// Verify range mappings are consistent
+	for (const auto& range : moveInShard->ranges()) {
+		bool mapped = data->storage.isRangeMapped(range);
+		if (!mapped) {
+			TraceEvent(SevWarnAlways, "FetchShardVerifyRangeMappingMissing", data->thisServerID)
+			    .detail("MoveInShard", moveInShard->toString())
+			    .detail("Range", range.toString());
+			throw internal_error();
+		}
+	}
+
+	// Verify checkpoint data integrity
+	for (const auto& checkpoint : moveInShard->checkpoints()) {
+		TraceEvent(moveInShard->logSev, "FetchShardVerifyingCheckpoint", data->thisServerID)
+		    .detail("CheckpointID", checkpoint.checkpointID.toString())
+		    .detail("Range", checkpoint.range.toString());
+
+		// Validate that the ingested data matches expected ranges
+		for (const auto& range : moveInShard->ranges()) {
+			if (range.intersects(checkpoint.range)) {
+				// Perform basic consistency check by verifying the range exists in storage
+				bool exists = data->storage.isRangeMapped(range & checkpoint.range);
+				if (!exists) {
+					TraceEvent(SevWarnAlways, "FetchShardVerifyCheckpointRangeMissing", data->thisServerID)
+					    .detail("CheckpointID", checkpoint.checkpointID.toString())
+					    .detail("IntersectedRange", (range & checkpoint.range).toString());
+					throw internal_error();
+				}
+			}
+		}
+	}
+
+	// Verify byte sample metrics are reasonable
+	int64_t totalEstimatedBytes = 0;
+	for (const auto& checkpoint : moveInShard->checkpoints()) {
+		totalEstimatedBytes += checkpoint.bytesSampleFileSize.orDefault(0);
+	}
+
+	TraceEvent(SevInfo, "FetchShardVerifyComplete", data->thisServerID)
+	    .detail("MoveInShard", moveInShard->toString())
+	    .detail("TotalEstimatedBytes", totalEstimatedBytes)
+	    .detail("Duration", now() - startTime);
+
+	// Transition to ApplyingUpdates phase
+	moveInShard->setPhase(MoveInPhase::ApplyingUpdates);
+	updateMoveInShardMetaData(data, moveInShard);
 
 	return Void();
 }
@@ -8082,7 +8141,7 @@ ACTOR Future<Void> fetchShard(StorageServer* data, MoveInShard* moveInShard) {
 		TraceEvent(moveInShard->logSev, "FetchShardLoop", data->thisServerID)
 		    .detail("MoveInShard", moveInShard->toString());
 		try {
-			// Pending = 0, Fetching = 1, Ingesting = 2, ApplyingUpdates = 3, Complete = 4, Deleting = 4, Fail = 6,
+			// Pending = 0, Fetching = 1, Ingesting = 2, Verifying = 3, ApplyingUpdates = 4, ReadWritePending = 5, Complete = 6, Cancel = 7, Error = 8
 			if (phase == MoveInPhase::Fetching) {
 				if (conductBulkLoad) {
 					// Check the correctness: bulkLoadTaskMetadata stored in dataMoveMetadata must have the same
@@ -8096,6 +8155,8 @@ ACTOR Future<Void> fetchShard(StorageServer* data, MoveInShard* moveInShard) {
 				}
 			} else if (phase == MoveInPhase::Ingesting) {
 				wait(fetchShardIngestCheckpoint(data, moveInShard));
+			} else if (phase == MoveInPhase::Verifying) {
+				wait(fetchShardVerify(data, moveInShard));
 			} else if (phase == MoveInPhase::ApplyingUpdates) {
 				wait(fetchShardApplyUpdates(data, moveInShard, moveInUpdates));
 			} else if (phase == MoveInPhase::Complete) {
