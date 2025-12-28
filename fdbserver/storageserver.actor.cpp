@@ -833,14 +833,16 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	uint8_t priority; // 0 = high priority, 1 = normal, 2 = low priority
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
 	                    Version version,
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
-	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	                    int64_t tenantId,
+	                    uint8_t priority = 1)
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId), priority(priority) {}
 };
 
 struct BusiestWriteTagContext {
@@ -983,6 +985,8 @@ public:
 	KeyRef setWatchMetadata(Reference<ServerWatchMetadata> metadata);
 	void deleteWatchMetadata(KeyRef key, int64_t tenantId);
 	void clearWatchMetadata();
+	void triggerWatchesByPriority(KeyRef key);
+	void triggerWatchRangeByPriority(KeyRef begin, KeyRef end);
 
 	// tenant map operations
 	void insertTenant(TenantMapEntry const& tenant, Version version, bool persist);
@@ -1925,6 +1929,61 @@ void StorageServer::deleteWatchMetadata(KeyRef key, int64_t tenantId) {
 
 void StorageServer::clearWatchMetadata() {
 	watchMap.clear();
+}
+
+void StorageServer::triggerWatchesByPriority(KeyRef key) {
+	// Trigger watches in priority order: high (0), normal (1), low (2)
+	// First collect all watches for this key across all tenants
+	std::vector<std::pair<uint8_t, WatchMapKey>> prioritizedWatches;
+
+	for (auto it = watchMap.begin(); it != watchMap.end(); ++it) {
+		if (it->first.second == key) {
+			prioritizedWatches.push_back(std::make_pair(it->second->priority, it->first));
+		}
+	}
+
+	// Sort by priority (lower number = higher priority)
+	std::sort(prioritizedWatches.begin(), prioritizedWatches.end(),
+		[](const std::pair<uint8_t, WatchMapKey>& a, const std::pair<uint8_t, WatchMapKey>& b) {
+			return a.first < b.first;
+		});
+
+	// Trigger watches in priority order
+	for (const auto& pw : prioritizedWatches) {
+		watches.trigger(key);
+	}
+
+	// If no priority-based watches, fall back to standard trigger
+	if (prioritizedWatches.empty()) {
+		watches.trigger(key);
+	}
+}
+
+void StorageServer::triggerWatchRangeByPriority(KeyRef begin, KeyRef end) {
+	// Trigger watches in priority order for range
+	std::vector<std::pair<uint8_t, WatchMapKey>> prioritizedWatches;
+
+	for (auto it = watchMap.begin(); it != watchMap.end(); ++it) {
+		if (it->first.second >= begin && it->first.second < end) {
+			prioritizedWatches.push_back(std::make_pair(it->second->priority, it->first));
+		}
+	}
+
+	// Sort by priority (lower number = higher priority)
+	std::sort(prioritizedWatches.begin(), prioritizedWatches.end(),
+		[](const std::pair<uint8_t, WatchMapKey>& a, const std::pair<uint8_t, WatchMapKey>& b) {
+			return a.first < b.first;
+		});
+
+	// Trigger watches in priority order
+	for (const auto& pw : prioritizedWatches) {
+		watches.trigger(pw.second.second);
+	}
+
+	// If no priority-based watches, fall back to standard trigger
+	if (prioritizedWatches.empty()) {
+		watches.triggerRange(begin, end);
+	}
 }
 
 #ifndef __INTEL_COMPILER
@@ -6359,7 +6418,7 @@ void applyMutation(StorageServer* self,
 			++self->counters.pTreeClearSplits;
 		}
 		data.insert(m.param1, ValueOrClearToRef::value(m.param2));
-		self->watches.trigger(m.param1);
+		self->triggerWatchesByPriority(m.param1);
 		++self->counters.pTreeSets;
 	} else if (m.type == MutationRef::ClearRange) {
 		data.erase(m.param1, m.param2);
@@ -6368,7 +6427,7 @@ void applyMutation(StorageServer* self,
 			ASSERT(!data.isClearContaining(data.atLatest(), m.param1));
 		}
 		data.insert(m.param1, ValueOrClearToRef::clearTo(m.param2));
-		self->watches.triggerRange(m.param1, m.param2);
+		self->triggerWatchRangeByPriority(m.param1, m.param2);
 		++self->counters.pTreeClears;
 	}
 }
@@ -8673,7 +8732,7 @@ void changeServerKeys(StorageServer* data,
 				removeRanges.push_back(range);
 			}
 			data->addShard(ShardInfo::newNotAssigned(range));
-			data->watches.triggerRange(range.begin, range.end);
+			data->triggerWatchRangeByPriority(range.begin, range.end);
 		} else if (!dataAvailable) {
 			// SOMEDAY: Avoid restarting adding/transferred shards
 			// bypass fetchkeys; shard is known empty at initial cluster version
@@ -8958,7 +9017,7 @@ void changeServerKeysWithPhysicalShards(StorageServer* data,
 			}
 			updatedShards.push_back(StorageServerShard::notAssigned(range, cVer));
 			data->pendingRemoveRanges[cVer].push_back(range);
-			data->watches.triggerRange(range.begin, range.end);
+			data->triggerWatchRangeByPriority(range.begin, range.end);
 			TraceEvent(sevDm, "SSUnassignShard", data->thisServerID)
 			    .detail("Range", range)
 			    .detail("NowAssigned", nowAssigned)
@@ -11893,7 +11952,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11928,7 +11987,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 			metadata->watch_impl.cancel();
 
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);

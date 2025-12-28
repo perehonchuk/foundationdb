@@ -238,13 +238,15 @@ struct Watch : public ReferenceCounted<Watch>, NonCopyable {
 	Promise<Void> onSetWatchTrigger;
 	Future<Void> watchFuture;
 	Optional<ReadOptions> readOptions;
+	uint8_t priority; // 0 = high priority, 1 = normal, 2 = low priority
 
-	Watch() : valuePresent(false), setPresent(false), watchFuture(Never()) {}
-	Watch(Key key) : key(key), valuePresent(false), setPresent(false), watchFuture(Never()) {}
+	Watch() : valuePresent(false), setPresent(false), watchFuture(Never()), priority(1) {}
+	Watch(Key key) : key(key), valuePresent(false), setPresent(false), watchFuture(Never()), priority(1) {}
 	Watch(Key key, Optional<Value> val)
-	  : key(key), value(val), valuePresent(true), setPresent(false), watchFuture(Never()) {}
+	  : key(key), value(val), valuePresent(true), setPresent(false), watchFuture(Never()), priority(1) {}
 
 	void setWatch(Future<Void> watchFuture);
+	void setPriority(uint8_t p) { priority = p; }
 };
 
 class Tenant : public ReferenceCounted<Tenant>, public FastAllocated<Tenant>, NonCopyable {
