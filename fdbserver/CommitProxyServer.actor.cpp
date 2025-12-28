@@ -471,6 +471,10 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
 					    batch.size()) {
 						commitData->triggerCommit.set(false);
+						// Sort batch by priority (IMMEDIATE > DEFAULT > BATCH) before sending
+						std::stable_sort(batch.begin(), batch.end(), [](const CommitTransactionRequest& a, const CommitTransactionRequest& b) {
+							return a.priority > b.priority;
+						});
 						out.send({ std::move(batch), batchBytes });
 						lastBatch = now();
 						timeout = delayJittered(commitData->commitBatchInterval, TaskPriority::ProxyCommitBatcher);
@@ -495,6 +499,10 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
+		// Sort batch by priority (IMMEDIATE > DEFAULT > BATCH) before sending
+		std::stable_sort(batch.begin(), batch.end(), [](const CommitTransactionRequest& a, const CommitTransactionRequest& b) {
+			return a.priority > b.priority;
+		});
 		out.send({ std::move(batch), batchBytes });
 		lastBatch = now();
 	}

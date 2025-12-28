@@ -4830,6 +4830,7 @@ ACTOR static Future<Void> tryCommit(Reference<TransactionState> trState, CommitT
 		}
 		CODE_PROBE(trState->skipApplyTenantPrefix, "Tenant prefix prepend skipped for dummy transaction");
 		req.tenantInfo = trState->getTenantInfo();
+		req.priority = trState->options.priority;
 		startTime = now();
 		state Optional<UID> commitID = Optional<UID>();
 
