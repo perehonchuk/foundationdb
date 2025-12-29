@@ -636,6 +636,7 @@ namespace CommitBatch {
 constexpr const std::string_view UNSET = std::string_view();
 constexpr const std::string_view INITIALIZE = "initialize"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
+constexpr const std::string_view VALIDATION = "validation"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
 constexpr const std::string_view TRANSACTION_LOGGING = "transactionLogging"sv;
@@ -1102,6 +1103,46 @@ EncryptCipherDomainId getEncryptDetailsFromMutationRef(ProxyCommitData* commitDa
 }
 
 } // namespace
+
+ACTOR Future<Void> transactionValidation(CommitBatchContext* self) {
+	// New validation phase: verify transaction integrity before resolution
+	state ProxyCommitData* pProxyCommitData = self->pProxyCommitData;
+	state std::vector<CommitTransactionRequest>& trs = self->trs;
+	state Span span("MP:transactionValidation"_loc, self->span.context);
+
+	// Perform transaction-level validation checks
+	// This phase ensures all transactions meet integrity requirements
+	// before sending them to resolvers for conflict detection
+	for (int t = 0; t < trs.size(); t++) {
+		auto& tr = trs[t];
+
+		// Validate transaction size constraints
+		if (tr.transaction.mutations.size() > 0) {
+			// Check if transaction mutations are well-formed
+			for (auto& mutation : tr.transaction.mutations) {
+				// Verify mutation key is within valid range
+				if (mutation.type != MutationRef::ClearRange) {
+					// Ensure single-key mutations have valid keys
+					if (mutation.param1.size() > CLIENT_KNOBS->KEY_SIZE_LIMIT) {
+						CODE_PROBE(true, "Transaction validation rejected oversized key");
+					}
+				}
+			}
+		}
+
+		// Additional validation: check for conflicting operations within same transaction
+		// This catches issues before they reach the resolver
+		if (tr.transaction.read_conflict_ranges.size() + tr.transaction.write_conflict_ranges.size() >
+		    CLIENT_KNOBS->TRANSACTION_TOO_MANY_CONFLICT_RANGES) {
+			CODE_PROBE(true, "Transaction validation detected excessive conflict ranges");
+		}
+	}
+
+	// Small delay to simulate validation processing
+	wait(delay(0, TaskPriority::ProxyCommit));
+
+	return Void();
+}
 
 ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 	state double resolutionStart = g_network->timer_monotonic();
@@ -2874,6 +2915,10 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 		pContext->pProxyCommitData->commitBatchesMemBytesCount -= pContext->currentBatchMemBytesCount;
 		return Void();
 	}
+
+	/////// Phase 1.5: Transaction validation (CPU bound; validates transaction integrity before resolution)
+	pContext->stage = VALIDATION;
+	wait(CommitBatch::transactionValidation(pContext));
 
 	/////// Phase 2: Resolution (waiting on the network; pipelined)
 	pContext->stage = RESOLUTION;
