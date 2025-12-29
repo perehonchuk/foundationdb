@@ -165,6 +165,8 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsAccepted;
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
+	Counter transactionsPrefiltered;
+	Counter transactionsDeferredChecked;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -201,6 +203,8 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    resolvedWriteConflictRanges("ResolvedWriteConflictRanges", cc),
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
 	    transactionsConflicted("TransactionsConflicted", cc),
+	    transactionsPrefiltered("TransactionsPrefiltered", cc),
+	    transactionsDeferredChecked("TransactionsDeferredChecked", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
@@ -347,7 +351,7 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
 
-		// Detect conflicts
+		// Detect conflicts with two-phase approach
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
@@ -365,7 +369,15 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 					    it.begin, SERVER_KNOBS->SAMPLE_OFFSET_PER_KEY + it.begin.size(), expire);
 			}
 		}
-		conflictBatch.detectConflicts(req.version, newOldestVersion, commitList, &tooOldList);
+
+		// Phase 1: Lightweight conflict pre-filtering
+		std::vector<int> preliminaryAccepted;
+		conflictBatch.lightweightConflictPrefilter(req.version, newOldestVersion, preliminaryAccepted, &tooOldList);
+		self->transactionsPrefiltered += preliminaryAccepted.size();
+
+		// Phase 2: Deferred comprehensive conflict check for preliminary accepted transactions
+		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
+		self->transactionsDeferredChecked += commitList.size();
 
 		reply.debugID = req.debugID;
 		reply.committed.resize(reply.arena, req.transactions.size());
