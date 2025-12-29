@@ -10059,10 +10059,13 @@ ACTOR Future<Void> update(StorageServer* data, bool* pReceivedUpdate) {
 			if (data->otherError.getFuture().isReady())
 				data->otherError.getFuture().get();
 
+			// Two-tier storage queue: hot tier (3s) + warm tier (4s) = 7s total
 			Version maxVersionsInMemory =
 			    (g_network->isSimulated() && g_simulator->speedUpSimulation)
-			        ? std::max(5 * SERVER_KNOBS->VERSIONS_PER_SECOND, SERVER_KNOBS->MAX_READ_TRANSACTION_LIFE_VERSIONS)
+			        ? std::max(7 * SERVER_KNOBS->VERSIONS_PER_SECOND, SERVER_KNOBS->MAX_READ_TRANSACTION_LIFE_VERSIONS)
 			        : SERVER_KNOBS->MAX_READ_TRANSACTION_LIFE_VERSIONS;
+			Version hotTierDuration = 3 * SERVER_KNOBS->VERSIONS_PER_SECOND;
+			Version hotTierThreshold = data->version.get() - hotTierDuration;
 			for (int i = 0; i < data->recoveryVersionSkips.size(); i++) {
 				maxVersionsInMemory += data->recoveryVersionSkips[i].second;
 			}
@@ -10499,6 +10502,11 @@ ACTOR Future<Void> updateStorage(StorageServer* data) {
 			if (data->tenantMap.getLatestVersion() < newOldestVersion) {
 				data->tenantMap.createNewVersion(newOldestVersion);
 			}
+			// Update hot tier threshold for two-tier storage queue
+			// Data older than 3s migrates from hot tier to warm tier
+			data->mutableData().migrateTiers(hotTierThreshold);
+			data->tenantMap.migrateTiers(hotTierThreshold);
+
 			// We want to forget things from these data structures atomically with changing oldestVersion (and
 			// "before", since oldestVersion.set() may trigger waiting actors) forgetVersionsBeforeAsync visibly
 			// forgets immediately (without waiting) but asynchronously frees memory.

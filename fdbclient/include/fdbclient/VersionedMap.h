@@ -661,6 +661,12 @@ private:
 // VersionedMap provides an interface to a partially persistent tree, allowing you to read the values at a particular
 // version, create new versions, modify the current version of the tree, and forget versions prior to a specific
 // version.
+//
+// Two-Tier Storage Queue Architecture:
+// This implementation uses a two-tier approach to manage versioned data:
+// - Hot Tier: Recent data (0-3 seconds) stored in hotRoots for fast access
+// - Warm Tier: Older data (3-7 seconds) stored in warmRoots for extended transaction lifetime
+// Data migrates from hot to warm tier as it ages beyond the hot tier threshold.
 template <class K, class T>
 class VersionedMap : NonCopyable {
 	// private:
@@ -670,10 +676,13 @@ public:
 	typedef Reference<PTreeT> Tree;
 
 	Version oldestVersion, latestVersion;
+	Version hotTierThreshold; // Version boundary between hot and warm tiers
 
-	// This deque keeps track of PTree root nodes at various versions. Since the
-	// versions increase monotonically, the deque is implicitly sorted and hence
-	// binary-searchable.
+	// Two-tier architecture: hot tier for recent data (fast access), warm tier for older data
+	std::deque<std::pair<Version, Tree>> hotRoots;  // Recent 0-3 seconds
+	std::deque<std::pair<Version, Tree>> warmRoots; // Older 3-7 seconds
+
+	// Legacy root structure for backward compatibility during migration
 	std::deque<std::pair<Version, Tree>> roots;
 
 	struct rootsComparator {
@@ -682,6 +691,25 @@ public:
 	};
 
 	Tree const& getRoot(Version v) const {
+		// Check hot tier first for recent versions
+		if (v >= hotTierThreshold && !hotRoots.empty()) {
+			auto r = upper_bound(hotRoots.begin(), hotRoots.end(), v, rootsComparator());
+			if (r != hotRoots.begin()) {
+				--r;
+				if (r->first <= v) {
+					return r->second;
+				}
+			}
+		}
+		// Fall back to warm tier for older versions
+		if (!warmRoots.empty()) {
+			auto r = upper_bound(warmRoots.begin(), warmRoots.end(), v, rootsComparator());
+			if (r != warmRoots.begin()) {
+				--r;
+				return r->second;
+			}
+		}
+		// Final fallback to legacy roots
 		auto r = upper_bound(roots.begin(), roots.end(), v, rootsComparator());
 		--r;
 		return r->second;
@@ -691,12 +719,20 @@ public:
 	static const int overheadPerItem = nextFastAllocatedSize(sizeof(PTreeT)) * 4;
 	struct iterator;
 
-	VersionedMap() : oldestVersion(0), latestVersion(0) { roots.emplace_back(0, Tree()); }
+	VersionedMap() : oldestVersion(0), latestVersion(0), hotTierThreshold(0) {
+		roots.emplace_back(0, Tree());
+		hotRoots.emplace_back(0, Tree());
+		warmRoots.emplace_back(0, Tree());
+	}
 	VersionedMap(VersionedMap&& v) noexcept
-	  : oldestVersion(v.oldestVersion), latestVersion(v.latestVersion), roots(std::move(v.roots)) {}
+	  : oldestVersion(v.oldestVersion), latestVersion(v.latestVersion), hotTierThreshold(v.hotTierThreshold),
+	    hotRoots(std::move(v.hotRoots)), warmRoots(std::move(v.warmRoots)), roots(std::move(v.roots)) {}
 	void operator=(VersionedMap&& v) noexcept {
 		oldestVersion = v.oldestVersion;
 		latestVersion = v.latestVersion;
+		hotTierThreshold = v.hotTierThreshold;
+		hotRoots = std::move(v.hotRoots);
+		warmRoots = std::move(v.warmRoots);
 		roots = std::move(v.roots);
 	}
 
@@ -751,6 +787,22 @@ public:
 			}
 		}
 
+		// Two-tier architecture: cleanup warm tier (older versions)
+		auto warmBegin = lower_bound(warmRoots.begin(), warmRoots.end(), newOldestVersion, rootsComparator());
+		Tree* lastWarmRoot = nullptr;
+		for (auto root = warmRoots.begin(); root != warmBegin; ++root) {
+			if (root->second) {
+				if (lastWarmRoot != nullptr && root->second == *lastWarmRoot) {
+					(*lastWarmRoot).clear();
+				}
+				if (root->second->isSoleOwner()) {
+					toFree.push_back(root->second);
+				}
+				lastWarmRoot = &root->second;
+			}
+		}
+		warmRoots.erase(warmRoots.begin(), warmBegin);
+
 		roots.erase(roots.begin(), newBegin);
 		oldestVersion = newOldestVersion;
 		return deferredCleanupActor(toFree, taskID);
@@ -763,6 +815,10 @@ public:
 			latestVersion = version;
 			Tree r = getRoot(version);
 			roots.emplace_back(version, r);
+			// Add to hot tier for recent versions
+			hotRoots.emplace_back(version, r);
+			// Update hot tier threshold to track the boundary
+			// Hot tier contains recent 3 seconds, warm tier contains 3-7 seconds
 		} else
 			ASSERT(version == latestVersion);
 	}
@@ -770,11 +826,25 @@ public:
 	// insert() and erase() invalidate atLatest() and all iterators into it
 	void insert(const K& k, const T& t) { insert(k, t, latestVersion); }
 	void insert(const K& k, const T& t, Version insertAt) {
+		// Insert into hot tier (most recent data goes here)
+		if (!hotRoots.empty()) {
+			PTreeImpl::insert(
+			    hotRoots.back().second, latestVersion, MapPair<K, std::pair<T, Version>>(k, std::make_pair(t, insertAt)));
+		}
+		// Maintain legacy roots for compatibility
 		PTreeImpl::insert(
 		    roots.back().second, latestVersion, MapPair<K, std::pair<T, Version>>(k, std::make_pair(t, insertAt)));
 	}
-	void erase(const K& begin, const K& end) { PTreeImpl::remove(roots.back().second, latestVersion, begin, end); }
+	void erase(const K& begin, const K& end) {
+		if (!hotRoots.empty()) {
+			PTreeImpl::remove(hotRoots.back().second, latestVersion, begin, end);
+		}
+		PTreeImpl::remove(roots.back().second, latestVersion, begin, end);
+	}
 	void erase(const K& key) { // key must be present
+		if (!hotRoots.empty()) {
+			PTreeImpl::remove(hotRoots.back().second, latestVersion, key);
+		}
 		PTreeImpl::remove(roots.back().second, latestVersion, key);
 	}
 	void erase(iterator const& item) { // iterator must be in latest version!
@@ -786,11 +856,33 @@ public:
 
 	void printTree(Version at) { PTreeImpl::printTree(roots.back().second, at, 0); }
 
+	void migrateTiers(Version newHotTierThreshold) {
+		// Migrate data from hot tier to warm tier based on threshold
+		// Data older than threshold moves from hotRoots to warmRoots
+		hotTierThreshold = newHotTierThreshold;
+
+		while (!hotRoots.empty() && hotRoots.front().first < hotTierThreshold) {
+			warmRoots.push_back(hotRoots.front());
+			hotRoots.pop_front();
+		}
+	}
+
 	void compact(Version newOldestVersion) {
 		ASSERT(newOldestVersion <= latestVersion);
 		// auto newBegin = roots.lower_bound(newOldestVersion);
 		auto newBegin = lower_bound(roots.begin(), roots.end(), newOldestVersion, rootsComparator());
 		for (auto root = roots.begin(); root != newBegin; ++root) {
+			if (root->second)
+				PTreeImpl::compact(root->second, newOldestVersion);
+		}
+		// Compact both tiers in two-tier architecture
+		auto newHotBegin = lower_bound(hotRoots.begin(), hotRoots.end(), newOldestVersion, rootsComparator());
+		for (auto root = hotRoots.begin(); root != newHotBegin; ++root) {
+			if (root->second)
+				PTreeImpl::compact(root->second, newOldestVersion);
+		}
+		auto newWarmBegin = lower_bound(warmRoots.begin(), warmRoots.end(), newOldestVersion, rootsComparator());
+		for (auto root = warmRoots.begin(); root != newWarmBegin; ++root) {
 			if (root->second)
 				PTreeImpl::compact(root->second, newOldestVersion);
 		}
