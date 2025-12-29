@@ -153,6 +153,7 @@ public:
 	Future<Void> watchFutureSS;
 
 	Reference<const WatchParameters> parameters;
+	bool prevalidationComplete = false; // Track completion of prevalidation phase
 
 	WatchMetadata(Reference<const WatchParameters> parameters) : parameters(parameters) {}
 };

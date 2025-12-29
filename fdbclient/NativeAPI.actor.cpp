@@ -2279,7 +2279,8 @@ ACTOR Future<Void> sameVersionDiffValue(Database cx, Reference<WatchParameters> 
 				metadata = makeReference<WatchMetadata>(parameters);
 				cx->setWatchMetadata(metadata);
 
-				metadata->watchFutureSS = watchStorageServerResp(parameters->tenant.tenantId, parameters->key, cx);
+				// Run prevalidation before registering with storage server
+				metadata->watchFutureSS = prevalidateAndRegisterWatch(cx, parameters, metadata);
 			}
 
 			// if val_3 != val_2
@@ -2296,6 +2297,59 @@ ACTOR Future<Void> sameVersionDiffValue(Database cx, Reference<WatchParameters> 
 	}
 }
 
+// Prevalidation phase: verify the current value matches expectations before registering the watch
+ACTOR Future<bool> prevalidateWatchValue(Database cx, Reference<WatchParameters> parameters) {
+	state ReadYourWritesTransaction tr(cx,
+	                                   parameters->tenant.hasTenant()
+	                                       ? makeReference<Tenant>(parameters->tenant.tenantId)
+	                                       : Optional<Reference<Tenant>>());
+	loop {
+		try {
+			if (!parameters->tenant.hasTenant()) {
+				tr.setOption(FDBTransactionOptions::READ_SYSTEM_KEYS);
+			}
+			Optional<Value> currentValue = wait(tr.get(parameters->key));
+			// If current value doesn't match expected value, watch should fire immediately
+			if (currentValue != parameters->value) {
+				TraceEvent("WatchPrevalidationFailed")
+				    .detail("Key", parameters->key)
+				    .detail("ExpectedValue", parameters->value)
+				    .detail("ActualValue", currentValue);
+				return false;
+			}
+			TraceEvent("WatchPrevalidationPassed")
+			    .detail("Key", parameters->key)
+			    .detail("Value", parameters->value);
+			return true;
+		} catch (Error& e) {
+			wait(tr.onError(e));
+		}
+	}
+}
+
+// Wrapper that runs prevalidation before delegating to watchStorageServerResp
+ACTOR Future<Void> prevalidateAndRegisterWatch(Database cx, Reference<WatchParameters> parameters, Reference<WatchMetadata> metadata) {
+	// Phase 1: Prevalidation - verify current value matches expected value
+	bool validationPassed = wait(prevalidateWatchValue(cx, parameters));
+
+	if (!validationPassed) {
+		// Value already changed, fire watch immediately
+		CODE_PROBE(true, "Watch prevalidation failed - value already changed");
+		cx->deleteWatchMetadata(parameters->tenant.tenantId, parameters->key);
+		if (metadata->watchPromise.canBeSet()) {
+			metadata->watchPromise.send(parameters->version);
+		}
+		return Void();
+	}
+
+	// Mark prevalidation as complete
+	metadata->prevalidationComplete = true;
+
+	// Phase 2: Registration - value matches, proceed with storage server registration
+	wait(watchStorageServerResp(parameters->tenant.tenantId, parameters->key, cx));
+	return Void();
+}
+
 Future<Void> getWatchFuture(Database cx, Reference<WatchParameters> parameters) {
 	Reference<WatchMetadata> metadata = cx->getWatchMetadata(parameters->tenant.tenantId, parameters->key);
 
@@ -2304,7 +2358,8 @@ Future<Void> getWatchFuture(Database cx, Reference<WatchParameters> parameters) 
 		metadata = makeReference<WatchMetadata>(parameters);
 		cx->setWatchMetadata(metadata);
 
-		metadata->watchFutureSS = watchStorageServerResp(parameters->tenant.tenantId, parameters->key, cx);
+		// Run prevalidation before registering with storage server
+		metadata->watchFutureSS = prevalidateAndRegisterWatch(cx, parameters, metadata);
 		return success(metadata->watchPromise.getFuture());
 	}
 	// case 2: val_1 == val_2 (received watch with same value as key already in the map so just update)
@@ -2328,7 +2383,8 @@ Future<Void> getWatchFuture(Database cx, Reference<WatchParameters> parameters) 
 		metadata = makeReference<WatchMetadata>(parameters);
 		cx->setWatchMetadata(metadata);
 
-		metadata->watchFutureSS = watchStorageServerResp(parameters->tenant.tenantId, parameters->key, cx);
+		// Run prevalidation before registering with storage server
+		metadata->watchFutureSS = prevalidateAndRegisterWatch(cx, parameters, metadata);
 
 		return success(metadata->watchPromise.getFuture());
 	}
