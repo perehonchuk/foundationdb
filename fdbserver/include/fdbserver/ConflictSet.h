@@ -54,6 +54,17 @@ struct ConflictBatch {
 	                     std::vector<int>* tooOldTransactions = nullptr);
 	void GetTooOldTransactions(std::vector<int>& tooOldTransactions);
 
+	// Two-phase conflict detection: lightweight pre-filtering
+	void lightweightConflictPrefilter(Version now,
+	                                  Version newOldestVersion,
+	                                  std::vector<int>& preliminaryAccepted,
+	                                  std::vector<int>* tooOldTransactions = nullptr);
+	// Second phase: comprehensive conflict check for pre-filtered transactions
+	void deferredConflictCheck(Version now,
+	                           Version newOldestVersion,
+	                           const std::vector<int>& preliminaryAccepted,
+	                           std::vector<int>& finalCommitList);
+
 private:
 	ConflictSet* cs;
 	Standalone<VectorRef<struct TransactionInfo*>> transactionInfo;
