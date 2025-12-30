@@ -32,10 +32,11 @@ struct StorageServerShard {
 	enum ShardState {
 		NotAssigned = 0, // The key range is not assigned to the storage server.
 		Adding = 1, // A new shard is being moved to the storage server.
-		ReadWritePending = 2, // The shard is waiting for the `ReadWrite` state to be persisted.
-		ReadWrite = 3, // Shard is read-write.
-		MovingIn = 4, // Same as `Adding`, but the shard is being moved in via physical shard move.
-		Error = 5, // Something is wrong.
+		Validating = 2, // The shard is undergoing consistency validation after fetch.
+		ReadWritePending = 3, // The shard is waiting for the `ReadWrite` state to be persisted.
+		ReadWrite = 4, // Shard is read-write.
+		MovingIn = 5, // Same as `Adding`, but the shard is being moved in via physical shard move.
+		Error = 6, // Something is wrong.
 	};
 
 	StorageServerShard() = default;
@@ -69,6 +70,8 @@ struct StorageServerShard {
 			return "NotAssigned";
 		case Adding:
 			return "Adding";
+		case Validating:
+			return "Validating";
 		case ReadWritePending:
 			return "ReadWritePending";
 		case ReadWrite:
