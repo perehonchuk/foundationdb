@@ -605,7 +605,7 @@ struct GetShardStateReply {
 
 struct GetShardStateRequest {
 	constexpr static FileIdentifier file_identifier = 15860168;
-	enum waitMode { NO_WAIT = 0, FETCHING = 1, READABLE = 2 };
+	enum waitMode { NO_WAIT = 0, FETCHING = 1, VALIDATING = 2, READABLE = 3 };
 
 	KeyRange keys;
 	int32_t mode;

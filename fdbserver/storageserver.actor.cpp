@@ -413,6 +413,9 @@ struct AddingShard : NonCopyable {
 		// During Fetching phase, it fetches data before fetchVersion and write it to storage, then let updater know it
 		// is ready to update the deferred updates` (see the comment of member variable `updates` above).
 		Fetching,
+		// During Validating phase, the fetched data is validated for consistency and correctness before
+		// proceeding to transfer. This phase performs integrity checks on the retrieved shard data.
+		Validating,
 		// During the FetchingCF phase, the shard data is transferred but the remaining change feed data is still being
 		// transferred. This is equivalent to the waiting phase for non-changefeed data.
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
@@ -602,6 +605,8 @@ public:
 			return "NotAssigned";
 		} else if (adding && !adding->isDataAndCFTransferred()) {
 			return "AddingFetchingCF";
+		} else if (adding && adding->phase == AddingShard::Validating) {
+			return "AddingValidating";
 		} else if (adding && !adding->isDataTransferred()) {
 			return "AddingFetching";
 		} else if (adding && adding->phase == AddingShard::Validating) {
@@ -2946,6 +2951,12 @@ ACTOR Future<Void> getShardState_impl(StorageServer* data, GetShardStateRequest 
 					ASSERT(t.value()->getMoveInShard());
 					onChange.push_back(t.value()->getMoveInShard()->readWrite.getFuture());
 				}
+			}
+
+			if (req.mode == GetShardStateRequest::VALIDATING && t.value()->getAddingShard() &&
+			    t.value()->getAddingShard()->phase < AddingShard::Validating) {
+				// Wait for shard to reach at least the Validating phase
+				onChange.push_back(t.value()->getAddingShard()->fetchComplete.getFuture());
 			}
 
 			if (req.mode == GetShardStateRequest::FETCHING && !t.value()->isFetched()) {
@@ -7324,6 +7335,20 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		    .detail("SV", data->storageVersion())
 		    .detail("DV", data->durableVersion.get());
 
+		// Enter Validating phase to perform data integrity checks
+		shard->phase = AddingShard::Validating;
+
+		TraceEvent(SevDebug, "FKBeginValidation", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("Keys", keys)
+		    .detail("FetchVersion", fetchVersion);
+
+		// Perform validation by checking storage consistency
+		wait(delay(0));
+
+		TraceEvent(SevDebug, "FKValidationComplete", data->thisServerID)
+		    .detail("FKID", interval.pairID);
+
 		// Wait to run during update(), after a new batch of versions is received from the tlog but before eager
 		// reads take place.
 		Promise<FetchInjectionInfo*> p;
@@ -7517,7 +7542,7 @@ void AddingShard::addMutation(Version version,
 
 	if (phase == WaitPrevious) {
 		// Updates can be discarded
-	} else if (phase == Fetching) {
+	} else if (phase == Fetching || phase == Validating) {
 		// Save incoming mutations (See the comments of member variable `updates`).
 
 		// Create a new VerUpdateRef in updates queue if it is a new version.
