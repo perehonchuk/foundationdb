@@ -337,9 +337,10 @@ struct WatchValueRequest {
 	Version version;
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
+	int priority; // Watch priority: 0 = low, 1 = normal, 2 = high
 	ReplyPromise<WatchValueReply> reply;
 
-	WatchValueRequest() {}
+	WatchValueRequest() : priority(1) {}
 
 	WatchValueRequest(SpanContext spanContext,
 	                  TenantInfo tenantInfo,
@@ -349,13 +350,24 @@ struct WatchValueRequest {
 	                  Optional<TagSet> tags,
 	                  Optional<UID> debugID)
 	  : spanContext(spanContext), tenantInfo(tenantInfo), key(key), value(value), version(ver), tags(tags),
-	    debugID(debugID) {}
+	    debugID(debugID), priority(1) {}
+
+	WatchValueRequest(SpanContext spanContext,
+	                  TenantInfo tenantInfo,
+	                  const Key& key,
+	                  Optional<Value> value,
+	                  Version ver,
+	                  Optional<TagSet> tags,
+	                  Optional<UID> debugID,
+	                  int priority)
+	  : spanContext(spanContext), tenantInfo(tenantInfo), key(key), value(value), version(ver), tags(tags),
+	    debugID(debugID), priority(priority) {}
 
 	bool verify() const { return tenantInfo.isAuthorized(); }
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, key, value, version, tags, debugID, reply, spanContext, tenantInfo);
+		serializer(ar, key, value, version, tags, debugID, priority, reply, spanContext, tenantInfo);
 	}
 };
 

@@ -833,6 +833,8 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	int priority; // Watch priority for notification ordering
+	std::vector<WatchValueRequest> pendingRequests; // Queued requests for priority-based notification
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
@@ -840,7 +842,16 @@ public:
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
 	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId), priority(1) {}
+
+	ServerWatchMetadata(Key key,
+	                    Optional<Value> value,
+	                    Version version,
+	                    Optional<TagSet> tags,
+	                    Optional<UID> debugID,
+	                    int64_t tenantId,
+	                    int priority)
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId), priority(priority) {}
 };
 
 struct BusiestWriteTagContext {
@@ -2574,6 +2585,20 @@ void checkCancelWatchImpl(StorageServer* data, WatchValueRequest req) {
 	}
 }
 
+// Priority-based notification: send notifications to higher priority watches first
+void notifyWatchesByPriority(StorageServer* data, Reference<ServerWatchMetadata> metadata, Version ver) {
+	// Sort pending requests by priority (high to low)
+	std::sort(metadata->pendingRequests.begin(),
+	          metadata->pendingRequests.end(),
+	          [](const WatchValueRequest& a, const WatchValueRequest& b) { return a.priority > b.priority; });
+
+	// Send notifications in priority order
+	for (const auto& req : metadata->pendingRequests) {
+		req.reply.send(WatchValueReply{ ver });
+	}
+	metadata->pendingRequests.clear();
+}
+
 ACTOR Future<Void> watchValueSendReply(StorageServer* data,
                                        WatchValueRequest req,
                                        Future<Version> resp,
@@ -2595,8 +2620,14 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 		try {
 			choose {
 				when(Version ver = wait(resp)) {
-					// fire watch
-					req.reply.send(WatchValueReply{ ver });
+					// fire watch - use priority-based notification if metadata exists
+					Reference<ServerWatchMetadata> metadata =
+					    data->getWatchMetadata(req.key.contents(), req.tenantInfo.tenantId);
+					if (metadata.isValid() && !metadata->pendingRequests.empty()) {
+						notifyWatchesByPriority(data, metadata, ver);
+					} else {
+						req.reply.send(WatchValueReply{ ver });
+					}
 					checkCancelWatchImpl(data, req);
 					--data->numWatches;
 					data->watchBytes -= WATCH_OVERHEAD_WATCHQ;
@@ -11893,7 +11924,8 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
+			metadata->pendingRequests.push_back(req);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11919,6 +11951,12 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 				}
 			}
 
+			// Update priority to the highest among all pending requests
+			if (req.priority > metadata->priority) {
+				metadata->priority = req.priority;
+			}
+			metadata->pendingRequests.push_back(req);
+
 			self->actors.add(watchValueSendReply(self, req, metadata->versionPromise.getFuture(), span.context));
 		}
 		// case 3: version in map has a lower version so trigger watch and create a new entry in map
@@ -11928,7 +11966,8 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 			metadata->watch_impl.cancel();
 
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
+			metadata->pendingRequests.push_back(req);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11962,7 +12001,8 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 
 					if (reply.value == req.value) { // valSS == valreq
 						metadata = makeReference<ServerWatchMetadata>(
-						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
+						metadata->pendingRequests.push_back(req);
 						KeyRef key = self->setWatchMetadata(metadata);
 						metadata->watch_impl =
 						    forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
