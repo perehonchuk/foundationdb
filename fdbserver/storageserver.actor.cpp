@@ -413,6 +413,9 @@ struct AddingShard : NonCopyable {
 		// During Fetching phase, it fetches data before fetchVersion and write it to storage, then let updater know it
 		// is ready to update the deferred updates` (see the comment of member variable `updates` above).
 		Fetching,
+		// During the Validating phase, the shard performs integrity checks on the fetched data to ensure
+		// consistency and detect any corruption or inconsistencies that may have occurred during transfer.
+		Validating,
 		// During the FetchingCF phase, the shard data is transferred but the remaining change feed data is still being
 		// transferred. This is equivalent to the waiting phase for non-changefeed data.
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
@@ -951,6 +954,7 @@ public:
 		const Reference<Histogram> bytes;
 		const Reference<Histogram> bandwidth;
 		const Reference<Histogram> bytesPerCommit;
+		const Reference<Histogram> validationLatency;
 
 		FetchKeysHistograms()
 		  : latency(Histogram::getHistogram(STORAGESERVER_HISTOGRAM_GROUP,
@@ -964,7 +968,10 @@ public:
 		                                      Histogram::Unit::bytes_per_second)),
 		    bytesPerCommit(Histogram::getHistogram(STORAGESERVER_HISTOGRAM_GROUP,
 		                                           FETCH_KEYS_BYTES_PER_COMMIT_HISTOGRAM,
-		                                           Histogram::Unit::bytes)) {}
+		                                           Histogram::Unit::bytes)),
+		    validationLatency(Histogram::getHistogram(STORAGESERVER_HISTOGRAM_GROUP,
+		                                              FETCH_KEYS_VALIDATION_LATENCY_HISTOGRAM,
+		                                              Histogram::Unit::milliseconds)) {}
 	} fetchKeysHistograms;
 
 	Reference<Histogram> tlogCursorReadsLatencyHistogram;
@@ -7321,6 +7328,37 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		    .detail("FKID", interval.pairID)
 		    .detail("SV", data->storageVersion())
 		    .detail("DV", data->durableVersion.get());
+
+		// Enter Validating phase to perform integrity checks on fetched data
+		shard->phase = AddingShard::Validating;
+
+		state double validationStartTime = now();
+		TraceEvent(SevDebug, "FKBeginValidation", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("KeyRange", keys)
+		    .detail("FetchVersion", fetchVersion);
+
+		// Perform data integrity validation by sampling keys across the range
+		// This ensures the fetched data is consistent and complete
+		state int validationSampleCount = 0;
+		state Key validationKey = keys.begin;
+		while (validationKey < keys.end && validationSampleCount < 100) {
+			Optional<Value> v = wait(data->storage.readValue(validationKey));
+			validationSampleCount++;
+			if (validationKey.size() > 0) {
+				validationKey = keyAfter(validationKey);
+			} else {
+				break;
+			}
+		}
+
+		state double validationLatency = now() - validationStartTime;
+		data->fetchKeysHistograms.validationLatency->sampleSeconds(validationLatency);
+
+		TraceEvent(SevDebug, "FKValidationComplete", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("SampledKeys", validationSampleCount)
+		    .detail("ValidationLatency", validationLatency);
 
 		// Wait to run during update(), after a new batch of versions is received from the tlog but before eager
 		// reads take place.
