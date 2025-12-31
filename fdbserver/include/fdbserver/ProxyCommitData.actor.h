@@ -93,6 +93,7 @@ struct ProxyStats {
 	Reference<Histogram> resolutionDist;
 	Reference<Histogram> postResolutionDist;
 	Reference<Histogram> processingMutationDist;
+	Reference<Histogram> preLoggingDist;
 	Reference<Histogram> tlogLoggingDist;
 	Reference<Histogram> replyCommitDist;
 
@@ -167,6 +168,8 @@ struct ProxyStats {
 	        Histogram::getHistogram("CommitProxy"_sr, "PostResolutionQueuing"_sr, Histogram::Unit::milliseconds)),
 	    processingMutationDist(
 	        Histogram::getHistogram("CommitProxy"_sr, "ProcessingMutation"_sr, Histogram::Unit::milliseconds)),
+	    preLoggingDist(
+	        Histogram::getHistogram("CommitProxy"_sr, "PreLogging"_sr, Histogram::Unit::milliseconds)),
 	    tlogLoggingDist(Histogram::getHistogram("CommitProxy"_sr, "TlogLogging"_sr, Histogram::Unit::milliseconds)),
 	    replyCommitDist(Histogram::getHistogram("CommitProxy"_sr, "ReplyCommit"_sr, Histogram::Unit::milliseconds)) {
 		specialCounter(cc, "LastAssignedCommitVersion", [this]() { return this->lastCommitVersionAssigned; });

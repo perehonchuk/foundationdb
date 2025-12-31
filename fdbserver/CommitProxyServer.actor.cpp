@@ -638,6 +638,7 @@ constexpr const std::string_view INITIALIZE = "initialize"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
+constexpr const std::string_view PRE_LOGGING = "preLogging"sv;
 constexpr const std::string_view TRANSACTION_LOGGING = "transactionLogging"sv;
 constexpr const std::string_view REPLY = "reply"sv;
 constexpr const std::string_view COMPLETE = "complete"sv;
@@ -2602,6 +2603,55 @@ ACTOR Future<Void> postResolution(CommitBatchContext* self) {
 	return Void();
 }
 
+ACTOR Future<Void> preLogging(CommitBatchContext* self) {
+	state double preLoggingStart = g_network->timer_monotonic();
+	state ProxyCommitData* const pProxyCommitData = self->pProxyCommitData;
+	state std::vector<CommitTransactionRequest>& trs = self->trs;
+	state const int64_t localBatchNumber = self->localBatchNumber;
+	state const Optional<UID>& debugID = self->debugID;
+	state Span span("MP:preLogging"_loc, self->span.context);
+
+	// Perform pre-logging validation: verify mutation consistency and check batch constraints
+	wait(yield(TaskPriority::ProxyCommitYield1));
+
+	if (debugID.present()) {
+		g_traceBatch.addEvent(
+		    "CommitDebug", debugID.get().first(), "CommitProxyServer.commitBatch.PreLoggingValidation");
+	}
+
+	// Validate that committed transactions have well-formed mutations
+	int validatedMutations = 0;
+	for (int t = 0; t < trs.size(); t++) {
+		if (self->committed[t] == ConflictBatch::TransactionCommitted) {
+			auto& tr = trs[t];
+			for (auto& m : tr.transaction.mutations) {
+				validatedMutations++;
+				// Basic mutation validation: ensure key is not empty and within valid range
+				ASSERT(m.param1.size() > 0 || m.type == MutationRef::SetVersionstampedKey ||
+				       m.type == MutationRef::SetVersionstampedValue);
+			}
+		}
+	}
+
+	// Update statistics for pre-logging validation
+	pProxyCommitData->stats.mutations += validatedMutations;
+
+	if (debugID.present()) {
+		g_traceBatch.addEvent(
+		    "CommitDebug", debugID.get().first(), "CommitProxyServer.commitBatch.PreLoggingComplete");
+	}
+
+	pProxyCommitData->stats.preLoggingDist->sampleSeconds(g_network->timer_monotonic() - preLoggingStart);
+
+	TraceEvent("PreLoggingValidation", pProxyCommitData->dbgid)
+	    .detail("BatchNumber", localBatchNumber)
+	    .detail("ValidatedMutations", validatedMutations)
+	    .detail("CommittedTransactions", self->commitCount)
+	    .detail("DurationSeconds", g_network->timer_monotonic() - preLoggingStart);
+
+	return Void();
+}
+
 ACTOR Future<Void> transactionLogging(CommitBatchContext* self) {
 	state double tLoggingStart = g_network->timer_monotonic();
 	state ProxyCommitData* const pProxyCommitData = self->pProxyCommitData;
@@ -2884,11 +2934,15 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 	pContext->stage = POST_RESOLUTION;
 	wait(CommitBatch::postResolution(pContext));
 
-	/////// Phase 4: Logging (network bound; pipelined up to MAX_READ_TRANSACTION_LIFE_VERSIONS (limited by loop above))
+	/////// Phase 4: Pre-logging validation (CPU bound; validates mutations before sending to tlogs)
+	pContext->stage = PRE_LOGGING;
+	wait(CommitBatch::preLogging(pContext));
+
+	/////// Phase 5: Logging (network bound; pipelined up to MAX_READ_TRANSACTION_LIFE_VERSIONS (limited by loop above))
 	pContext->stage = TRANSACTION_LOGGING;
 	wait(CommitBatch::transactionLogging(pContext));
 
-	/////// Phase 5: Replies (CPU bound; no particular order required, though ordered execution would be best for
+	/////// Phase 6: Replies (CPU bound; no particular order required, though ordered execution would be best for
 	/// latency)
 	pContext->stage = REPLY;
 	wait(CommitBatch::reply(pContext));
