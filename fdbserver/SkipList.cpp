@@ -1083,6 +1083,59 @@ void ConflictBatch::combineWriteConflictRanges() {
 	}
 }
 
+void ConflictBatch::lightweightConflictPrefilter(Version now,
+                                                   Version newOldestVersion,
+                                                   std::vector<int>& preliminaryAccepted,
+                                                   std::vector<int>* tooOldTransactions) {
+	// Placeholder implementation: accept all non-too-old transactions
+	for (int i = 0; i < transactionCount; i++) {
+		preliminaryAccepted.push_back(i);
+	}
+	if (tooOldTransactions) {
+		GetTooOldTransactions(*tooOldTransactions);
+	}
+}
+
+void ConflictBatch::priorityBasedGrouping(const std::vector<int>& preliminaryAccepted,
+                                          std::vector<std::vector<int>>& priorityGroups) {
+	// Group transactions by their size (larger transactions in separate groups)
+	std::vector<int> smallTxns, mediumTxns, largeTxns;
+
+	for (int txnIdx : preliminaryAccepted) {
+		int txnSize = 0;
+		if (txnIdx < transactionCount && transactionInfo[txnIdx]) {
+			txnSize = transactionInfo[txnIdx]->transaction.read_conflict_ranges.size() +
+			          transactionInfo[txnIdx]->transaction.write_conflict_ranges.size();
+		}
+
+		if (txnSize < 10) {
+			smallTxns.push_back(txnIdx);
+		} else if (txnSize < 50) {
+			mediumTxns.push_back(txnIdx);
+		} else {
+			largeTxns.push_back(txnIdx);
+		}
+	}
+
+	if (!smallTxns.empty()) priorityGroups.push_back(smallTxns);
+	if (!mediumTxns.empty()) priorityGroups.push_back(mediumTxns);
+	if (!largeTxns.empty()) priorityGroups.push_back(largeTxns);
+}
+
+void ConflictBatch::deferredConflictCheck(Version now,
+                                          Version newOldestVersion,
+                                          const std::vector<std::vector<int>>& priorityGroups,
+                                          std::vector<int>& finalCommitList) {
+	// Process each priority group sequentially
+	for (const auto& group : priorityGroups) {
+		for (int txnIdx : group) {
+			if (txnIdx < transactionCount && !transactionConflictStatus[txnIdx]) {
+				finalCommitList.push_back(txnIdx);
+			}
+		}
+	}
+}
+
 namespace {
 StringRef setK(Arena& arena, int i) {
 	char t[sizeof(i)];

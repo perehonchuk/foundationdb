@@ -166,6 +166,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
 	Counter transactionsPrefiltered;
+	Counter transactionsGrouped;
 	Counter transactionsDeferredChecked;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
@@ -204,6 +205,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
 	    transactionsConflicted("TransactionsConflicted", cc),
 	    transactionsPrefiltered("TransactionsPrefiltered", cc),
+	    transactionsGrouped("TransactionsGrouped", cc),
 	    transactionsDeferredChecked("TransactionsDeferredChecked", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
@@ -375,8 +377,13 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		conflictBatch.lightweightConflictPrefilter(req.version, newOldestVersion, preliminaryAccepted, &tooOldList);
 		self->transactionsPrefiltered += preliminaryAccepted.size();
 
-		// Phase 2: Deferred comprehensive conflict check for preliminary accepted transactions
-		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
+		// Phase 2: Priority-based grouping for batch optimization
+		std::vector<std::vector<int>> priorityGroups;
+		conflictBatch.priorityBasedGrouping(preliminaryAccepted, priorityGroups);
+		self->transactionsGrouped += priorityGroups.size();
+
+		// Phase 3: Deferred comprehensive conflict check for grouped transactions
+		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, priorityGroups, commitList);
 		self->transactionsDeferredChecked += commitList.size();
 
 		reply.debugID = req.debugID;
