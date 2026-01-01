@@ -402,8 +402,8 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 
 	loop {
 		state Future<Void> timeout;
-		state std::vector<CommitTransactionRequest> batch;
-		state int batchBytes = 0;
+		state std::map<TransactionPriority, std::vector<CommitTransactionRequest>> priorityBatches;
+		state std::map<TransactionPriority, int> priorityBatchBytes;
 		// TODO: Enable this assertion (currently failing with gcc)
 		// static_assert(std::is_nothrow_move_constructible_v<CommitTransactionRequest>);
 
@@ -413,8 +413,11 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			timeout = delayJittered(SERVER_KNOBS->MAX_COMMIT_BATCH_INTERVAL, TaskPriority::ProxyCommitBatcher);
 		}
 
+		state int totalBatchSize = 0;
+		state int totalBatchBytes = 0;
+
 		while (!timeout.isReady() &&
-		       !(batch.size() == SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_COUNT_MAX || batchBytes >= desiredBytes)) {
+		       !(totalBatchSize == SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_COUNT_MAX || totalBatchBytes >= desiredBytes)) {
 			choose {
 				when(CommitTransactionRequest req = waitNext(in)) {
 					// WARNING: this code is run at a high priority, so it needs to do as little work as possible
@@ -458,7 +461,7 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						g_traceBatch.addEvent("CommitDebug", req.debugID.get().first(), "CommitProxyServer.batcher");
 					}
 
-					if (!batch.size()) {
+					if (!totalBatchSize) {
 						if (now() - lastBatch > commitData->commitBatchInterval) {
 							timeout = delayJittered(SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_INTERVAL_FROM_IDLE,
 							                        TaskPriority::ProxyCommitBatcher);
@@ -468,18 +471,30 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						}
 					}
 
-					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
-					    batch.size()) {
+					if ((totalBatchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
+					    totalBatchSize) {
 						commitData->triggerCommit.set(false);
-						out.send({ std::move(batch), batchBytes });
+						// Send batches in priority order: IMMEDIATE, DEFAULT, BATCH
+						for (auto priority : { TransactionPriority::IMMEDIATE, TransactionPriority::DEFAULT, TransactionPriority::BATCH }) {
+							auto it = priorityBatches.find(priority);
+							if (it != priorityBatches.end() && !it->second.empty()) {
+								out.send({ std::move(it->second), priorityBatchBytes[priority] });
+							}
+						}
 						lastBatch = now();
 						timeout = delayJittered(commitData->commitBatchInterval, TaskPriority::ProxyCommitBatcher);
-						batch.clear();
-						batchBytes = 0;
+						priorityBatches.clear();
+						priorityBatchBytes.clear();
+						totalBatchSize = 0;
+						totalBatchBytes = 0;
 					}
 
-					batch.push_back(req);
-					batchBytes += bytes;
+					// Add transaction to its priority-specific batch
+					TransactionPriority priority = req.priority;
+					priorityBatches[priority].push_back(req);
+					priorityBatchBytes[priority] += bytes;
+					totalBatchSize++;
+					totalBatchBytes += bytes;
 					commitData->commitBatchesMemBytesCount += bytes;
 				}
 				when(wait(timeout)) {}
@@ -495,7 +510,13 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
-		out.send({ std::move(batch), batchBytes });
+		// Send batches in priority order: IMMEDIATE, DEFAULT, BATCH
+		for (auto priority : { TransactionPriority::IMMEDIATE, TransactionPriority::DEFAULT, TransactionPriority::BATCH }) {
+			auto it = priorityBatches.find(priority);
+			if (it != priorityBatches.end() && !it->second.empty()) {
+				out.send({ std::move(it->second), priorityBatchBytes[priority] });
+			}
+		}
 		lastBatch = now();
 	}
 }
