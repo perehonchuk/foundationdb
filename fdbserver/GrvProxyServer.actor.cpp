@@ -62,6 +62,7 @@ struct GrvProxyStats {
 	int systemGRVQueueSize;
 	int defaultGRVQueueSize;
 	int batchGRVQueueSize;
+	int criticalGRVQueueSize;
 	int tagThrottlerGRVQueueSize;
 	double transactionRateAllowed;
 	double batchTransactionRateAllowed;
@@ -145,7 +146,7 @@ struct GrvProxyStats {
 	    txnDefaultPriorityStartOut("TxnDefaultPriorityStartOut", cc), txnTagThrottlerIn("TxnTagThrottlerIn", cc),
 	    txnTagThrottlerOut("TxnTagThrottlerOut", cc), txnThrottled("TxnThrottled", cc),
 	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc), systemGRVQueueSize(0),
-	    defaultGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
+	    defaultGRVQueueSize(0), batchGRVQueueSize(0), criticalGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
 	    batchTransactionRateAllowed(0), transactionLimit(0), batchTransactionLimit(0),
 	    percentageOfDefaultGRVQueueProcessed(0), percentageOfBatchGRVQueueProcessed(0), lastBatchQueueThrottled(false),
 	    lastDefaultQueueThrottled(false), batchThrottleStartTime(0.0), defaultThrottleStartTime(0.0),
@@ -176,6 +177,7 @@ struct GrvProxyStats {
 		specialCounter(cc, "SystemGRVQueueSize", [this]() { return this->systemGRVQueueSize; });
 		specialCounter(cc, "DefaultGRVQueueSize", [this]() { return this->defaultGRVQueueSize; });
 		specialCounter(cc, "BatchGRVQueueSize", [this]() { return this->batchGRVQueueSize; });
+		specialCounter(cc, "CriticalGRVQueueSize", [this]() { return this->criticalGRVQueueSize; });
 		specialCounter(cc, "TagThrottlerGRVQueueSize", [this]() { return this->tagThrottlerGRVQueueSize; });
 		specialCounter(
 		    cc, "SystemAndDefaultTxnRateAllowed", [this]() { return int64_t(this->transactionRateAllowed); });
@@ -512,6 +514,7 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
                                                Deque<GetReadVersionRequest>* systemQueue,
                                                Deque<GetReadVersionRequest>* defaultQueue,
                                                Deque<GetReadVersionRequest>* batchQueue,
+                                               Deque<GetReadVersionRequest>* criticalQueue,
                                                FutureStream<GetReadVersionRequest> readVersionRequests,
                                                PromiseStream<Void> GRVTimer,
                                                double* lastGRVTime,
@@ -564,13 +567,19 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
 					                      req.debugID.get().first(),
 					                      "GrvProxyServer.queueTransactionStartRequests.Before");
 
-				if (systemQueue->empty() && defaultQueue->empty() && batchQueue->empty()) {
+				if (systemQueue->empty() && defaultQueue->empty() && batchQueue->empty() && criticalQueue->empty()) {
 					forwardPromise(GRVTimer,
 					               delayJittered(std::max(0.0, *GRVBatchTime - (now() - *lastGRVTime)),
 					                             TaskPriority::ProxyGRVTimer));
 				}
 
-				if (req.priority >= TransactionPriority::IMMEDIATE) {
+				if (req.priority >= TransactionPriority::CRITICAL) {
+					++stats->txnRequestIn;
+					stats->txnStartIn += req.transactionCount;
+					stats->txnSystemPriorityStartIn += req.transactionCount;
+					++stats->criticalGRVQueueSize;
+					criticalQueue->push_back(req);
+				} else if (req.priority >= TransactionPriority::IMMEDIATE) {
 					++stats->txnRequestIn;
 					stats->txnStartIn += req.transactionCount;
 					stats->txnSystemPriorityStartIn += req.transactionCount;
@@ -884,6 +893,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 	state Deque<GetReadVersionRequest> systemQueue;
 	state Deque<GetReadVersionRequest> defaultQueue;
 	state Deque<GetReadVersionRequest> batchQueue;
+	state Deque<GetReadVersionRequest> criticalQueue;
 
 	state TransactionTagMap<uint64_t> transactionTagCounter;
 	state PrioritizedTransactionTagMap<ClientTagThrottleLimits> clientThrottledTags;
@@ -911,6 +921,7 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 	                                          &systemQueue,
 	                                          &defaultQueue,
 	                                          &batchQueue,
+	                                          &criticalQueue,
 	                                          proxy.getConsistentReadVersion.getFuture(),
 	                                          GRVTimer,
 	                                          &lastGRVTime,
@@ -965,7 +976,9 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 		uint32_t batchQueueSize = batchQueue.size();
 		while (requestsToStart < SERVER_KNOBS->START_TRANSACTION_MAX_REQUESTS_TO_START) {
 			Deque<GetReadVersionRequest>* transactionQueue;
-			if (!systemQueue.empty()) {
+			if (!criticalQueue.empty()) {
+				transactionQueue = &criticalQueue;
+			} else if (!systemQueue.empty()) {
 				transactionQueue = &systemQueue;
 			} else if (!defaultQueue.empty()) {
 				transactionQueue = &defaultQueue;
@@ -995,7 +1008,10 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 
 			transactionsStarted[req.flags & 1] += tc;
 			double currentTime = g_network->timer();
-			if (req.priority >= TransactionPriority::IMMEDIATE) {
+			if (req.priority >= TransactionPriority::CRITICAL) {
+				systemTransactionsStarted[req.flags & 1] += tc;
+				--grvProxyData->stats.criticalGRVQueueSize;
+			} else if (req.priority >= TransactionPriority::IMMEDIATE) {
 				systemTransactionsStarted[req.flags & 1] += tc;
 				--grvProxyData->stats.systemGRVQueueSize;
 			} else if (req.priority >= TransactionPriority::DEFAULT) {
