@@ -379,6 +379,15 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
 		self->transactionsDeferredChecked += commitList.size();
 
+		if (debugID.present()) {
+			TraceEvent("ResolverTwoPhaseConflictCheck", self->dbgid)
+			    .detail("DebugID", debugID.get())
+			    .detail("Version", req.version)
+			    .detail("TotalTransactions", req.transactions.size())
+			    .detail("Prefiltered", preliminaryAccepted.size())
+			    .detail("Committed", commitList.size());
+		}
+
 		reply.debugID = req.debugID;
 		reply.committed.resize(reply.arena, req.transactions.size());
 		for (int c = 0; c < commitList.size(); c++)
