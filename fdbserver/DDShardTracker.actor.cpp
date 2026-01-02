@@ -363,6 +363,18 @@ ACTOR Future<Void> readHotDetector(DataDistributionTracker* self) {
 				    .detail("ReadDensityThreshold", SERVER_KNOBS->SHARD_MAX_READ_DENSITY_RATIO)
 				    .detail("KeyRangeBegin", keyRange.keys.begin)
 				    .detail("KeyRangeEnd", keyRange.keys.end);
+
+				// Trigger shard relocation for read-hot ranges to balance read traffic
+				if (keyRange.density > SERVER_KNOBS->SHARD_MAX_READ_DENSITY_RATIO) {
+					TraceEvent("RelocateReadHotShard", self->distributorId)
+					    .detail("ReadDensity", keyRange.density)
+					    .detail("ReadBandwidth", keyRange.readBandwidthSec)
+					    .detail("KeyRangeBegin", keyRange.keys.begin)
+					    .detail("KeyRangeEnd", keyRange.keys.end);
+
+					RelocateShard rs(keyRange.keys, DataMovementReason::REBALANCE_READ, RelocateReason::REBALANCE_READ);
+					self->output.send(rs);
+				}
 			}
 		}
 	} catch (Error& e) {

@@ -706,6 +706,8 @@ public:
 			    .detail("PriorityRecoverMove", 0)
 			    .detail("PriorityRebalanceUnderutilizedTeam", 0)
 			    .detail("PriorityRebalannceOverutilizedTeam", 0)
+			    .detail("PriorityRebalanceReadOverutilTeam", 0)
+			    .detail("PriorityRebalanceReadUnderutilTeam", 0)
 			    .detail("PriorityTeamHealthy", 0)
 			    .detail("PriorityTeamContainsUndesiredServer", 0)
 			    .detail("PriorityTeamRedundant", 0)
