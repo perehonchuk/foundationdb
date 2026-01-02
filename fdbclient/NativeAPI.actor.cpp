@@ -1640,7 +1640,8 @@ TransactionState::TransactionState(Database cx,
                                    SpanContext spanContext,
                                    Reference<TransactionLogInfo> trLogInfo)
   : cx(cx), trLogInfo(trLogInfo), options(cx), taskID(taskID), spanContext(spanContext),
-    readVersionObtainedFromGrvProxy(true), tenant_(tenant), tenantSet(tenant.present()) {}
+    readVersionObtainedFromGrvProxy(true), originalPriority(options.priority), priorityEscalated(false),
+    tenant_(tenant), tenantSet(tenant.present()) {}
 
 Reference<TransactionState> TransactionState::cloneAndReset(Reference<TransactionLogInfo> newTrLogInfo,
                                                             bool generateNewSpan) const {
@@ -1660,6 +1661,8 @@ Reference<TransactionState> TransactionState::cloneAndReset(Reference<Transactio
 	newState->committedVersion = committedVersion;
 	newState->conflictingKeys = conflictingKeys;
 	newState->tenantSet = tenantSet;
+	newState->originalPriority = originalPriority;
+	newState->priorityEscalated = priorityEscalated;
 
 	return newState;
 }
@@ -6054,6 +6057,24 @@ Future<Void> Transaction::onError(Error const& e) {
 			++trState->cx->transactionsLockRejected;
 		}
 
+		// Automatic priority escalation after 3 retries
+		if (trState->numErrors >= 3 && trState->options.priority == TransactionPriority::DEFAULT &&
+		    !trState->priorityEscalated) {
+			trState->options.priority = TransactionPriority::IMMEDIATE;
+			trState->priorityEscalated = true;
+			TraceEvent(SevInfo, "TransactionPriorityEscalated")
+			    .detail("NumRetries", trState->numErrors)
+			    .detail("OriginalPriority", "DEFAULT")
+			    .detail("NewPriority", "IMMEDIATE");
+		} else if (trState->numErrors >= 6 && trState->options.priority == TransactionPriority::IMMEDIATE &&
+		           trState->priorityEscalated) {
+			trState->options.priority = TransactionPriority::BATCH;
+			TraceEvent(SevInfo, "TransactionPriorityDemoted")
+			    .detail("NumRetries", trState->numErrors)
+			    .detail("OriginalPriority", "DEFAULT")
+			    .detail("NewPriority", "BATCH");
+		}
+
 		double backoff = getBackoff(e.code());
 		reset();
 		return delay(backoff, trState->taskID);
@@ -6066,6 +6087,24 @@ Future<Void> Transaction::onError(Error const& e) {
 			++trState->cx->transactionsTooOld;
 		else if (e.code() == error_code_future_version)
 			++trState->cx->transactionsFutureVersions;
+
+		// Automatic priority escalation after 3 retries
+		if (trState->numErrors >= 3 && trState->options.priority == TransactionPriority::DEFAULT &&
+		    !trState->priorityEscalated) {
+			trState->options.priority = TransactionPriority::IMMEDIATE;
+			trState->priorityEscalated = true;
+			TraceEvent(SevInfo, "TransactionPriorityEscalated")
+			    .detail("NumRetries", trState->numErrors)
+			    .detail("OriginalPriority", "DEFAULT")
+			    .detail("NewPriority", "IMMEDIATE");
+		} else if (trState->numErrors >= 6 && trState->options.priority == TransactionPriority::IMMEDIATE &&
+		           trState->priorityEscalated) {
+			trState->options.priority = TransactionPriority::BATCH;
+			TraceEvent(SevInfo, "TransactionPriorityDemoted")
+			    .detail("NumRetries", trState->numErrors)
+			    .detail("OriginalPriority", "DEFAULT")
+			    .detail("NewPriority", "BATCH");
+		}
 
 		double maxBackoff = trState->options.maxBackoff;
 		reset();

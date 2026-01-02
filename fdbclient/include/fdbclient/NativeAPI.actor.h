@@ -304,6 +304,8 @@ struct TransactionState : ReferenceCounted<TransactionState> {
 
 	int numErrors = 0;
 	double startTime = 0;
+	TransactionPriority originalPriority;
+	bool priorityEscalated = false;
 	Promise<Standalone<StringRef>> versionstampPromise;
 
 	Version committedVersion{ invalidVersion };
