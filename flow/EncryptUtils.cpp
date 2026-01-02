@@ -116,8 +116,14 @@ EncryptAuthTokenAlgo getAuthTokenAlgoFromMode(const EncryptAuthTokenMode mode) {
 }
 
 EncryptAuthTokenMode getRandomAuthTokenMode() {
-	return deterministicRandom()->coinflip() ? EncryptAuthTokenMode::ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE
-	                                         : EncryptAuthTokenMode::ENCRYPT_HEADER_AUTH_TOKEN_MODE_SINGLE;
+	int choice = deterministicRandom()->randomInt(0, 3);
+	if (choice == 0) {
+		return EncryptAuthTokenMode::ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE;
+	} else if (choice == 1) {
+		return EncryptAuthTokenMode::ENCRYPT_HEADER_AUTH_TOKEN_MODE_SINGLE;
+	} else {
+		return EncryptAuthTokenMode::ENCRYPT_HEADER_AUTH_TOKEN_MODE_MULTI;
+	}
 }
 
 EncryptAuthTokenAlgo getRandomAuthTokenAlgo() {
