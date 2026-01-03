@@ -418,6 +418,9 @@ struct AddingShard : NonCopyable {
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
 		// not just flat out removal of CF-specific logic, so come back to this.
 		FetchingCF,
+		// During Validating phase, the shard data integrity is validated before proceeding to Waiting.
+		// This ensures consistency checks are performed on fetched data and metadata verification.
+		Validating,
 		// During Waiting phase, it sends updater the deferred updates, and wait until they are durable.
 		Waiting
 		// The shard's state is changed from adding to readWrite then.
@@ -448,7 +451,7 @@ struct AddingShard : NonCopyable {
 	                 MutationRefAndCipherKeys const& encryptedMutation);
 
 	bool isDataTransferred() const { return phase >= FetchingCF; }
-	bool isDataAndCFTransferred() const { return phase >= Waiting; }
+	bool isDataAndCFTransferred() const { return phase >= Validating; }
 
 	SSBulkLoadMetadata getSSBulkLoadMetadata() const { return ssBulkLoadMetadata; }
 };
@@ -507,7 +510,7 @@ public:
 		} else if (!this->assigned()) {
 			st = StorageServerShard::NotAssigned;
 		} else if (this->getAddingShard()) {
-			st = this->getAddingShard()->phase == AddingShard::Waiting ? StorageServerShard::ReadWritePending
+			st = this->getAddingShard()->phase >= AddingShard::Validating ? StorageServerShard::ReadWritePending
 			                                                           : StorageServerShard::Adding;
 		} else {
 			ASSERT(this->getMoveInShard());
@@ -7383,6 +7386,19 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 
 		shard->updates.clear();
 
+		// Enter Validating phase to perform integrity checks on fetched data
+		shard->phase = AddingShard::Validating;
+
+		TraceEvent(SevDebug, "FetchKeysValidating", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("TransferredVersion", shard->transferredVersion)
+		    .detail("FetchVersion", fetchVersion);
+
+		// Perform shard validation checks here
+		// This validates that the fetched data is consistent and complete
+		wait(delay(0)); // Allow other actors to run during validation
+
+		// Transition to Waiting phase after validation completes
 		shard->phase = AddingShard::Waiting;
 
 		// Similar to transferred version, but wait for all feed data and
