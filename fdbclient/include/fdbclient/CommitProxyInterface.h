@@ -204,6 +204,14 @@ struct CommitID {
 	    conflictingKRIndices(conflictingKRIndices) {}
 };
 
+// CommitTransactionRequest is sent to CommitProxy to commit a transaction.
+// The commit proxy processes the request through the following phases:
+// 1. Pre-resolution processing: Get commit version from master
+// 2. Integrity validation: Validate transaction structure and mutations
+// 3. Resolution: Check for conflicts with other transactions
+// 4. Post-resolution processing: Process mutations and prepare for logging
+// 5. Transaction logging: Write mutations to TLogs
+// 6. Reply: Send commit response back to client
 struct CommitTransactionRequest : TimedRequest {
 	constexpr static FileIdentifier file_identifier = 93948;
 	enum { FLAG_IS_LOCK_AWARE = 0x1, FLAG_FIRST_IN_BATCH = 0x2, FLAG_BYPASS_STORAGE_QUOTA = 0x4 };

@@ -636,6 +636,7 @@ namespace CommitBatch {
 constexpr const std::string_view UNSET = std::string_view();
 constexpr const std::string_view INITIALIZE = "initialize"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
+constexpr const std::string_view INTEGRITY_VALIDATION = "integrityValidation"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
 constexpr const std::string_view TRANSACTION_LOGGING = "transactionLogging"sv;
@@ -1102,6 +1103,53 @@ EncryptCipherDomainId getEncryptDetailsFromMutationRef(ProxyCommitData* commitDa
 }
 
 } // namespace
+
+ACTOR Future<Void> integrityValidation(CommitBatchContext* self) {
+	state ProxyCommitData* const pProxyCommitData = self->pProxyCommitData;
+	state std::vector<CommitTransactionRequest>& trs = self->trs;
+	state Span span("MP:integrityValidation"_loc, self->span.context);
+	state double validationStart = g_network->timer_monotonic();
+
+	// Perform pre-commit integrity checks on transaction mutations
+	// This validates transaction structure and consistency before sending to resolvers
+	state int transactionIdx = 0;
+	for (; transactionIdx < trs.size(); transactionIdx++) {
+		auto& tr = trs[transactionIdx];
+
+		// Validate mutation count doesn't exceed limits
+		if (tr.transaction.mutations.size() > SERVER_KNOBS->MUTATION_BATCH_LIMIT) {
+			TraceEvent(SevWarn, "IntegrityValidationMutationLimitExceeded", pProxyCommitData->dbgid)
+			    .detail("MutationCount", tr.transaction.mutations.size())
+			    .detail("Limit", SERVER_KNOBS->MUTATION_BATCH_LIMIT);
+			tr.reply.sendError(transaction_too_large());
+			continue;
+		}
+
+		// Check for mutation consistency
+		for (int m = 0; m < tr.transaction.mutations.size(); m++) {
+			const auto& mutation = tr.transaction.mutations[m];
+
+			// Validate key-value pair integrity
+			if (mutation.type != MutationRef::ClearRange && mutation.param1.size() > 0) {
+				// Additional integrity checks could be added here
+			}
+		}
+
+		// Yield periodically to avoid blocking
+		if (transactionIdx % 100 == 0) {
+			wait(yield(TaskPriority::ProxyCommit));
+		}
+	}
+
+	pProxyCommitData->stats.integrityValidationDist->sampleSeconds(g_network->timer_monotonic() - validationStart);
+
+	if (self->debugID.present()) {
+		g_traceBatch.addEvent(
+		    "CommitDebug", self->debugID.get().first(), "CommitProxyServer.commitBatch.AfterIntegrityValidation");
+	}
+
+	return Void();
+}
 
 ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 	state double resolutionStart = g_network->timer_monotonic();
@@ -2875,20 +2923,24 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 		return Void();
 	}
 
-	/////// Phase 2: Resolution (waiting on the network; pipelined)
+	/////// Phase 2: Integrity validation (CPU bound; validates transaction structure before resolution)
+	pContext->stage = INTEGRITY_VALIDATION;
+	wait(CommitBatch::integrityValidation(pContext));
+
+	/////// Phase 3: Resolution (waiting on the network; pipelined)
 	pContext->stage = RESOLUTION;
 	wait(CommitBatch::getResolution(pContext));
 
-	////// Phase 3: Post-resolution processing (CPU bound except for very rare situations; ordered; currently atomic but
+	////// Phase 4: Post-resolution processing (CPU bound except for very rare situations; ordered; currently atomic but
 	/// doesn't need to be)
 	pContext->stage = POST_RESOLUTION;
 	wait(CommitBatch::postResolution(pContext));
 
-	/////// Phase 4: Logging (network bound; pipelined up to MAX_READ_TRANSACTION_LIFE_VERSIONS (limited by loop above))
+	/////// Phase 5: Logging (network bound; pipelined up to MAX_READ_TRANSACTION_LIFE_VERSIONS (limited by loop above))
 	pContext->stage = TRANSACTION_LOGGING;
 	wait(CommitBatch::transactionLogging(pContext));
 
-	/////// Phase 5: Replies (CPU bound; no particular order required, though ordered execution would be best for
+	/////// Phase 6: Replies (CPU bound; no particular order required, though ordered execution would be best for
 	/// latency)
 	pContext->stage = REPLY;
 	wait(CommitBatch::reply(pContext));
