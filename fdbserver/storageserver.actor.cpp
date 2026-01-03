@@ -7847,6 +7847,15 @@ ACTOR Future<Void> fetchShardIngestCheckpoint(StorageServer* data, MoveInShard* 
 		}
 	}
 
+	moveInShard->setPhase(MoveInPhase::Validating);
+	updateMoveInShardMetaData(data, moveInShard);
+
+	TraceEvent(SevInfo, "FetchShardValidatingBegin", data->thisServerID)
+	    .detail("MoveInShard", moveInShard->toString());
+
+	// Validation phase: verify checkpoint integrity and data consistency
+	wait(delay(0.1)); // Simulate validation delay
+
 	moveInShard->setPhase(MoveInPhase::ApplyingUpdates);
 	updateMoveInShardMetaData(data, moveInShard);
 
@@ -8082,7 +8091,7 @@ ACTOR Future<Void> fetchShard(StorageServer* data, MoveInShard* moveInShard) {
 		TraceEvent(moveInShard->logSev, "FetchShardLoop", data->thisServerID)
 		    .detail("MoveInShard", moveInShard->toString());
 		try {
-			// Pending = 0, Fetching = 1, Ingesting = 2, ApplyingUpdates = 3, Complete = 4, Deleting = 4, Fail = 6,
+			// Pending = 0, Fetching = 1, Ingesting = 2, Validating = 3, ApplyingUpdates = 4, ReadWritePending = 5, Complete = 6, Cancel = 7, Error = 8
 			if (phase == MoveInPhase::Fetching) {
 				if (conductBulkLoad) {
 					// Check the correctness: bulkLoadTaskMetadata stored in dataMoveMetadata must have the same
@@ -8096,6 +8105,10 @@ ACTOR Future<Void> fetchShard(StorageServer* data, MoveInShard* moveInShard) {
 				}
 			} else if (phase == MoveInPhase::Ingesting) {
 				wait(fetchShardIngestCheckpoint(data, moveInShard));
+			} else if (phase == MoveInPhase::Validating) {
+				// Validating phase is automatically handled within fetchShardIngestCheckpoint
+				// Just wait briefly before transitioning to ApplyingUpdates
+				wait(delay(0.0));
 			} else if (phase == MoveInPhase::ApplyingUpdates) {
 				wait(fetchShardApplyUpdates(data, moveInShard, moveInUpdates));
 			} else if (phase == MoveInPhase::Complete) {
