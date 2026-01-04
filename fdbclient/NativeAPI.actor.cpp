@@ -5112,6 +5112,9 @@ Future<Void> Transaction::commitMutations() {
 			tr.transaction.report_conflicting_keys = true;
 		}
 
+		// Set transaction priority for batch segregation on the commit proxy
+		tr.priority = trState->options.priority;
+
 		Future<Void> commitResult = tryCommit(trState, tr);
 
 		if (isCheckingWrites) {

@@ -217,6 +217,7 @@ struct CommitTransactionRequest : TimedRequest {
 	CommitTransactionRef transaction;
 	ReplyPromise<CommitID> reply;
 	uint32_t flags;
+	TransactionPriority priority;
 	Optional<UID> debugID;
 	Optional<ClientTrCommitCostEstimation> commitCostEstimation;
 	Optional<TagSet> tagSet;
@@ -225,7 +226,7 @@ struct CommitTransactionRequest : TimedRequest {
 	TenantInfo tenantInfo;
 
 	CommitTransactionRequest() : CommitTransactionRequest(SpanContext()) {}
-	CommitTransactionRequest(SpanContext const& context) : spanContext(context), flags(0) {}
+	CommitTransactionRequest(SpanContext const& context) : spanContext(context), flags(0), priority(TransactionPriority::DEFAULT) {}
 
 	bool verify() const { return tenantInfo.isAuthorized(); }
 
@@ -235,6 +236,7 @@ struct CommitTransactionRequest : TimedRequest {
 		           transaction,
 		           reply,
 		           flags,
+		           priority,
 		           debugID,
 		           commitCostEstimation,
 		           tagSet,
