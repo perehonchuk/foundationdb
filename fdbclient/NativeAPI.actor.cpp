@@ -4366,6 +4366,7 @@ void TransactionOptions::clear() {
 	rawAccess = false;
 	bypassStorageQuota = false;
 	enableReplicaConsistencyCheck = false;
+	idempotencyPrioritized = false;
 	requiredReplicas = 0;
 }
 
@@ -5108,6 +5109,9 @@ Future<Void> Transaction::commitMutations() {
 		if (trState->options.bypassStorageQuota) {
 			tr.flags = tr.flags | CommitTransactionRequest::FLAG_BYPASS_STORAGE_QUOTA;
 		}
+		if (trState->options.idempotencyPrioritized) {
+			tr.flags = tr.flags | CommitTransactionRequest::FLAG_IDEMPOTENCY_PRIORITIZED;
+		}
 		if (trState->options.reportConflictingKeys) {
 			tr.transaction.report_conflicting_keys = true;
 		}
@@ -5430,6 +5434,7 @@ void Transaction::setOption(FDBTransactionOptions::Option option, Optional<Strin
 			    IdempotencyIdRef(BinaryWriter::toValue(deterministicRandom()->randomUniqueID(), Unversioned())));
 		}
 		trState->automaticIdempotency = true;
+		trState->options.idempotencyPrioritized = true;
 		break;
 
 	case FDBTransactionOptions::READ_SERVER_SIDE_CACHE_ENABLE:

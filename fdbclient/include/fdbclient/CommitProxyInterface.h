@@ -206,11 +206,12 @@ struct CommitID {
 
 struct CommitTransactionRequest : TimedRequest {
 	constexpr static FileIdentifier file_identifier = 93948;
-	enum { FLAG_IS_LOCK_AWARE = 0x1, FLAG_FIRST_IN_BATCH = 0x2, FLAG_BYPASS_STORAGE_QUOTA = 0x4 };
+	enum { FLAG_IS_LOCK_AWARE = 0x1, FLAG_FIRST_IN_BATCH = 0x2, FLAG_BYPASS_STORAGE_QUOTA = 0x4, FLAG_IDEMPOTENCY_PRIORITIZED = 0x8 };
 
 	bool isLockAware() const { return (flags & FLAG_IS_LOCK_AWARE) != 0; }
 	bool firstInBatch() const { return (flags & FLAG_FIRST_IN_BATCH) != 0; }
 	bool bypassStorageQuota() const { return (flags & FLAG_BYPASS_STORAGE_QUOTA) != 0; }
+	bool idempotencyPrioritized() const { return (flags & FLAG_IDEMPOTENCY_PRIORITIZED) != 0; }
 
 	Arena arena;
 	SpanContext spanContext;

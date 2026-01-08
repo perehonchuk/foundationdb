@@ -403,7 +403,9 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 	loop {
 		state Future<Void> timeout;
 		state std::vector<CommitTransactionRequest> batch;
+		state std::vector<CommitTransactionRequest> idempotentBatch;
 		state int batchBytes = 0;
+		state int idempotentBatchBytes = 0;
 		// TODO: Enable this assertion (currently failing with gcc)
 		// static_assert(std::is_nothrow_move_constructible_v<CommitTransactionRequest>);
 
@@ -458,7 +460,7 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						g_traceBatch.addEvent("CommitDebug", req.debugID.get().first(), "CommitProxyServer.batcher");
 					}
 
-					if (!batch.size()) {
+					if (!batch.size() && !idempotentBatch.size()) {
 						if (now() - lastBatch > commitData->commitBatchInterval) {
 							timeout = delayJittered(SERVER_KNOBS->COMMIT_TRANSACTION_BATCH_INTERVAL_FROM_IDLE,
 							                        TaskPriority::ProxyCommitBatcher);
@@ -466,6 +468,16 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 							timeout = delayJittered(commitData->commitBatchInterval - (now() - lastBatch),
 							                        TaskPriority::ProxyCommitBatcher);
 						}
+					}
+
+					// Send idempotent batch separately if it gets full
+					if ((idempotentBatchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT) &&
+					    idempotentBatch.size()) {
+						commitData->triggerCommit.set(false);
+						out.send({ std::move(idempotentBatch), idempotentBatchBytes });
+						lastBatch = now();
+						idempotentBatch.clear();
+						idempotentBatchBytes = 0;
 					}
 
 					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
@@ -478,8 +490,14 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						batchBytes = 0;
 					}
 
-					batch.push_back(req);
-					batchBytes += bytes;
+					// Route idempotent transactions to priority batch
+					if (req.transaction.idempotencyId.valid() && req.idempotencyPrioritized()) {
+						idempotentBatch.push_back(req);
+						idempotentBatchBytes += bytes;
+					} else {
+						batch.push_back(req);
+						batchBytes += bytes;
+					}
 					commitData->commitBatchesMemBytesCount += bytes;
 				}
 				when(wait(timeout)) {}
@@ -495,6 +513,10 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
+		// Send idempotent batch first (priority)
+		if (idempotentBatch.size()) {
+			out.send({ std::move(idempotentBatch), idempotentBatchBytes });
+		}
 		out.send({ std::move(batch), batchBytes });
 		lastBatch = now();
 	}
