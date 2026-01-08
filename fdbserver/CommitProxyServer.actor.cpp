@@ -391,6 +391,14 @@ bool verifyTenantPrefix(ProxyCommitData* const commitData, const CommitTransacti
 	return true;
 }
 
+void sortBatchByPriority(std::vector<CommitTransactionRequest>& batch) {
+	// Sort transactions by priority (IMMEDIATE > DEFAULT > BATCH)
+	// Higher priority values are processed first
+	std::stable_sort(batch.begin(), batch.end(), [](const CommitTransactionRequest& a, const CommitTransactionRequest& b) {
+		return a.priority > b.priority;
+	});
+}
+
 ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
                                  PromiseStream<std::pair<std::vector<CommitTransactionRequest>, int>> out,
                                  FutureStream<CommitTransactionRequest> in,
@@ -471,6 +479,7 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
 					    batch.size()) {
 						commitData->triggerCommit.set(false);
+						sortBatchByPriority(batch);
 						out.send({ std::move(batch), batchBytes });
 						lastBatch = now();
 						timeout = delayJittered(commitData->commitBatchInterval, TaskPriority::ProxyCommitBatcher);
@@ -495,6 +504,7 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
+		sortBatchByPriority(batch);
 		out.send({ std::move(batch), batchBytes });
 		lastBatch = now();
 	}
