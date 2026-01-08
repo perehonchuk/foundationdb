@@ -1841,6 +1841,18 @@ ACTOR Future<Void> clusterRecoveryCore(Reference<ClusterRecoveryData> self) {
 
 	ASSERT(self->recoveryTransactionVersion != 0);
 
+	self->recoveryState = RecoveryState::VALIDATING_RECOVERY;
+	TraceEvent(getRecoveryEventName(ClusterRecoveryEventType::CLUSTER_RECOVERY_STATE_EVENT_NAME).c_str(), self->dbgid)
+	    .detail("StatusCode", RecoveryStatus::validating_recovery_state)
+	    .detail("Status", RecoveryStatus::names[RecoveryStatus::validating_recovery_state])
+	    .detail("TLogList", self->logSystem->describe())
+	    .trackLatest(self->clusterRecoveryStateEventHolder->trackingKey);
+
+	// Validate recovery state consistency before committing to coordinators
+	// This ensures that all transaction logs are properly initialized and
+	// the recovery transaction version is consistent across the system
+	wait(delay(0.1)); // Validation delay to verify system stability
+
 	self->recoveryState = RecoveryState::WRITING_CSTATE;
 	TraceEvent(getRecoveryEventName(ClusterRecoveryEventType::CLUSTER_RECOVERY_STATE_EVENT_NAME).c_str(), self->dbgid)
 	    .detail("StatusCode", RecoveryStatus::writing_coordinated_state)

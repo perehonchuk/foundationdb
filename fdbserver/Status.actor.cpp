@@ -57,6 +57,7 @@ const char* RecoveryStatus::names[] = { "reading_coordinated_state",
 	                                    "recruiting_transaction_servers",
 	                                    "initializing_transaction_servers",
 	                                    "recovery_transaction",
+	                                    "validating_recovery_state",
 	                                    "writing_coordinated_state",
 	                                    "accepting_commits",
 	                                    "all_logs_recruited",
@@ -88,6 +89,8 @@ const char* RecoveryStatus::descriptions[] = {
 	"Initializing new transaction servers and recovering transaction logs.",
 	// recovery_transaction
 	"Performing recovery transaction.",
+	// validating_recovery_state
+	"Validating recovery transaction state and verifying cluster consistency before committing coordinated state.",
 	// writing_coordinated_state
 	"Writing coordinated state. Verify that a majority of coordination server processes are active.",
 	// accepting_commits

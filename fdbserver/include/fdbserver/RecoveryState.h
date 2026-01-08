@@ -34,11 +34,12 @@ enum class RecoveryState {
 	LOCKING_CSTATE = 2,
 	RECRUITING = 3,
 	RECOVERY_TRANSACTION = 4,
-	WRITING_CSTATE = 5,
-	ACCEPTING_COMMITS = 6,
-	ALL_LOGS_RECRUITED = 7,
-	STORAGE_RECOVERED = 8,
-	FULLY_RECOVERED = 9
+	VALIDATING_RECOVERY = 5,
+	WRITING_CSTATE = 6,
+	ACCEPTING_COMMITS = 7,
+	ALL_LOGS_RECRUITED = 8,
+	STORAGE_RECOVERED = 9,
+	FULLY_RECOVERED = 10
 };
 
 namespace RecoveryStatus {
@@ -53,6 +54,7 @@ enum RecoveryStatus {
 	recruiting_transaction_servers,
 	initializing_transaction_servers,
 	recovery_transaction,
+	validating_recovery_state,
 	writing_coordinated_state,
 	accepting_commits,
 	all_logs_recruited,
