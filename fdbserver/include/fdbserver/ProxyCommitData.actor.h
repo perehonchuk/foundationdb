@@ -89,6 +89,7 @@ struct ProxyStats {
 
 	Reference<Histogram> commitBatchQueuingDist;
 	Reference<Histogram> getCommitVersionDist;
+	Reference<Histogram> transactionValidationDist;
 	std::vector<Reference<Histogram>> resolverDist;
 	Reference<Histogram> resolutionDist;
 	Reference<Histogram> postResolutionDist;
@@ -162,6 +163,8 @@ struct ProxyStats {
 	        Histogram::getHistogram("CommitProxy"_sr, "CommitBatchQueuing"_sr, Histogram::Unit::milliseconds)),
 	    getCommitVersionDist(
 	        Histogram::getHistogram("CommitProxy"_sr, "GetCommitVersion"_sr, Histogram::Unit::milliseconds)),
+	    transactionValidationDist(
+	        Histogram::getHistogram("CommitProxy"_sr, "TransactionValidation"_sr, Histogram::Unit::milliseconds)),
 	    resolutionDist(Histogram::getHistogram("CommitProxy"_sr, "Resolution"_sr, Histogram::Unit::milliseconds)),
 	    postResolutionDist(
 	        Histogram::getHistogram("CommitProxy"_sr, "PostResolutionQueuing"_sr, Histogram::Unit::milliseconds)),

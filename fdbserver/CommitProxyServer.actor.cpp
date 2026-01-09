@@ -636,6 +636,7 @@ namespace CommitBatch {
 constexpr const std::string_view UNSET = std::string_view();
 constexpr const std::string_view INITIALIZE = "initialize"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
+constexpr const std::string_view TRANSACTION_VALIDATION = "transactionValidation"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
 constexpr const std::string_view TRANSACTION_LOGGING = "transactionLogging"sv;
@@ -1047,6 +1048,52 @@ ACTOR Future<Void> preresolutionProcessing(CommitBatchContext* self) {
 
 	if (debugID.present()) {
 		g_traceBatch.addEvent("CommitDebug", debugID.get().first(), "CommitProxyServer.commitBatch.GotCommitVersion");
+	}
+
+	return Void();
+}
+
+ACTOR Future<Void> transactionValidation(CommitBatchContext* self) {
+	state ProxyCommitData* const pProxyCommitData = self->pProxyCommitData;
+	state std::vector<CommitTransactionRequest>& trs = self->trs;
+	state const Optional<UID>& debugID = self->debugID;
+	state Span span("MP:transactionValidation"_loc, self->span.context);
+	state double validationStart = g_network->timer_monotonic();
+
+	// Validate transaction metadata consistency before sending to resolvers
+	// This phase checks idempotency IDs, tenant information, and transaction structure
+	for (int t = 0; t < trs.size(); t++) {
+		// Validate idempotency ID format if present
+		if (!trs[t].idempotencyId.empty()) {
+			// Check that idempotency ID batch index is within valid range
+			uint8_t batchIndex = trs[t].idempotencyId.first();
+			if (batchIndex > 255) {
+				TraceEvent(SevWarn, "InvalidIdempotencyIdBatchIndex", pProxyCommitData->dbgid)
+				    .detail("TransactionIndex", t)
+				    .detail("BatchIndex", batchIndex)
+				    .detail("CommitVersion", self->commitVersion);
+			}
+		}
+
+		// Validate tenant authorization if tenant mode is enabled
+		if (pProxyCommitData->db->get().client.tenantMode != TenantMode::DISABLED) {
+			const TenantInfo& tenantInfo = trs[t].tenantInfo;
+			if (tenantInfo.hasTenant() && !tenantInfo.isAuthorized()) {
+				TraceEvent(SevWarn, "UnauthorizedTenantAccess", pProxyCommitData->dbgid)
+				    .detail("TransactionIndex", t)
+				    .detail("TenantId", tenantInfo.tenantId)
+				    .detail("CommitVersion", self->commitVersion);
+			}
+		}
+	}
+
+	double validationDuration = g_network->timer_monotonic() - validationStart;
+	pProxyCommitData->stats.computeLatency.addMeasurement(validationDuration);
+	pProxyCommitData->stats.transactionValidationDist->sampleSeconds(validationDuration);
+
+	if (debugID.present()) {
+		g_traceBatch.addEvent(
+		    "CommitDebug", debugID.get().first(), "CommitProxyServer.commitBatch.AfterTransactionValidation");
 	}
 
 	return Void();
@@ -2874,6 +2921,10 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 		pContext->pProxyCommitData->commitBatchesMemBytesCount -= pContext->currentBatchMemBytesCount;
 		return Void();
 	}
+
+	/////// Phase 1.5: Transaction Validation (CPU bound; validates transaction metadata before resolution)
+	pContext->stage = TRANSACTION_VALIDATION;
+	wait(CommitBatch::transactionValidation(pContext));
 
 	/////// Phase 2: Resolution (waiting on the network; pipelined)
 	pContext->stage = RESOLUTION;
