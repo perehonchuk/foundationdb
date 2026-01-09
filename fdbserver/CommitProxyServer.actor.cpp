@@ -636,6 +636,7 @@ namespace CommitBatch {
 constexpr const std::string_view UNSET = std::string_view();
 constexpr const std::string_view INITIALIZE = "initialize"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
+constexpr const std::string_view TRANSACTION_VALIDATION = "transactionValidation"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
 constexpr const std::string_view TRANSACTION_LOGGING = "transactionLogging"sv;
@@ -1198,6 +1199,58 @@ ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 		std::unordered_map<EncryptCipherDomainId, Reference<BlobCipherKey>> cipherKeys = wait(getCipherKeys);
 		self->cipherKeys = cipherKeys;
 	}
+
+	return Void();
+}
+
+ACTOR Future<Void> validateTransactions(CommitBatchContext* self) {
+	state double validationStart = g_network->timer_monotonic();
+	state ProxyCommitData* pProxyCommitData = self->pProxyCommitData;
+	std::vector<CommitTransactionRequest>& trs = self->trs;
+	state Span span("MP:validateTransactions"_loc, self->span.context);
+
+	// Perform semantic validation of transactions before resolution
+	// This includes checking transaction size limits, mutation counts, and other constraints
+	state int validationCount = 0;
+	state int rejectedCount = 0;
+
+	for (int t = 0; t < trs.size(); t++) {
+		validationCount++;
+
+		// Validate mutation count doesn't exceed limits
+		if (trs[t].transaction.mutations.size() > CLIENT_KNOBS->TRANSACTION_TOO_MANY_MUTATIONS_LIMIT) {
+			trs[t].reply.sendError(too_many_mutations());
+			rejectedCount++;
+			continue;
+		}
+
+		// Validate read conflict ranges
+		if (trs[t].transaction.read_conflict_ranges.size() > CLIENT_KNOBS->TRANSACTION_TOO_MANY_CONFLICT_RANGES_LIMIT) {
+			trs[t].reply.sendError(too_many_conflict_ranges());
+			rejectedCount++;
+			continue;
+		}
+
+		// Validate write conflict ranges
+		if (trs[t].transaction.write_conflict_ranges.size() > CLIENT_KNOBS->TRANSACTION_TOO_MANY_CONFLICT_RANGES_LIMIT) {
+			trs[t].reply.sendError(too_many_conflict_ranges());
+			rejectedCount++;
+			continue;
+		}
+	}
+
+	pProxyCommitData->stats.txnCommitValidating += validationCount;
+
+	if (rejectedCount > 0) {
+		TraceEvent("CommitProxyValidationRejections", pProxyCommitData->dbgid)
+		    .detail("RejectedCount", rejectedCount)
+		    .detail("TotalCount", trs.size());
+	}
+
+	double validationDuration = g_network->timer_monotonic() - validationStart;
+	pProxyCommitData->stats.txnValidationDuration += validationDuration;
+
+	wait(delay(0)); // Yield to prevent blocking
 
 	return Void();
 }
@@ -2875,20 +2928,24 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 		return Void();
 	}
 
-	/////// Phase 2: Resolution (waiting on the network; pipelined)
+	/////// Phase 2: Transaction validation (CPU bound; validates transaction constraints before resolution)
+	pContext->stage = TRANSACTION_VALIDATION;
+	wait(CommitBatch::validateTransactions(pContext));
+
+	/////// Phase 3: Resolution (waiting on the network; pipelined)
 	pContext->stage = RESOLUTION;
 	wait(CommitBatch::getResolution(pContext));
 
-	////// Phase 3: Post-resolution processing (CPU bound except for very rare situations; ordered; currently atomic but
+	////// Phase 4: Post-resolution processing (CPU bound except for very rare situations; ordered; currently atomic but
 	/// doesn't need to be)
 	pContext->stage = POST_RESOLUTION;
 	wait(CommitBatch::postResolution(pContext));
 
-	/////// Phase 4: Logging (network bound; pipelined up to MAX_READ_TRANSACTION_LIFE_VERSIONS (limited by loop above))
+	/////// Phase 5: Logging (network bound; pipelined up to MAX_READ_TRANSACTION_LIFE_VERSIONS (limited by loop above))
 	pContext->stage = TRANSACTION_LOGGING;
 	wait(CommitBatch::transactionLogging(pContext));
 
-	/////// Phase 5: Replies (CPU bound; no particular order required, though ordered execution would be best for
+	/////// Phase 6: Replies (CPU bound; no particular order required, though ordered execution would be best for
 	/// latency)
 	pContext->stage = REPLY;
 	wait(CommitBatch::reply(pContext));

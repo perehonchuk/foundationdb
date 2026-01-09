@@ -56,14 +56,15 @@ struct ApplyMutationsData {
 
 struct ProxyStats {
 	CounterCollection cc;
-	Counter txnCommitIn, txnCommitVersionAssigned, txnCommitResolving, txnCommitResolved, txnCommitOut,
-	    txnCommitOutSuccess, txnCommitErrors;
+	Counter txnCommitIn, txnCommitVersionAssigned, txnCommitValidating, txnCommitResolving, txnCommitResolved,
+	    txnCommitOut, txnCommitOutSuccess, txnCommitErrors;
 	Counter txnConflicts;
 	Counter txnRejectedForQueuedTooLong;
 	Counter commitBatchIn, commitBatchOut;
 	Counter mutationBytes;
 	Counter mutations;
 	Counter conflictRanges;
+	Counter txnValidationDuration;
 	Counter keyServerLocationIn, keyServerLocationOut, keyServerLocationErrors;
 	Counter tenantIdRequestIn;
 	Counter tenantIdRequestOut;
@@ -126,12 +127,13 @@ struct ProxyStats {
 	                    int64_t* commitBatchesMemBytesCountPtr,
 	                    std::map<int64_t, TenantName>* pTenantMap)
 	  : cc("ProxyStats", id.toString()), txnCommitIn("TxnCommitIn", cc),
-	    txnCommitVersionAssigned("TxnCommitVersionAssigned", cc), txnCommitResolving("TxnCommitResolving", cc),
-	    txnCommitResolved("TxnCommitResolved", cc), txnCommitOut("TxnCommitOut", cc),
-	    txnCommitOutSuccess("TxnCommitOutSuccess", cc), txnCommitErrors("TxnCommitErrors", cc),
-	    txnConflicts("TxnConflicts", cc), txnRejectedForQueuedTooLong("TxnRejectedForQueuedTooLong", cc),
-	    commitBatchIn("CommitBatchIn", cc), commitBatchOut("CommitBatchOut", cc), mutationBytes("MutationBytes", cc),
-	    mutations("Mutations", cc), conflictRanges("ConflictRanges", cc),
+	    txnCommitVersionAssigned("TxnCommitVersionAssigned", cc), txnCommitValidating("TxnCommitValidating", cc),
+	    txnCommitResolving("TxnCommitResolving", cc), txnCommitResolved("TxnCommitResolved", cc),
+	    txnCommitOut("TxnCommitOut", cc), txnCommitOutSuccess("TxnCommitOutSuccess", cc),
+	    txnCommitErrors("TxnCommitErrors", cc), txnConflicts("TxnConflicts", cc),
+	    txnRejectedForQueuedTooLong("TxnRejectedForQueuedTooLong", cc), commitBatchIn("CommitBatchIn", cc),
+	    commitBatchOut("CommitBatchOut", cc), mutationBytes("MutationBytes", cc), mutations("Mutations", cc),
+	    conflictRanges("ConflictRanges", cc), txnValidationDuration("TxnValidationDuration", cc),
 	    keyServerLocationIn("KeyServerLocationIn", cc), keyServerLocationOut("KeyServerLocationOut", cc),
 	    keyServerLocationErrors("KeyServerLocationErrors", cc), tenantIdRequestIn("TenantIdRequestIn", cc),
 	    tenantIdRequestOut("TenantIdRequestOut", cc), tenantIdRequestErrors("TenantIdRequestErrors", cc),
