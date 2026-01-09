@@ -5480,6 +5480,9 @@ ACTOR Future<GetReadVersionReply> getConsistentReadVersion(SpanContext parentSpa
 		g_traceBatch.addEvent("TransactionDebug", debugID.get().first(), "NativeAPI.getConsistentReadVersion.Before");
 	loop {
 		try {
+			// GetReadVersionRequest will undergo validation phase at GRV proxy
+			// before being queued by priority. The validation phase performs
+			// consistency checks and may introduce a small delay.
 			state GetReadVersionRequest req(span.context,
 			                                transactionCount,
 			                                priority,

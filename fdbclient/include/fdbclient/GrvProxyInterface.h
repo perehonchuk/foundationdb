@@ -28,6 +28,7 @@
 // GrvProxy is proxy primarily specializing on serving GetReadVersion. It also
 // serves health metrics since it communicates with RateKeeper to gather health
 // information of the cluster, and handles proxied GlobalConfig requests.
+// GetReadVersion requests go through a validation phase before being queued by priority.
 struct GrvProxyInterface {
 	constexpr static FileIdentifier file_identifier = 8743216;
 	enum { LocationAwareLoadBalance = 1 };

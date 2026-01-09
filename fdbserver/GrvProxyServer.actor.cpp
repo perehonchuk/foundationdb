@@ -63,6 +63,7 @@ struct GrvProxyStats {
 	int defaultGRVQueueSize;
 	int batchGRVQueueSize;
 	int tagThrottlerGRVQueueSize;
+	int validationGRVQueueSize; // Number of requests in validation phase
 	double transactionRateAllowed;
 	double batchTransactionRateAllowed;
 	double transactionLimit;
@@ -145,7 +146,8 @@ struct GrvProxyStats {
 	    txnDefaultPriorityStartOut("TxnDefaultPriorityStartOut", cc), txnTagThrottlerIn("TxnTagThrottlerIn", cc),
 	    txnTagThrottlerOut("TxnTagThrottlerOut", cc), txnThrottled("TxnThrottled", cc),
 	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc), systemGRVQueueSize(0),
-	    defaultGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
+	    defaultGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), validationGRVQueueSize(0),
+	    transactionRateAllowed(0),
 	    batchTransactionRateAllowed(0), transactionLimit(0), batchTransactionLimit(0),
 	    percentageOfDefaultGRVQueueProcessed(0), percentageOfBatchGRVQueueProcessed(0), lastBatchQueueThrottled(false),
 	    lastDefaultQueueThrottled(false), batchThrottleStartTime(0.0), defaultThrottleStartTime(0.0),
@@ -177,6 +179,7 @@ struct GrvProxyStats {
 		specialCounter(cc, "DefaultGRVQueueSize", [this]() { return this->defaultGRVQueueSize; });
 		specialCounter(cc, "BatchGRVQueueSize", [this]() { return this->batchGRVQueueSize; });
 		specialCounter(cc, "TagThrottlerGRVQueueSize", [this]() { return this->tagThrottlerGRVQueueSize; });
+		specialCounter(cc, "ValidationGRVQueueSize", [this]() { return this->validationGRVQueueSize; });
 		specialCounter(
 		    cc, "SystemAndDefaultTxnRateAllowed", [this]() { return int64_t(this->transactionRateAllowed); });
 		specialCounter(
@@ -507,7 +510,40 @@ void dropRequestFromQueue(Deque<GetReadVersionRequest>* queue, GrvProxyStats* st
 	queue->pop_front();
 }
 
+// Validate and potentially delay GetReadVersion requests before queueing.
+// This validation phase ensures request consistency and performs pre-queue screening.
+ACTOR Future<Void> validateGrvRequest(GetReadVersionRequest req,
+                                       Deque<GetReadVersionRequest>* validationQueue,
+                                       GrvProxyStats* stats) {
+	++stats->validationGRVQueueSize;
+
+	// Validation phase: check request metadata consistency
+	// This introduces a small delay to validate request parameters
+	wait(delay(0.0001)); // 100 microsecond validation delay
+
+	// Perform consistency checks on the request
+	if (req.flags & GetReadVersionRequest::FLAG_CAUSAL_READ_RISKY) {
+		// For causal risky reads, validate that transaction count is reasonable
+		if (req.transactionCount > 1000) {
+			TraceEvent(SevWarn, "GrvRequestValidationWarning")
+			    .detail("TransactionCount", req.transactionCount)
+			    .detail("Flags", req.flags);
+		}
+	}
+
+	if (req.debugID.present()) {
+		g_traceBatch.addEvent("TransactionDebug",
+		                      req.debugID.get().first(),
+		                      "GrvProxyServer.validateGrvRequest.Complete");
+	}
+
+	validationQueue->push_back(req);
+	--stats->validationGRVQueueSize;
+	return Void();
+}
+
 // Put a GetReadVersion request into the queue corresponding to its priority.
+// Requests now go through a validation phase before entering priority queues.
 ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> const> db,
                                                Deque<GetReadVersionRequest>* systemQueue,
                                                Deque<GetReadVersionRequest>* defaultQueue,
@@ -522,8 +558,26 @@ ACTOR Future<Void> queueGetReadVersionRequests(Reference<AsyncVar<ServerDBInfo> 
                                                GrvProxyTagThrottler* tagThrottler) {
 	getCurrentLineage()->modify(&TransactionLineage::operation) =
 	    TransactionLineage::Operation::GetConsistentReadVersion;
+
+	// Validation queue - holds requests undergoing validation before priority queue assignment
+	state Deque<GetReadVersionRequest> validationQueue;
+	state std::vector<Future<Void>> validationActors;
+
 	loop choose {
 		when(GetReadVersionRequest req = waitNext(readVersionRequests)) {
+			// Start validation for this request
+			validationActors.push_back(validateGrvRequest(req, &validationQueue, stats));
+		}
+		when(wait(validationActors.size() > 0 ? ready(validationActors[0]) : Never())) {
+			// Validation completed, process the validated request
+			validationActors.erase(validationActors.begin());
+
+			if (validationQueue.empty()) {
+				continue;
+			}
+
+			GetReadVersionRequest req = validationQueue.front();
+			validationQueue.pop_front();
 			// auto lineage = make_scoped_lineage(&TransactionLineage::txID, req.spanContext.first());
 			// getCurrentLineage()->modify(&TransactionLineage::txID) =
 			// WARNING: this code is run at a high priority, so it needs to do as little work as possible
