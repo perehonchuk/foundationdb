@@ -702,6 +702,8 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( START_TRANSACTION_MAX_EMPTY_QUEUE_BUDGET,             10.0 );
 	init( TAG_THROTTLE_MAX_EMPTY_QUEUE_BUDGET,                1000.0 );
 	init( START_TRANSACTION_MAX_QUEUE_SIZE,                      1e6 ); if ( randomize && BUGGIFY ) START_TRANSACTION_MAX_QUEUE_SIZE = 1000;
+	init( GRV_ROUND_ROBIN_FAIRNESS_ENABLED,                     true );
+	init( GRV_ROUND_ROBIN_BATCH_SIZE,                             10 );
 	init( KEY_LOCATION_MAX_QUEUE_SIZE,                           1e6 );
 	init( TENANT_ID_REQUEST_MAX_QUEUE_SIZE,                      1e6 );
 

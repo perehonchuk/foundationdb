@@ -71,6 +71,8 @@ struct GrvProxyStats {
 	double percentageOfDefaultGRVQueueProcessed;
 	double percentageOfBatchGRVQueueProcessed;
 
+	Counter roundRobinInterleavedBatches;
+
 	bool lastBatchQueueThrottled;
 	bool lastDefaultQueueThrottled;
 	double batchThrottleStartTime;
@@ -144,7 +146,8 @@ struct GrvProxyStats {
 	    txnDefaultPriorityStartIn("TxnDefaultPriorityStartIn", cc),
 	    txnDefaultPriorityStartOut("TxnDefaultPriorityStartOut", cc), txnTagThrottlerIn("TxnTagThrottlerIn", cc),
 	    txnTagThrottlerOut("TxnTagThrottlerOut", cc), txnThrottled("TxnThrottled", cc),
-	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc), systemGRVQueueSize(0),
+	    updatesFromRatekeeper("UpdatesFromRatekeeper", cc), leaseTimeouts("LeaseTimeouts", cc),
+	    roundRobinInterleavedBatches("RoundRobinInterleavedBatches", cc), systemGRVQueueSize(0),
 	    defaultGRVQueueSize(0), batchGRVQueueSize(0), tagThrottlerGRVQueueSize(0), transactionRateAllowed(0),
 	    batchTransactionRateAllowed(0), transactionLimit(0), batchTransactionLimit(0),
 	    percentageOfDefaultGRVQueueProcessed(0), percentageOfBatchGRVQueueProcessed(0), lastBatchQueueThrottled(false),
@@ -963,10 +966,37 @@ ACTOR static Future<Void> transactionStarter(GrvProxyInterface proxy,
 
 		uint32_t defaultQueueSize = defaultQueue.size();
 		uint32_t batchQueueSize = batchQueue.size();
+
+		// Round-robin state: track how many requests taken from each queue in current batch
+		int defaultBatchCount = 0;
+		int batchBatchCount = 0;
+		bool takeFromDefault = true; // Alternate between default and batch queues
+
 		while (requestsToStart < SERVER_KNOBS->START_TRANSACTION_MAX_REQUESTS_TO_START) {
 			Deque<GetReadVersionRequest>* transactionQueue;
 			if (!systemQueue.empty()) {
+				// System priority always comes first
 				transactionQueue = &systemQueue;
+			} else if (SERVER_KNOBS->GRV_ROUND_ROBIN_FAIRNESS_ENABLED && !defaultQueue.empty() && !batchQueue.empty()) {
+				// Round-robin fairness: alternate between default and batch queues
+				// Process up to GRV_ROUND_ROBIN_BATCH_SIZE from each queue before switching
+				if (takeFromDefault) {
+					transactionQueue = &defaultQueue;
+					defaultBatchCount++;
+					if (defaultBatchCount >= SERVER_KNOBS->GRV_ROUND_ROBIN_BATCH_SIZE) {
+						defaultBatchCount = 0;
+						takeFromDefault = false;
+						++grvProxyData->stats.roundRobinInterleavedBatches;
+					}
+				} else {
+					transactionQueue = &batchQueue;
+					batchBatchCount++;
+					if (batchBatchCount >= SERVER_KNOBS->GRV_ROUND_ROBIN_BATCH_SIZE) {
+						batchBatchCount = 0;
+						takeFromDefault = true;
+						++grvProxyData->stats.roundRobinInterleavedBatches;
+					}
+				}
 			} else if (!defaultQueue.empty()) {
 				transactionQueue = &defaultQueue;
 			} else if (!batchQueue.empty()) {
