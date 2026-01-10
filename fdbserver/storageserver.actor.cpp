@@ -833,14 +833,18 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	int minChangeCount = 1; // Minimum changes before firing
+	int currentChangeCount = 0; // Actual changes observed
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
 	                    Version version,
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
-	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	                    int64_t tenantId,
+	                    int minChangeCount = 1)
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId),
+	    minChangeCount(minChangeCount) {}
 };
 
 struct BusiestWriteTagContext {
@@ -2508,7 +2512,13 @@ ACTOR Future<Version> watchWaitForValueChange(StorageServer* data, SpanContext p
 			Version waitVersion = minVersion;
 			if (reply.value != metadata->value) {
 				if (latest >= metadata->version) {
-					return latest; // fire watch
+					// Increment change count and check if we should fire
+					metadata->currentChangeCount++;
+					if (metadata->currentChangeCount >= metadata->minChangeCount) {
+						return latest; // fire watch after reaching minimum change threshold
+					}
+					// Update the value to track subsequent changes
+					metadata->value = reply.value;
 				} else if (metadata->version > originalMetadataVersion) {
 					// another watch came in and raced in case 2 and updated the version. simply just wait and read
 					// again at the higher version to confirm
@@ -2595,8 +2605,10 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 		try {
 			choose {
 				when(Version ver = wait(resp)) {
-					// fire watch
-					req.reply.send(WatchValueReply{ ver });
+					// fire watch - include the changeCount from metadata
+					Reference<ServerWatchMetadata> metadata = data->getWatchMetadata(req.key.contents(), req.tenantInfo.tenantId);
+					int changeCount = metadata.isValid() ? metadata->currentChangeCount : 1;
+					req.reply.send(WatchValueReply{ ver, changeCount });
 					checkCancelWatchImpl(data, req);
 					--data->numWatches;
 					data->watchBytes -= WATCH_OVERHEAD_WATCHQ;
@@ -11893,7 +11905,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.minChangeCount);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11928,7 +11940,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 			metadata->watch_impl.cancel();
 
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.minChangeCount);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11962,7 +11974,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 
 					if (reply.value == req.value) { // valSS == valreq
 						metadata = makeReference<ServerWatchMetadata>(
-						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.minChangeCount);
 						KeyRef key = self->setWatchMetadata(metadata);
 						metadata->watch_impl =
 						    forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),

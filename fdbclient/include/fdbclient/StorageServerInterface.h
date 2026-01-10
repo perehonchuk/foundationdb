@@ -319,12 +319,14 @@ struct WatchValueReply {
 
 	Version version;
 	bool cached = false;
+	int changeCount = 1; // Number of changes that occurred before firing
 	WatchValueReply() = default;
 	explicit WatchValueReply(Version version) : version(version) {}
+	WatchValueReply(Version version, int changeCount) : version(version), changeCount(changeCount) {}
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, version, cached);
+		serializer(ar, version, cached, changeCount);
 	}
 };
 
@@ -337,6 +339,7 @@ struct WatchValueRequest {
 	Version version;
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
+	int minChangeCount = 1; // Minimum number of changes before triggering the watch
 	ReplyPromise<WatchValueReply> reply;
 
 	WatchValueRequest() {}
@@ -347,15 +350,16 @@ struct WatchValueRequest {
 	                  Optional<Value> value,
 	                  Version ver,
 	                  Optional<TagSet> tags,
-	                  Optional<UID> debugID)
+	                  Optional<UID> debugID,
+	                  int minChangeCount = 1)
 	  : spanContext(spanContext), tenantInfo(tenantInfo), key(key), value(value), version(ver), tags(tags),
-	    debugID(debugID) {}
+	    debugID(debugID), minChangeCount(minChangeCount) {}
 
 	bool verify() const { return tenantInfo.isAuthorized(); }
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, key, value, version, tags, debugID, reply, spanContext, tenantInfo);
+		serializer(ar, key, value, version, tags, debugID, minChangeCount, reply, spanContext, tenantInfo);
 	}
 };
 
