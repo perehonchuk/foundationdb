@@ -727,6 +727,8 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( COMMIT_TRANSACTION_BATCH_BYTES_SCALE_POWER,             0.0 );
 
 	init( RESOLVER_COALESCE_TIME,                                1.0 );
+	init( ENABLE_CONFLICT_RANGE_AGGREGATION,                    true ); if( randomize && BUGGIFY ) ENABLE_CONFLICT_RANGE_AGGREGATION = deterministicRandom()->coinflip();
+	init( CONFLICT_RANGE_AGGREGATION_MIN_SIZE,                    64 ); if( randomize && BUGGIFY ) CONFLICT_RANGE_AGGREGATION_MIN_SIZE = deterministicRandom()->randomInt(16, 256);
 	init( BUGGIFIED_ROW_LIMIT,                  APPLY_MUTATION_BYTES ); if( randomize && BUGGIFY ) BUGGIFIED_ROW_LIMIT = deterministicRandom()->randomInt(3, 30);
 	init( PROXY_SPIN_DELAY,                                     0.01 );
 	init( UPDATE_REMOTE_LOG_VERSION_INTERVAL,                    2.0 );

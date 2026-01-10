@@ -33,6 +33,7 @@
 #include "fdbclient/KeyRangeMap.h"
 #include "fdbclient/SystemData.h"
 #include "fdbserver/ConflictSet.h"
+#include "fdbserver/Knobs.h"
 #include "flow/UnitTest.h"
 
 static std::vector<PerfDoubleCounter*> skc;
@@ -1063,7 +1064,39 @@ void ConflictBatch::mergeWriteConflictRanges(Version now) {
 	if (combinedWriteConflictRanges.empty())
 		return;
 
-	addConflictRanges(now, combinedWriteConflictRanges.begin(), combinedWriteConflictRanges.end(), &cs->versionHistory);
+	// If conflict range aggregation is enabled, merge adjacent/overlapping ranges
+	if (SERVER_KNOBS->ENABLE_CONFLICT_RANGE_AGGREGATION && combinedWriteConflictRanges.size() > 1) {
+		std::vector<std::pair<StringRef, StringRef>> aggregatedRanges;
+		aggregatedRanges.reserve(combinedWriteConflictRanges.size());
+
+		auto currentRange = combinedWriteConflictRanges[0];
+		for (size_t i = 1; i < combinedWriteConflictRanges.size(); i++) {
+			const auto& nextRange = combinedWriteConflictRanges[i];
+
+			// Check if ranges are adjacent or overlapping
+			// Ranges are already sorted by combineWriteConflictRanges
+			int gap = nextRange.first.compare(currentRange.second);
+			bool shouldMerge = (gap <= 0) ||
+			                   (gap > 0 && gap <= SERVER_KNOBS->CONFLICT_RANGE_AGGREGATION_MIN_SIZE);
+
+			if (shouldMerge) {
+				// Extend current range to include next range
+				if (nextRange.second.compare(currentRange.second) > 0) {
+					currentRange.second = nextRange.second;
+				}
+			} else {
+				// Save current range and start new one
+				aggregatedRanges.push_back(currentRange);
+				currentRange = nextRange;
+			}
+		}
+		// Add the last range
+		aggregatedRanges.push_back(currentRange);
+
+		addConflictRanges(now, aggregatedRanges.begin(), aggregatedRanges.end(), &cs->versionHistory);
+	} else {
+		addConflictRanges(now, combinedWriteConflictRanges.begin(), combinedWriteConflictRanges.end(), &cs->versionHistory);
+	}
 }
 
 void ConflictBatch::combineWriteConflictRanges() {

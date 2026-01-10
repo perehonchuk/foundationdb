@@ -173,6 +173,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter resolveBatchOut;
 	Counter metricsRequests;
 	Counter splitRequests;
+	Counter aggregatedConflictRanges;
 	int numLogs;
 
 	// End-to-end server latency of resolver requests.
@@ -208,7 +209,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
-	    splitRequests("SplitRequests", cc),
+	    splitRequests("SplitRequests", cc), aggregatedConflictRanges("AggregatedConflictRanges", cc),
 	    resolverLatencyDist(Histogram::getHistogram("Resolver"_sr, "Latency"_sr, Histogram::Unit::milliseconds)),
 	    queueWaitLatencyDist(Histogram::getHistogram("Resolver"_sr, "QueueWait"_sr, Histogram::Unit::milliseconds)),
 	    computeTimeDist(Histogram::getHistogram("Resolver"_sr, "ComputeTime"_sr, Histogram::Unit::milliseconds)),
