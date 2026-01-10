@@ -902,6 +902,12 @@ CommitBatchContext::CommitBatchContext(ProxyCommitData* const pProxyCommitData_,
     toCommit(pProxyCommitData->logSystem, pProxyCommitData->localTLogCount), span("MP:commitBatch"_loc),
     committed(trs.size()), lastShardMove(invalidVersion) {
 
+	if (SERVER_KNOBS->ENABLE_PRIORITY_BASED_COMMIT_PROCESSING) {
+		std::stable_sort(trs.begin(), trs.end(), [](const CommitTransactionRequest& a, const CommitTransactionRequest& b) {
+			return a.priority > b.priority;
+		});
+	}
+
 	evaluateBatchSize();
 
 	if (batchOperations != 0) {
