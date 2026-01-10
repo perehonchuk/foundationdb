@@ -328,6 +328,12 @@ struct WatchValueReply {
 	}
 };
 
+enum class WatchPriority : uint8_t {
+	DEFAULT = 0,
+	HIGH = 1,
+	CRITICAL = 2
+};
+
 struct WatchValueRequest {
 	constexpr static FileIdentifier file_identifier = 14747733;
 	SpanContext spanContext;
@@ -337,9 +343,10 @@ struct WatchValueRequest {
 	Version version;
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
+	WatchPriority priority;
 	ReplyPromise<WatchValueReply> reply;
 
-	WatchValueRequest() {}
+	WatchValueRequest() : priority(WatchPriority::DEFAULT) {}
 
 	WatchValueRequest(SpanContext spanContext,
 	                  TenantInfo tenantInfo,
@@ -347,15 +354,16 @@ struct WatchValueRequest {
 	                  Optional<Value> value,
 	                  Version ver,
 	                  Optional<TagSet> tags,
-	                  Optional<UID> debugID)
+	                  Optional<UID> debugID,
+	                  WatchPriority priority = WatchPriority::DEFAULT)
 	  : spanContext(spanContext), tenantInfo(tenantInfo), key(key), value(value), version(ver), tags(tags),
-	    debugID(debugID) {}
+	    debugID(debugID), priority(priority) {}
 
 	bool verify() const { return tenantInfo.isAuthorized(); }
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, key, value, version, tags, debugID, reply, spanContext, tenantInfo);
+		serializer(ar, key, value, version, tags, debugID, priority, reply, spanContext, tenantInfo);
 	}
 };
 

@@ -833,14 +833,17 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	WatchPriority priority;
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
 	                    Version version,
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
-	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	                    int64_t tenantId,
+	                    WatchPriority priority = WatchPriority::DEFAULT)
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId),
+	    priority(priority) {}
 };
 
 struct BusiestWriteTagContext {
@@ -1239,6 +1242,9 @@ public:
 	AsyncMap<int64_t, bool> tenantWatches;
 	int64_t watchBytes;
 	int64_t numWatches;
+	int64_t numDefaultPriorityWatches;
+	int64_t numHighPriorityWatches;
+	int64_t numCriticalPriorityWatches;
 	AsyncVar<bool> noRecentUpdates;
 	double lastUpdate;
 
@@ -1515,6 +1521,9 @@ public:
 			specialCounter(cc, "QueryQueueMax", [self]() { return self->getAndResetMaxQueryQueueSize(); });
 			specialCounter(cc, "ActiveWatches", [self]() { return self->numWatches; });
 			specialCounter(cc, "WatchBytes", [self]() { return self->watchBytes; });
+			specialCounter(cc, "ActiveDefaultPriorityWatches", [self]() { return self->numDefaultPriorityWatches; });
+			specialCounter(cc, "ActiveHighPriorityWatches", [self]() { return self->numHighPriorityWatches; });
+			specialCounter(cc, "ActiveCriticalPriorityWatches", [self]() { return self->numCriticalPriorityWatches; });
 			specialCounter(cc, "KvstoreSizeTotal", [self]() { return std::get<0>(self->storage.getSize()); });
 			specialCounter(cc, "KvstoreNodeTotal", [self]() { return std::get<1>(self->storage.getSize()); });
 			specialCounter(cc, "KvstoreInlineKey", [self]() { return std::get<2>(self->storage.getSize()); });
@@ -1574,7 +1583,8 @@ public:
 	    primaryLocality(tagLocalityInvalid), knownCommittedVersion(0), versionLag(0), logProtocol(0),
 	    thisServerID(ssi.id()), tssInQuarantine(false), db(db), actors(false),
 	    trackShardAssignmentMinVersion(invalidVersion), byteSampleClears(false, "\xff\xff\xff"_sr),
-	    durableInProgress(Void()), watchBytes(0), numWatches(0), noRecentUpdates(false), lastUpdate(now()),
+	    durableInProgress(Void()), watchBytes(0), numWatches(0), numDefaultPriorityWatches(0),
+	    numHighPriorityWatches(0), numCriticalPriorityWatches(0), noRecentUpdates(false), lastUpdate(now()),
 	    updateEagerReads(nullptr), fetchKeysParallelismLock(SERVER_KNOBS->FETCH_KEYS_PARALLELISM),
 	    fetchKeysBytesBudget(SERVER_KNOBS->STORAGE_FETCH_BYTES), fetchKeysBudgetUsed(false),
 	    fetchKeysTotalCommitBytes(0), fetchKeysLimiter(SERVER_KNOBS->STORAGE_FETCH_KEYS_RATE_LIMIT),
@@ -2582,6 +2592,16 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 	state double startTime = now();
 	++data->counters.watchQueries;
 	++data->numWatches;
+
+	// Track priority-specific watch counts
+	if (req.priority == WatchPriority::DEFAULT) {
+		++data->numDefaultPriorityWatches;
+	} else if (req.priority == WatchPriority::HIGH) {
+		++data->numHighPriorityWatches;
+	} else if (req.priority == WatchPriority::CRITICAL) {
+		++data->numCriticalPriorityWatches;
+	}
+
 	data->watchBytes += WATCH_OVERHEAD_WATCHQ;
 
 	loop {
@@ -2589,7 +2609,14 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 		if (data->noRecentUpdates.get()) {
 			timeoutDelay = std::max(CLIENT_KNOBS->FAST_WATCH_TIMEOUT - (now() - startTime), 0.0);
 		} else if (!BUGGIFY) {
-			timeoutDelay = std::max(CLIENT_KNOBS->WATCH_TIMEOUT - (now() - startTime), 0.0);
+			// Different timeouts based on priority
+			double baseTimeout = CLIENT_KNOBS->WATCH_TIMEOUT;
+			if (req.priority == WatchPriority::HIGH) {
+				baseTimeout *= 2.0; // High priority watches timeout in 2x base timeout
+			} else if (req.priority == WatchPriority::CRITICAL) {
+				baseTimeout *= 4.0; // Critical priority watches timeout in 4x base timeout
+			}
+			timeoutDelay = std::max(baseTimeout - (now() - startTime), 0.0);
 		}
 
 		try {
@@ -2599,6 +2626,13 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 					req.reply.send(WatchValueReply{ ver });
 					checkCancelWatchImpl(data, req);
 					--data->numWatches;
+					if (req.priority == WatchPriority::DEFAULT) {
+						--data->numDefaultPriorityWatches;
+					} else if (req.priority == WatchPriority::HIGH) {
+						--data->numHighPriorityWatches;
+					} else if (req.priority == WatchPriority::CRITICAL) {
+						--data->numCriticalPriorityWatches;
+					}
 					data->watchBytes -= WATCH_OVERHEAD_WATCHQ;
 					return Void();
 				}
@@ -2607,6 +2641,13 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 					data->sendErrorWithPenalty(req.reply, timed_out(), data->getPenalty());
 					checkCancelWatchImpl(data, req);
 					--data->numWatches;
+					if (req.priority == WatchPriority::DEFAULT) {
+						--data->numDefaultPriorityWatches;
+					} else if (req.priority == WatchPriority::HIGH) {
+						--data->numHighPriorityWatches;
+					} else if (req.priority == WatchPriority::CRITICAL) {
+						--data->numCriticalPriorityWatches;
+					}
 					data->watchBytes -= WATCH_OVERHEAD_WATCHQ;
 					return Void();
 				}
@@ -2616,6 +2657,13 @@ ACTOR Future<Void> watchValueSendReply(StorageServer* data,
 			data->watchBytes -= WATCH_OVERHEAD_WATCHQ;
 			checkCancelWatchImpl(data, req);
 			--data->numWatches;
+			if (req.priority == WatchPriority::DEFAULT) {
+				--data->numDefaultPriorityWatches;
+			} else if (req.priority == WatchPriority::HIGH) {
+				--data->numHighPriorityWatches;
+			} else if (req.priority == WatchPriority::CRITICAL) {
+				--data->numCriticalPriorityWatches;
+			}
 
 			if (!canReplyWith(e))
 				throw e;
@@ -11893,7 +11941,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11928,7 +11976,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 			metadata->watch_impl.cancel();
 
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11962,7 +12010,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 
 					if (reply.value == req.value) { // valSS == valreq
 						metadata = makeReference<ServerWatchMetadata>(
-						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.priority);
 						KeyRef key = self->setWatchMetadata(metadata);
 						metadata->watch_impl =
 						    forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
