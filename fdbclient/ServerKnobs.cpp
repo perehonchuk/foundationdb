@@ -166,10 +166,10 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( USE_OLD_NEEDED_SERVERS,                              false );
 
 	init( PRIORITY_RECOVER_MOVE,                                 110 );
-	init( PRIORITY_REBALANCE_UNDERUTILIZED_TEAM,                 120 );
-	init( PRIORITY_REBALANCE_READ_UNDERUTIL_TEAM,                121 );
-	init( PRIORITY_REBALANCE_OVERUTILIZED_TEAM,                  122 );
-	init( PRIORITY_REBALANCE_READ_OVERUTIL_TEAM,                 123 );
+	init( PRIORITY_REBALANCE_READ_UNDERUTIL_TEAM,                120 );
+	init( PRIORITY_REBALANCE_READ_OVERUTIL_TEAM,                 121 );
+	init( PRIORITY_REBALANCE_UNDERUTILIZED_TEAM,                 122 );
+	init( PRIORITY_REBALANCE_OVERUTILIZED_TEAM,                  123 );
 	init( PRIORITY_REBALANCE_STORAGE_QUEUE,                      124 );
 	init( PRIORITY_TEAM_HEALTHY,                                 140 );
 	init( PRIORITY_PERPETUAL_STORAGE_WIGGLE,                     141 );
@@ -213,10 +213,10 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
  	init( PHYSICAL_SHARD_METRICS_DELAY,                        300.0 ); // 300 seconds; for ENABLE_DD_PHYSICAL_SHARD
 	init( ANONYMOUS_PHYSICAL_SHARD_TRANSITION_TIME,            600.0 ); if( randomize && BUGGIFY )  ANONYMOUS_PHYSICAL_SHARD_TRANSITION_TIME = 0.0; // 600 seconds; for ENABLE_DD_PHYSICAL_SHARD
 	init( PHYSICAL_SHARD_MOVE_VERBOSE_TRACKING,                false );
-	init( READ_REBALANCE_CPU_THRESHOLD,                         15.0 );
+	init( READ_REBALANCE_CPU_THRESHOLD,                         10.0 );
 	init( READ_REBALANCE_SRC_PARALLELISM,                         20 );
 	init( READ_REBALANCE_SHARD_TOPK,  READ_REBALANCE_SRC_PARALLELISM * 2 );
-	init( READ_REBALANCE_DIFF_FRAC,                               0.3);
+	init( READ_REBALANCE_DIFF_FRAC,                               0.2);
 	init( READ_REBALANCE_MAX_SHARD_FRAC,                          0.2); // FIXME: add buggify here when we have DD test, seems DD is pretty sensitive to this parameter
 
 	// TODO: now we set it to a large number  so that the shard average traffic can guard this change. Consider change it to a lower value in the future.
@@ -232,16 +232,16 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( MAX_SHARD_BYTES,                                 500000000 );
 	init( KEY_SERVER_SHARD_BYTES,                          500000000 );
 
-	init( SHARD_MAX_READ_OPS_PER_KSEC,                  45000 * 1000 );
+	init( SHARD_MAX_READ_OPS_PER_KSEC,                  30000 * 1000 );
     init( SHARD_READ_OPS_CHANGE_THRESHOLD, SHARD_MAX_READ_OPS_PER_KSEC / 4); if(randomize && BUGGIFY) SHARD_READ_OPS_CHANGE_THRESHOLD = 2000;
  	/*
- 	 * The assumption is when the read ops reach to 45k/s the Storage Server instance will be CPU-saturated.
+ 	 * The assumption is when the read ops reach to 30k/s the Storage Server instance will be CPU-saturated.
  	 */
-	init( SHARD_MAX_READ_DENSITY_RATIO,                           8.0); if (randomize && BUGGIFY) SHARD_MAX_READ_DENSITY_RATIO = 2.0;
+	init( SHARD_MAX_READ_DENSITY_RATIO,                           5.0); if (randomize && BUGGIFY) SHARD_MAX_READ_DENSITY_RATIO = 2.0;
 	/*
-		The bytesRead/byteSize radio. Will be declared as read hot when larger than this. 8.0 was chosen to avoid reporting table scan as read hot.
+		The bytesRead/byteSize radio. Will be declared as read hot when larger than this. 5.0 was chosen to proactively detect read hotspots before servers become saturated.
 	*/
-	init ( SHARD_READ_HOT_BANDWIDTH_MIN_PER_KSECONDS,      1666667 * 1000);
+	init ( SHARD_READ_HOT_BANDWIDTH_MIN_PER_KSECONDS,      1000000 * 1000);
 	/*
 		The read bandwidth of a given shard needs to be larger than this value in order to be evaluated if it's read hot. The roughly 1.67MB per second is calculated as following:
 			- Heuristic data suggests that each storage process can do max 500K read operations per second
@@ -1030,7 +1030,7 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( READ_HOT_SUB_RANGE_CHUNK_SIZE,                        10000000); // 10MB
 	init( EMPTY_READ_PENALTY,                                   20 ); // 20 bytes
 	init( DD_SHARD_COMPARE_LIMIT,                               1000 );
-	init( READ_SAMPLING_ENABLED,                                false ); if ( randomize && BUGGIFY ) READ_SAMPLING_ENABLED = true;// enable/disable read sampling
+	init( READ_SAMPLING_ENABLED,                                 true ); if ( randomize && BUGGIFY ) READ_SAMPLING_ENABLED = deterministicRandom()->coinflip();// enable/disable read sampling
 	init( DD_PREFER_LOW_READ_UTIL_TEAM,                          true );
 	init( DD_TRACE_MOVE_BYTES_AVERAGE_INTERVAL,                   120);
 	init( MOVING_WINDOW_SAMPLE_SIZE,                         10000000); // 10MB
