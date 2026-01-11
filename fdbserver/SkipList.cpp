@@ -1083,6 +1083,64 @@ void ConflictBatch::combineWriteConflictRanges() {
 	}
 }
 
+void ConflictBatch::lightweightConflictPrefilter(Version now,
+                                                  Version newOldestVersion,
+                                                  std::vector<int>& preliminaryAccepted,
+                                                  std::vector<int>* tooOldTransactions) {
+	// Phase 1: Quick filtering based on transaction age and basic checks
+	for (int i = 0; i < transactionCount; i++) {
+		if (ignoreTooOld() || transactionInfo[i]->readSnapshot >= newOldestVersion) {
+			preliminaryAccepted.push_back(i);
+		} else {
+			transactionInfo[i]->tooOld = true;
+			if (tooOldTransactions) {
+				tooOldTransactions->push_back(i);
+			}
+		}
+	}
+}
+
+void ConflictBatch::deferredConflictCheck(Version now,
+                                          Version newOldestVersion,
+                                          const std::vector<int>& preliminaryAccepted,
+                                          std::vector<int>& deferredAccepted) {
+	// Phase 2: Run full conflict detection on preliminary accepted transactions
+	// Delegate to existing detectConflicts logic
+	std::vector<int> tempNonConflicting;
+	detectConflicts(now, newOldestVersion, tempNonConflicting, nullptr);
+
+	// Filter preliminaryAccepted to only include those that passed full conflict check
+	std::set<int> nonConflictingSet(tempNonConflicting.begin(), tempNonConflicting.end());
+	for (int txnIdx : preliminaryAccepted) {
+		if (nonConflictingSet.count(txnIdx)) {
+			deferredAccepted.push_back(txnIdx);
+		}
+	}
+}
+
+void ConflictBatch::priorityBasedResolution(const std::vector<int>& deferredAccepted,
+                                            std::vector<int>& finalCommitList) {
+	// Phase 3: Priority-based final resolution
+	// Separate transactions by priority level
+	std::vector<int> immediatePriority, defaultPriority, batchPriority;
+
+	for (int txnIdx : deferredAccepted) {
+		auto priority = transactionInfo[txnIdx]->transaction.priority;
+		if (priority == CommitTransactionRef::TransactionPriority::IMMEDIATE) {
+			immediatePriority.push_back(txnIdx);
+		} else if (priority == CommitTransactionRef::TransactionPriority::DEFAULT) {
+			defaultPriority.push_back(txnIdx);
+		} else {
+			batchPriority.push_back(txnIdx);
+		}
+	}
+
+	// Commit in priority order: IMMEDIATE first, then DEFAULT, then BATCH
+	finalCommitList.insert(finalCommitList.end(), immediatePriority.begin(), immediatePriority.end());
+	finalCommitList.insert(finalCommitList.end(), defaultPriority.begin(), defaultPriority.end());
+	finalCommitList.insert(finalCommitList.end(), batchPriority.begin(), batchPriority.end());
+}
+
 namespace {
 StringRef setK(Arena& arena, int i) {
 	char t[sizeof(i)];

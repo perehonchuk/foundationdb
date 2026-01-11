@@ -167,6 +167,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsConflicted;
 	Counter transactionsPrefiltered;
 	Counter transactionsDeferredChecked;
+	Counter transactionsPriorityResolved;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -205,6 +206,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    transactionsConflicted("TransactionsConflicted", cc),
 	    transactionsPrefiltered("TransactionsPrefiltered", cc),
 	    transactionsDeferredChecked("TransactionsDeferredChecked", cc),
+	    transactionsPriorityResolved("TransactionsPriorityResolved", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
@@ -376,8 +378,13 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		self->transactionsPrefiltered += preliminaryAccepted.size();
 
 		// Phase 2: Deferred comprehensive conflict check for preliminary accepted transactions
-		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
-		self->transactionsDeferredChecked += commitList.size();
+		std::vector<int> deferredAccepted;
+		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, deferredAccepted);
+		self->transactionsDeferredChecked += deferredAccepted.size();
+
+		// Phase 3: Priority-based final resolution
+		conflictBatch.priorityBasedResolution(deferredAccepted, commitList);
+		self->transactionsPriorityResolved += commitList.size();
 
 		reply.debugID = req.debugID;
 		reply.committed.resize(reply.arena, req.transactions.size());

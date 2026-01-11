@@ -612,12 +612,18 @@ static inline bool isNonAssociativeOp(MutationRef::Type mutationType) {
 }
 
 struct CommitTransactionRef {
+	enum class TransactionPriority : uint8_t {
+		DEFAULT = 0,
+		BATCH = 1,
+		IMMEDIATE = 2
+	};
+
 	CommitTransactionRef() = default;
 	CommitTransactionRef(Arena& a, const CommitTransactionRef& from)
 	  : read_conflict_ranges(a, from.read_conflict_ranges), write_conflict_ranges(a, from.write_conflict_ranges),
 	    mutations(a, from.mutations), read_snapshot(from.read_snapshot),
 	    report_conflicting_keys(from.report_conflicting_keys), lock_aware(from.lock_aware),
-	    spanContext(from.spanContext) {}
+	    spanContext(from.spanContext), priority(from.priority) {}
 
 	VectorRef<KeyRangeRef> read_conflict_ranges;
 	VectorRef<KeyRangeRef> write_conflict_ranges;
@@ -631,6 +637,7 @@ struct CommitTransactionRef {
 	bool report_conflicting_keys = false;
 	bool lock_aware = false; // set when metadata mutations are present
 	Optional<SpanContext> spanContext;
+	TransactionPriority priority = TransactionPriority::DEFAULT; // Priority for conflict resolution
 
 	// set by Commit Proxy
 	// The tenants associated with this transaction. This field only existing
@@ -648,7 +655,8 @@ struct CommitTransactionRef {
 			           report_conflicting_keys,
 			           lock_aware,
 			           spanContext,
-			           tenantIds);
+			           tenantIds,
+			           priority);
 		} else {
 			serializer(
 			    ar, read_conflict_ranges, write_conflict_ranges, mutations, read_snapshot, report_conflicting_keys);
@@ -666,6 +674,7 @@ struct CommitTransactionRef {
 			if (ar.protocolVersion().hasOTELSpanContext()) {
 				serializer(ar, spanContext);
 			}
+			serializer(ar, priority);
 		}
 	}
 
