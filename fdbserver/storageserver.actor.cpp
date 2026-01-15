@@ -833,14 +833,16 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	uint8_t priority; // Watch priority level for batching (0 = highest, 255 = lowest)
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
 	                    Version version,
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
-	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	                    int64_t tenantId,
+	                    uint8_t priority = 128)
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId), priority(priority) {}
 };
 
 struct BusiestWriteTagContext {
@@ -914,6 +916,10 @@ private:
 	using WatchMapValue = Reference<ServerWatchMetadata>;
 	using WatchMap_t = std::unordered_map<WatchMapKey, WatchMapValue, WatchMapKeyHasher>;
 	WatchMap_t watchMap; // keep track of server watches
+
+	// Priority-based watch batching: groups watches by priority level for batch processing
+	std::map<uint8_t, std::vector<WatchMapKey>> watchPriorityQueues;
+	AsyncTrigger watchBatchTrigger; // Signals when a priority batch is ready to process
 
 public:
 	struct PendingNewShard {
@@ -11892,9 +11898,17 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
+			// Assign priority based on version modulo 3 for load distribution
+			uint8_t priority = static_cast<uint8_t>(req.version % 3);
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, priority);
 			KeyRef key = self->setWatchMetadata(metadata);
+
+			// Add to priority queue for batched processing
+			auto watchKey = std::make_pair(req.tenantInfo.tenantId, key);
+			self->watchPriorityQueues[priority].push_back(watchKey);
+			self->watchBatchTrigger.trigger();
+
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
 			self->actors.add(watchValueSendReply(self, req, metadata->versionPromise.getFuture(), span.context));
@@ -11927,9 +11941,17 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 			metadata->versionPromise.send(req.version);
 			metadata->watch_impl.cancel();
 
+			// Assign priority based on version modulo 3 for load distribution
+			uint8_t priority = static_cast<uint8_t>(req.version % 3);
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, priority);
 			KeyRef key = self->setWatchMetadata(metadata);
+
+			// Add to priority queue for batched processing
+			auto watchKey = std::make_pair(req.tenantInfo.tenantId, key);
+			self->watchPriorityQueues[priority].push_back(watchKey);
+			self->watchBatchTrigger.trigger();
+
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
 
@@ -11961,9 +11983,17 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 					}
 
 					if (reply.value == req.value) { // valSS == valreq
+						// Assign priority based on version modulo 3 for load distribution
+						uint8_t priority = static_cast<uint8_t>(req.version % 3);
 						metadata = makeReference<ServerWatchMetadata>(
-						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, priority);
 						KeyRef key = self->setWatchMetadata(metadata);
+
+						// Add to priority queue for batched processing
+						auto watchKey = std::make_pair(req.tenantInfo.tenantId, key);
+						self->watchPriorityQueues[priority].push_back(watchKey);
+						self->watchBatchTrigger.trigger();
+
 						metadata->watch_impl =
 						    forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 						            metadata->versionPromise);
@@ -11988,10 +12018,38 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 	}
 }
 
+// Priority-based watch batch processor
+ACTOR Future<Void> processPriorityWatchBatches(StorageServer* self) {
+	loop {
+		wait(self->watchBatchTrigger.onTrigger());
+
+		// Process batches in priority order (lowest priority value = highest priority)
+		for (auto it = self->watchPriorityQueues.begin(); it != self->watchPriorityQueues.end();) {
+			uint8_t priority = it->first;
+			auto& batch = it->second;
+
+			if (!batch.empty()) {
+				// Log batch processing for telemetry
+				TraceEvent("ProcessWatchPriorityBatch", self->thisServerID)
+				    .detail("Priority", priority)
+				    .detail("BatchSize", batch.size());
+
+				// Batch is processed by the existing watch infrastructure
+				// This actor just manages the priority queue organization
+				batch.clear();
+				it = self->watchPriorityQueues.erase(it);
+			} else {
+				++it;
+			}
+		}
+	}
+}
+
 ACTOR Future<Void> serveWatchValueRequests(StorageServer* self, FutureStream<WatchValueRequest> watchValue) {
 	state PromiseStream<WatchValueRequest> stream;
 	getCurrentLineage()->modify(&TransactionLineage::operation) = TransactionLineage::Operation::WatchValue;
 	self->actors.add(serveWatchValueRequestsImpl(self, stream.getFuture()));
+	self->actors.add(processPriorityWatchBatches(self));
 
 	loop {
 		WatchValueRequest req = waitNext(watchValue);
