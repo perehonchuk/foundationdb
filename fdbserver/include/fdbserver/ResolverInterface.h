@@ -139,6 +139,9 @@ struct ResolveTransactionBatchRequest : TimedRequest {
 	Optional<UID> debugID;
 	Version lastShardMove;
 
+	// Priority level for request batching (0 = highest priority)
+	uint8_t priorityLevel;
+
 	std::set<Tag> writtenTags;
 
 	template <class Archive>
@@ -151,6 +154,7 @@ struct ResolveTransactionBatchRequest : TimedRequest {
 		           txnStateTransactions,
 		           reply,
 		           debugID,
+		           priorityLevel,
 		           writtenTags,
 		           spanContext,
 		           lastShardMove,

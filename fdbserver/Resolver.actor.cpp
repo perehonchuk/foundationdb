@@ -137,6 +137,10 @@ struct Resolver : ReferenceCounted<Resolver> {
 	ConflictSet* conflictSet;
 	TransientStorageMetricSample iopsSample;
 
+	// Priority batching system: maps priority level -> queued requests
+	std::map<uint8_t, std::vector<ResolveTransactionBatchRequest>> priorityQueues;
+	AsyncTrigger priorityBatchTrigger;
+
 	// Use LogSystem as backend for txnStateStore. However, the real commit
 	// happens at commit proxies and we never "write" to the LogSystem at
 	// Resolvers.
@@ -307,6 +311,18 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		     self->neededVersion.get()) .detail("RecentStateVer", self->recentStateTransactionsInfo.firstVersion());*/
 
 		wait(self->totalStateBytes.onChange() || self->neededVersion.onChange());
+	}
+
+	// Priority batching: Queue requests by priority level and process in order
+	// High-priority (low number) batches are processed first
+	self->priorityQueues[req.priorityLevel].push_back(req);
+	self->priorityBatchTrigger.trigger();
+
+	// Wait until this is the highest priority batch ready to process
+	while (!self->priorityQueues.empty() &&
+	       (self->priorityQueues.begin()->first < req.priorityLevel ||
+	        self->priorityQueues[req.priorityLevel].front().version != req.version)) {
+		wait(self->priorityBatchTrigger.onTrigger());
 	}
 
 	if (debugID.present()) {
@@ -578,6 +594,16 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 	self->resolverLatencyDist->sampleSeconds(endTime - req.requestTime());
 
 	++self->resolveBatchOut;
+
+	// Remove processed request from priority queue
+	auto& queue = self->priorityQueues[req.priorityLevel];
+	if (!queue.empty() && queue.front().version == req.version) {
+		queue.erase(queue.begin());
+		if (queue.empty()) {
+			self->priorityQueues.erase(req.priorityLevel);
+		}
+		self->priorityBatchTrigger.trigger();
+	}
 
 	return Void();
 }

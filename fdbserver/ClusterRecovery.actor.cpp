@@ -1405,6 +1405,7 @@ ACTOR Future<Void> sendInitialCommitToResolvers(Reference<ClusterRecoveryData> s
 		req.version = self->lastEpochEnd;
 		req.lastReceivedVersion = -1;
 		req.lastShardMove = -1;
+		req.priorityLevel = 0; // Master recovery requests get highest priority
 		replies.push_back(brokenPromiseToNever(r.resolve.getReply(req)));
 	}
 

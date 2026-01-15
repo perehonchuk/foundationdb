@@ -133,6 +133,9 @@ struct ResolutionRequestBuilder {
 			req.version = version;
 			req.lastReceivedVersion = lastReceivedVersion;
 			req.lastShardMove = lastShardMove;
+			// Initialize priority level based on version modulo 3
+			// This distributes batches across priority levels dynamically
+			req.priorityLevel = static_cast<uint8_t>(version % 3);
 		}
 	}
 
