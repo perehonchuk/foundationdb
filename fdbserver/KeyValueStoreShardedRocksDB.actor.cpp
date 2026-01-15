@@ -3404,8 +3404,13 @@ struct ShardedRocksDBKeyValueStore : IKeyValueStore {
 	};
 
 	// Persist shard mappinng key range should not be in shardMap.
-	explicit ShardedRocksDBKeyValueStore(const std::string& path, UID id)
-	  : rState(std::make_shared<ShardedRocksDBState>()), path(path), id(id),
+	explicit ShardedRocksDBKeyValueStore(const std::string& path,
+	                                     UID id,
+	                                     Reference<AsyncVar<ServerDBInfo> const> db = {},
+	                                     Optional<EncryptionAtRestMode> encryptionMode = {},
+	                                     Reference<GetEncryptCipherKeysMonitor> encryptionMonitor = {})
+	  : rState(std::make_shared<ShardedRocksDBState>()), path(path), id(id), db(db),
+	    encryptionMode(encryptionMode), encryptionMonitor(encryptionMonitor),
 	    readSemaphore(SERVER_KNOBS->ROCKSDB_READ_QUEUE_SOFT_MAX),
 	    fetchSemaphore(SERVER_KNOBS->ROCKSDB_FETCH_QUEUE_SOFT_MAX),
 	    numReadWaiters(SERVER_KNOBS->ROCKSDB_READ_QUEUE_HARD_MAX - SERVER_KNOBS->ROCKSDB_READ_QUEUE_SOFT_MAX),
@@ -3912,6 +3917,9 @@ struct ShardedRocksDBKeyValueStore : IKeyValueStore {
 	std::shared_ptr<LatencyMetrics> latencyMetrics;
 	std::string path;
 	UID id;
+	Reference<AsyncVar<ServerDBInfo> const> db;
+	Optional<EncryptionAtRestMode> encryptionMode;
+	Reference<GetEncryptCipherKeysMonitor> encryptionMonitor;
 	std::set<Key> keysSet;
 	Reference<IThreadPool> writeThread;
 	Reference<IThreadPool> compactionThread;
@@ -3989,9 +3997,12 @@ IKeyValueStore* keyValueStoreShardedRocksDB(std::string const& path,
                                             UID logID,
                                             KeyValueStoreType storeType,
                                             bool checkChecksums,
-                                            bool checkIntegrity) {
+                                            bool checkIntegrity,
+                                            Reference<AsyncVar<ServerDBInfo> const> db,
+                                            Optional<EncryptionAtRestMode> encryptionMode,
+                                            Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
 #ifdef WITH_ROCKSDB
-	return new ShardedRocksDBKeyValueStore(path, logID);
+	return new ShardedRocksDBKeyValueStore(path, logID, db, encryptionMode, encryptionMonitor);
 #else
 	TraceEvent(SevError, "ShardedRocksDBEngineInitFailure").detail("Reason", "Built without RocksDB");
 	ASSERT(false);

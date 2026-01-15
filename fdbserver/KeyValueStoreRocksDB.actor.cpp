@@ -2033,8 +2033,13 @@ struct RocksDBKeyValueStore : IKeyValueStore {
 		}
 	};
 
-	explicit RocksDBKeyValueStore(const std::string& path, UID id)
-	  : id(id), sharedState(std::make_shared<SharedRocksDBState>(id)), path(path),
+	explicit RocksDBKeyValueStore(const std::string& path,
+	                              UID id,
+	                              Reference<AsyncVar<ServerDBInfo> const> dbInfo = {},
+	                              Optional<EncryptionAtRestMode> encryptionMode = {},
+	                              Reference<GetEncryptCipherKeysMonitor> encryptionMonitor = {})
+	  : id(id), sharedState(std::make_shared<SharedRocksDBState>(id)), path(path), dbInfo(dbInfo),
+	    encryptionMode(encryptionMode), encryptionMonitor(encryptionMonitor),
 	    perfContextMetrics(new PerfContextMetrics()),
 	    readIterPool(new ReadIteratorPool(id, db, defaultFdbCF, sharedState)),
 	    readSemaphore(SERVER_KNOBS->ROCKSDB_READ_QUEUE_SOFT_MAX),
@@ -2616,6 +2621,9 @@ struct RocksDBKeyValueStore : IKeyValueStore {
 	std::string path;
 	rocksdb::ColumnFamilyHandle* defaultFdbCF = nullptr;
 	UID id;
+	Reference<AsyncVar<ServerDBInfo> const> dbInfo;
+	Optional<EncryptionAtRestMode> encryptionMode;
+	Reference<GetEncryptCipherKeysMonitor> encryptionMonitor;
 	Reference<IThreadPool> writeThread;
 	Reference<IThreadPool> readThreads;
 	std::shared_ptr<RocksDBErrorListener> errorListener;
@@ -2837,9 +2845,12 @@ IKeyValueStore* keyValueStoreRocksDB(std::string const& path,
                                      UID logID,
                                      KeyValueStoreType storeType,
                                      bool checkChecksums,
-                                     bool checkIntegrity) {
+                                     bool checkIntegrity,
+                                     Reference<AsyncVar<ServerDBInfo> const> db,
+                                     Optional<EncryptionAtRestMode> encryptionMode,
+                                     Reference<GetEncryptCipherKeysMonitor> encryptionMonitor) {
 #ifdef WITH_ROCKSDB
-	return new RocksDBKeyValueStore(path, logID);
+	return new RocksDBKeyValueStore(path, logID, db, encryptionMode, encryptionMonitor);
 #else
 	TraceEvent(SevError, "RocksDBEngineInitFailure", logID).detail("Reason", "Built without RocksDB");
 	ASSERT(false);
