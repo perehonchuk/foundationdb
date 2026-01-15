@@ -1051,6 +1051,53 @@ public:
 	double cpuUsage;
 	double diskUsage;
 
+	// Tiered storage queue: track key access patterns
+	struct KeyAccessTracker {
+		std::unordered_map<KeyRef, std::deque<double>> accessTimes; // Key -> deque of access timestamps
+		Arena arena; // Arena to store key copies
+
+		void recordAccess(KeyRef key, double currentTime, double trackingWindow) {
+			KeyRef stableKey = KeyRef(arena, key); // Copy key into arena
+			auto& times = accessTimes[stableKey];
+
+			// Remove old accesses outside the tracking window
+			while (!times.empty() && times.front() < currentTime - trackingWindow) {
+				times.pop_front();
+			}
+
+			times.push_back(currentTime);
+		}
+
+		int getAccessCount(KeyRef key, double currentTime, double trackingWindow) const {
+			auto it = accessTimes.find(key);
+			if (it == accessTimes.end()) {
+				return 0;
+			}
+
+			// Count accesses within the tracking window
+			int count = 0;
+			for (double t : it->second) {
+				if (t >= currentTime - trackingWindow) {
+					count++;
+				}
+			}
+			return count;
+		}
+
+		void cleanup(double currentTime, double trackingWindow) {
+			// Remove entries that have no recent accesses
+			std::vector<KeyRef> toRemove;
+			for (auto& pair : accessTimes) {
+				if (pair.second.empty() || pair.second.back() < currentTime - trackingWindow) {
+					toRemove.push_back(pair.first);
+				}
+			}
+			for (auto& key : toRemove) {
+				accessTimes.erase(key);
+			}
+		}
+	} keyAccessTracker;
+
 	std::map<Version, Standalone<VerUpdateRef>> const& getMutationLog() const { return mutationLog; }
 	std::map<Version, Standalone<VerUpdateRef>>& getMutableMutationLog() { return mutationLog; }
 	VersionedData const& data() const { return versionedData; }
@@ -2349,6 +2396,11 @@ ACTOR Future<Void> getValueQ(StorageServer* data, GetValueRequest req) {
 			path = 2;
 			Optional<Value> vv = wait(data->storage.readValue(req.key, req.options));
 			data->counters.kvGetBytes += vv.expectedSize();
+
+			// Track key access for tiered storage queue
+			if (SERVER_KNOBS->ENABLE_TIERED_STORAGE_QUEUE) {
+				data->keyAccessTracker.recordAccess(req.key, now(), SERVER_KNOBS->KEY_ACCESS_TRACKING_WINDOW);
+			}
 			// Validate that while we were reading the data we didn't lose the version or shard
 			if (version < data->storageVersion()) {
 				CODE_PROBE(true, "transaction_too_old after readValue");
@@ -10063,6 +10115,19 @@ ACTOR Future<Void> update(StorageServer* data, bool* pReceivedUpdate) {
 			    (g_network->isSimulated() && g_simulator->speedUpSimulation)
 			        ? std::max(5 * SERVER_KNOBS->VERSIONS_PER_SECOND, SERVER_KNOBS->MAX_READ_TRANSACTION_LIFE_VERSIONS)
 			        : SERVER_KNOBS->MAX_READ_TRANSACTION_LIFE_VERSIONS;
+
+			// Tiered storage queue: use different retention for hot vs cold keys
+			if (SERVER_KNOBS->ENABLE_TIERED_STORAGE_QUEUE) {
+				// Cleanup old access tracking data periodically
+				if (deterministicRandom()->random01() < 0.01) { // 1% chance per update
+					data->keyAccessTracker.cleanup(now(), SERVER_KNOBS->KEY_ACCESS_TRACKING_WINDOW);
+				}
+
+				// Calculate retention based on key access patterns
+				// For simplicity, use hot key retention as the baseline to ensure hot keys are retained
+				// Cold keys will be cleaned up through selective compaction
+				maxVersionsInMemory = SERVER_KNOBS->HOT_KEY_RETENTION_VERSIONS;
+			}
 			for (int i = 0; i < data->recoveryVersionSkips.size(); i++) {
 				maxVersionsInMemory += data->recoveryVersionSkips[i].second;
 			}

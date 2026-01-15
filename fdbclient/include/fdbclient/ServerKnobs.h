@@ -39,15 +39,22 @@ public:
 	int64_t MAX_READ_TRANSACTION_LIFE_VERSIONS; // Used in various roles (Blob*, DD, LR, RK, SC) but most importantly
 	                                            // used in CP and SS.
 	                                            // In SS, this governs how long versioned data stays readable. In other
-	                                            // words, when a client’s read version falls more than this many
-	                                            // versions behind the storage servers’ latest committed version
+	                                            // words, when a client's read version falls more than this many
+	                                            // versions behind the storage servers' latest committed version
 	                                            // (in memory), the storage server replies with transaction_too_old.
-	                                            // Practically, it’s the MVCC retention budget.
+	                                            // Practically, it's the MVCC retention budget.
 	int64_t MAX_WRITE_TRANSACTION_LIFE_VERSIONS; // Used in the commit path in Resolver and CP. Governs how far back in
 	                                             // history a commit request is still accepted. In other words,
 	                                             // proxies/resolvers refuse to commit a transaction whose read version
 	                                             // is more than this many versions behind the current commit version,
 	                                             // returning transaction_too_old.
+
+	// Tiered storage queue retention
+	bool ENABLE_TIERED_STORAGE_QUEUE; // Enable tiered retention for storage queue based on access patterns
+	int64_t HOT_KEY_RETENTION_VERSIONS; // Extended retention for frequently accessed keys (10 seconds)
+	int64_t COLD_KEY_RETENTION_VERSIONS; // Reduced retention for infrequently accessed keys (3 seconds)
+	int64_t KEY_ACCESS_HOT_THRESHOLD; // Number of accesses to be considered hot (within tracking window)
+	double KEY_ACCESS_TRACKING_WINDOW; // Time window for tracking key access patterns (seconds)
 
 	// Versions -- other
 	int64_t MAX_VERSIONS_IN_FLIGHT;

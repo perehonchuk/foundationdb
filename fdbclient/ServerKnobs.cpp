@@ -42,12 +42,19 @@ int randomTxnTimeoutSeconds() {
 void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSimulated isSimulated) {
 	// clang-format off
 	init( ALLOW_DANGEROUS_KNOBS,                               isSimulated );
-	
+
 	// Versions -- knobs that control 5s timeout
 	init( VERSIONS_PER_SECOND,                                   1e6 );
 	init( MAX_READ_TRANSACTION_LIFE_VERSIONS,      5 * VERSIONS_PER_SECOND ); if (isSimulated) MAX_READ_TRANSACTION_LIFE_VERSIONS = randomTxnTimeoutSeconds() * VERSIONS_PER_SECOND;
 	init( MAX_WRITE_TRANSACTION_LIFE_VERSIONS,     5 * VERSIONS_PER_SECOND ); if (randomize && BUGGIFY) MAX_WRITE_TRANSACTION_LIFE_VERSIONS=std::max<int>(1, 1 * VERSIONS_PER_SECOND);
-	
+
+	// Tiered storage queue retention
+	init( ENABLE_TIERED_STORAGE_QUEUE,                          true );
+	init( HOT_KEY_RETENTION_VERSIONS,             10 * VERSIONS_PER_SECOND ); // 10 seconds for hot keys
+	init( COLD_KEY_RETENTION_VERSIONS,             3 * VERSIONS_PER_SECOND ); // 3 seconds for cold keys
+	init( KEY_ACCESS_HOT_THRESHOLD,                                    10 ); // 10+ accesses = hot
+	init( KEY_ACCESS_TRACKING_WINDOW,                                30.0 ); // Track accesses over 30 seconds
+
 	// Versions -- other
 	init( MAX_VERSIONS_IN_FLIGHT,                100 * VERSIONS_PER_SECOND );
 	init( MAX_VERSIONS_IN_FLIGHT_FORCED,         6e5 * VERSIONS_PER_SECOND ); //one week of versions

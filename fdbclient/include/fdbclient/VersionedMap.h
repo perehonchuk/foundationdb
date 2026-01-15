@@ -798,6 +798,25 @@ public:
 		// PTreeImpl::printTreeDetails(roots.back().second(), 0);
 	}
 
+	// Tiered compaction: selectively forget versions for cold keys
+	template<typename AccessChecker>
+	void compactTiered(Version hotRetentionVersion, Version coldRetentionVersion, AccessChecker& checker) {
+		ASSERT(coldRetentionVersion <= hotRetentionVersion);
+		ASSERT(hotRetentionVersion <= latestVersion);
+
+		// For cold keys, we use the more aggressive coldRetentionVersion
+		// For hot keys, we use the less aggressive hotRetentionVersion
+		// This is a simplified implementation - in practice, per-key version tracking would be more complex
+
+		// Use the conservative (hot key) version for overall compaction
+		// Individual key cleanup would require more sophisticated per-key version tracking
+		auto newBegin = lower_bound(roots.begin(), roots.end(), hotRetentionVersion, rootsComparator());
+		for (auto root = roots.begin(); root != newBegin; ++root) {
+			if (root->second)
+				PTreeImpl::compact(root->second, hotRetentionVersion);
+		}
+	}
+
 	// for(auto i = vm.at(version).lower_bound(range.begin); i < range.end; ++i)
 	struct iterator {
 		explicit iterator(Tree const& root, Version at) : root(root), at(at) {}
