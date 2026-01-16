@@ -403,7 +403,9 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 	loop {
 		state Future<Void> timeout;
 		state std::vector<CommitTransactionRequest> batch;
+		state std::vector<CommitTransactionRequest> priorityBatch;
 		state int batchBytes = 0;
+		state int priorityBatchBytes = 0;
 		// TODO: Enable this assertion (currently failing with gcc)
 		// static_assert(std::is_nothrow_move_constructible_v<CommitTransactionRequest>);
 
@@ -478,8 +480,14 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						batchBytes = 0;
 					}
 
-					batch.push_back(req);
-					batchBytes += bytes;
+					// Priority transactions go into separate priority batch
+					if (req.isHighPriority()) {
+						priorityBatch.push_back(req);
+						priorityBatchBytes += bytes;
+					} else {
+						batch.push_back(req);
+						batchBytes += bytes;
+					}
 					commitData->commitBatchesMemBytesCount += bytes;
 				}
 				when(wait(timeout)) {}
@@ -495,6 +503,12 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 			}
 		}
 		commitData->triggerCommit.set(false);
+
+		// Send priority batch first for fast-track processing
+		if (priorityBatch.size() > 0) {
+			out.send({ std::move(priorityBatch), priorityBatchBytes });
+		}
+
 		out.send({ std::move(batch), batchBytes });
 		lastBatch = now();
 	}
