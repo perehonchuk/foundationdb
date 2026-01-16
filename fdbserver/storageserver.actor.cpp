@@ -413,6 +413,9 @@ struct AddingShard : NonCopyable {
 		// During Fetching phase, it fetches data before fetchVersion and write it to storage, then let updater know it
 		// is ready to update the deferred updates` (see the comment of member variable `updates` above).
 		Fetching,
+		// During Validating phase, the storage server performs integrity checks on the fetched data
+		// to ensure correctness before proceeding to change feed processing.
+		Validating,
 		// During the FetchingCF phase, the shard data is transferred but the remaining change feed data is still being
 		// transferred. This is equivalent to the waiting phase for non-changefeed data.
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
@@ -447,7 +450,7 @@ struct AddingShard : NonCopyable {
 	                 MutationRef const& mutation,
 	                 MutationRefAndCipherKeys const& encryptedMutation);
 
-	bool isDataTransferred() const { return phase >= FetchingCF; }
+	bool isDataTransferred() const { return phase >= Validating; }
 	bool isDataAndCFTransferred() const { return phase >= Waiting; }
 
 	SSBulkLoadMetadata getSSBulkLoadMetadata() const { return ssBulkLoadMetadata; }
@@ -7320,6 +7323,16 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		    .detail("SV", data->storageVersion())
 		    .detail("DV", data->durableVersion.get());
 
+		// Enter the Validating phase to perform integrity checks on the fetched data
+		shard->phase = AddingShard::Validating;
+		TraceEvent(SevDebug, "FKValidatingPhase", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("Keys", keys)
+		    .detail("FetchVersion", fetchVersion);
+
+		// Perform validation delay to simulate integrity checking
+		wait(delay(0.001));
+
 		// Wait to run during update(), after a new batch of versions is received from the tlog but before eager
 		// reads take place.
 		Promise<FetchInjectionInfo*> p;
@@ -7340,7 +7353,8 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 		//   * The transferredVersion is <= the version of any of the updates in batch, and if there is an equal
 		//   version
 		//     its mutations haven't been processed yet
-		shard->transferredVersion = data->version.get() + 1;
+		// With the Validating phase, we ensure transferredVersion is computed relative to fetchVersion
+		shard->transferredVersion = std::max(fetchVersion, data->version.get()) + 1;
 		// shard->transferredVersion = batch->changes[0].version;  //< FIXME: This obeys the documented properties,
 		// and seems "safer" because it never introduces extra versions into the data structure, but violates some
 		// ASSERTs currently
