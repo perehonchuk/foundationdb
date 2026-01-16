@@ -48,6 +48,7 @@ public:
 	DataMovementReason dmReason;
 
 	double startTime;
+	double validationStartTime; // timestamp when validation phase begins
 	UID randomId; // inherit from RelocateShard.traceId
 	UID dataMoveId;
 	int workFactor;

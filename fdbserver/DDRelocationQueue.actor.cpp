@@ -129,15 +129,16 @@ DataMovementReason priorityToDataMovementReason(int priority) {
 
 RelocateData::RelocateData()
   : priority(-1), boundaryPriority(-1), healthPriority(-1), reason(RelocateReason::OTHER), startTime(-1),
-    dataMoveId(anonymousShardId), workFactor(0), wantsNewServers(false), cancellable(false),
+    validationStartTime(-1), dataMoveId(anonymousShardId), workFactor(0), wantsNewServers(false), cancellable(false),
     interval("QueuedRelocation") {};
 
 RelocateData::RelocateData(RelocateShard const& rs)
   : parent_range(rs.getParentRange()), keys(rs.keys), priority(rs.priority),
     boundaryPriority(isBoundaryPriority(rs.priority) ? rs.priority : -1),
     healthPriority(isHealthPriority(rs.priority) ? rs.priority : -1), reason(rs.reason), dmReason(rs.moveReason),
-    startTime(now()), randomId(rs.traceId.isValid() ? rs.traceId : deterministicRandom()->randomUniqueID()),
-    dataMoveId(rs.dataMoveId), workFactor(0),
+    startTime(now()), validationStartTime(-1),
+    randomId(rs.traceId.isValid() ? rs.traceId : deterministicRandom()->randomUniqueID()), dataMoveId(rs.dataMoveId),
+    workFactor(0),
     wantsNewServers(isDataMovementForMountainChopper(rs.moveReason) || isDataMovementForValleyFiller(rs.moveReason) ||
                     rs.moveReason == DataMovementReason::SPLIT_SHARD ||
                     rs.moveReason == DataMovementReason::TEAM_REDUNDANT ||

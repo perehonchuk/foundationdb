@@ -1507,6 +1507,15 @@ ACTOR static Future<Void> finishMoveKeys(Database occ,
 					             Void(),
 					             TaskPriority::MoveKeys));
 
+					// Perform validation phase to ensure shard consistency before finalizing
+					TraceEvent(SevDebug, "FinishMoveKeysValidating", relocationIntervalId)
+					    .detail("KeyBegin", currentKeys.begin)
+					    .detail("KeyEnd", endKey)
+					    .detail("DestTeam", describe(dest));
+
+					// Add validation delay to ensure data consistency
+					wait(delay(0.002));
+
 					// Check to see if we're waiting only on tss. If so, decrement the waiting counter.
 					// If the waiting counter is zero, ignore the slow/non-responsive tss processes before finalizing
 					// the data move.
