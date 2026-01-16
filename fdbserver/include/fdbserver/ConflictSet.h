@@ -54,6 +54,11 @@ struct ConflictBatch {
 	                     std::vector<int>* tooOldTransactions = nullptr);
 	void GetTooOldTransactions(std::vector<int>& tooOldTransactions);
 
+	// Bloom filter-based pre-check (Phase 0): probabilistic fast-path elimination
+	void bloomFilterPrecheck(const class ConflictBloomFilter* bloomFilter,
+	                        std::vector<int>& potentialConflicts,
+	                        std::vector<int>& noConflicts);
+
 	// Two-phase conflict detection: lightweight pre-filtering
 	void lightweightConflictPrefilter(Version now,
 	                                  Version newOldestVersion,

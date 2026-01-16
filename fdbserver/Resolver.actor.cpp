@@ -28,6 +28,7 @@
 #include "fdbrpc/Stats.h"
 #include "fdbserver/ApplyMetadataMutation.h"
 #include "fdbserver/ConflictSet.h"
+#include "fdbserver/ConflictBloomFilter.h"
 #include "fdbserver/IKeyValueStore.h"
 #include "fdbserver/Knobs.h"
 #include "fdbserver/LogSystem.h"
@@ -135,6 +136,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	AsyncTrigger checkNeededVersion;
 	std::map<NetworkAddress, ProxyRequestsInfo> proxyInfoMap;
 	ConflictSet* conflictSet;
+	ConflictBloomFilter* conflictBloomFilter; // Bloom filter for fast-path conflict pre-check
 	TransientStorageMetricSample iopsSample;
 
 	// Use LogSystem as backend for txnStateStore. However, the real commit
@@ -165,6 +167,8 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsAccepted;
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
+	Counter transactionsBloomFiltered; // New counter for bloom filter fast-path
+	Counter transactionsBloomPassed;   // Transactions that passed bloom filter check
 	Counter transactionsPrefiltered;
 	Counter transactionsDeferredChecked;
 	Counter resolvedStateTransactions;
@@ -196,13 +200,17 @@ struct Resolver : ReferenceCounted<Resolver> {
 
 	Resolver(UID dbgid, int commitProxyCount, int resolverCount, EncryptionAtRestMode encryptMode)
 	  : dbgid(dbgid), commitProxyCount(commitProxyCount), resolverCount(resolverCount), encryptMode(encryptMode),
-	    version(-1), conflictSet(newConflictSet()), iopsSample(SERVER_KNOBS->KEY_BYTES_PER_SAMPLE),
+	    version(-1), conflictSet(newConflictSet()),
+	    conflictBloomFilter(new ConflictBloomFilter(1000000, 3)), // 1M bits, 3 hash functions
+	    iopsSample(SERVER_KNOBS->KEY_BYTES_PER_SAMPLE),
 	    cc("Resolver", dbgid.toString()), resolveBatchIn("ResolveBatchIn", cc),
 	    resolveBatchStart("ResolveBatchStart", cc), resolvedTransactions("ResolvedTransactions", cc),
 	    resolvedBytes("ResolvedBytes", cc), resolvedReadConflictRanges("ResolvedReadConflictRanges", cc),
 	    resolvedWriteConflictRanges("ResolvedWriteConflictRanges", cc),
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
 	    transactionsConflicted("TransactionsConflicted", cc),
+	    transactionsBloomFiltered("TransactionsBloomFiltered", cc),
+	    transactionsBloomPassed("TransactionsBloomPassed", cc),
 	    transactionsPrefiltered("TransactionsPrefiltered", cc),
 	    transactionsDeferredChecked("TransactionsDeferredChecked", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
@@ -221,7 +229,10 @@ struct Resolver : ReferenceCounted<Resolver> {
 
 		logger = cc.traceCounters("ResolverMetrics", dbgid, SERVER_KNOBS->WORKER_LOGGING_INTERVAL, "ResolverMetrics");
 	}
-	~Resolver() { destroyConflictSet(conflictSet); }
+	~Resolver() {
+		destroyConflictSet(conflictSet);
+		delete conflictBloomFilter;
+	}
 };
 } // namespace
 
@@ -351,7 +362,7 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
 
-		// Detect conflicts with two-phase approach
+		// Detect conflicts with three-phase approach (added bloom filter pre-check)
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
@@ -370,7 +381,14 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 			}
 		}
 
-		// Phase 1: Lightweight conflict pre-filtering
+		// Phase 0: Bloom filter pre-check for fast-path elimination
+		std::vector<int> potentialConflicts;
+		std::vector<int> noConflicts;
+		conflictBatch.bloomFilterPrecheck(self->conflictBloomFilter, potentialConflicts, noConflicts);
+		self->transactionsBloomFiltered += noConflicts.size();
+		self->transactionsBloomPassed += potentialConflicts.size();
+
+		// Phase 1: Lightweight conflict pre-filtering for bloom-passed transactions
 		std::vector<int> preliminaryAccepted;
 		conflictBatch.lightweightConflictPrefilter(req.version, newOldestVersion, preliminaryAccepted, &tooOldList);
 		self->transactionsPrefiltered += preliminaryAccepted.size();
@@ -378,6 +396,16 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		// Phase 2: Deferred comprehensive conflict check for preliminary accepted transactions
 		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
 		self->transactionsDeferredChecked += commitList.size();
+
+		// Update bloom filter with committed write ranges
+		for (int c : commitList) {
+			for (const auto& range : req.transactions[c].write_conflict_ranges) {
+				self->conflictBloomFilter->addRange(range.begin, range.end, req.version);
+			}
+		}
+
+		// Clear old bloom filter entries
+		self->conflictBloomFilter->clearOldEntries(newOldestVersion);
 
 		reply.debugID = req.debugID;
 		reply.committed.resize(reply.arena, req.transactions.size());
