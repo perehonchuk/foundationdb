@@ -150,6 +150,10 @@ struct Resolver : ReferenceCounted<Resolver> {
 	std::unordered_map<UID, StorageServerInterface> tssMapping;
 	bool forceRecovery = false;
 
+	// Idempotency tracking: stores transaction IDs from recent commits to detect duplicates
+	std::map<UID, Version> recentTransactionIds; // Maps txn ID to commit version
+	Version idempotencyTrackingWindowStart = 0; // Oldest version in idempotency window
+
 	Version debugMinRecentStateVersion = 0;
 
 	// The previous commit versions per tlog
@@ -167,6 +171,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsConflicted;
 	Counter transactionsPrefiltered;
 	Counter transactionsDeferredChecked;
+	Counter transactionsIdempotencyRejected; // New counter for pre-validation rejections
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -205,6 +210,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    transactionsConflicted("TransactionsConflicted", cc),
 	    transactionsPrefiltered("TransactionsPrefiltered", cc),
 	    transactionsDeferredChecked("TransactionsDeferredChecked", cc),
+	    transactionsIdempotencyRejected("TransactionsIdempotencyRejected", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
@@ -351,11 +357,43 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
 
-		// Detect conflicts with two-phase approach
+		// Pre-validation phase: Check for duplicate transaction IDs using idempotency tracking
+		// This phase runs BEFORE conflict detection to reject duplicates early
+		std::vector<int> idempotencyAccepted;
+		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
+
+		// Clean up old idempotency tracking data outside the window
+		if (self->idempotencyTrackingWindowStart < newOldestVersion) {
+			auto it = self->recentTransactionIds.begin();
+			while (it != self->recentTransactionIds.end()) {
+				if (it->second < newOldestVersion) {
+					it = self->recentTransactionIds.erase(it);
+				} else {
+					++it;
+				}
+			}
+			self->idempotencyTrackingWindowStart = newOldestVersion;
+		}
+
+		// Pre-validate transactions for idempotency
+		for (int t = 0; t < req.transactions.size(); t++) {
+			// Check if this transaction ID was already committed recently
+			if (req.transactions[t].spanContext.present()) {
+				UID txnId = req.transactions[t].spanContext.get().traceID;
+				auto idempotencyIt = self->recentTransactionIds.find(txnId);
+				if (idempotencyIt != self->recentTransactionIds.end()) {
+					// Duplicate detected - mark as conflicted immediately
+					self->transactionsIdempotencyRejected += 1;
+					continue;
+				}
+			}
+			idempotencyAccepted.push_back(t);
+		}
+
+		// Detect conflicts with two-phase approach (only for idempotency-validated transactions)
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
-		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
-		for (int t = 0; t < req.transactions.size(); t++) {
+		for (int t : idempotencyAccepted) {
 			conflictBatch.addTransaction(req.transactions[t], newOldestVersion);
 			self->resolvedReadConflictRanges += req.transactions[t].read_conflict_ranges.size();
 			self->resolvedWriteConflictRanges += req.transactions[t].write_conflict_ranges.size();
@@ -392,6 +430,14 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		self->transactionsAccepted += commitList.size();
 		self->transactionsTooOld += tooOldList.size();
 		self->transactionsConflicted += req.transactions.size() - commitList.size() - tooOldList.size();
+
+		// Record committed transaction IDs for idempotency tracking
+		for (int c : commitList) {
+			if (req.transactions[c].spanContext.present()) {
+				UID txnId = req.transactions[c].spanContext.get().traceID;
+				self->recentTransactionIds[txnId] = req.version;
+			}
+		}
 
 		ASSERT(req.prevVersion >= 0 ||
 		       req.txnStateTransactions.size() == 0); // The master's request should not have any state transactions

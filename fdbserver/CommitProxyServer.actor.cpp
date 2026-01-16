@@ -277,6 +277,10 @@ struct ResolutionRequestBuilder {
 			if (outTr[r]) {
 				resolversUsed.push_back(r);
 				outTr[r]->report_conflicting_keys = trIn.report_conflicting_keys;
+				// Propagate spanContext to all transactions for idempotency tracking
+				if (!outTr[r]->spanContext.present()) {
+					outTr[r]->spanContext = trRequest.spanContext;
+				}
 			}
 		transactionResolverMap.emplace_back(std::move(resolversUsed));
 	}
