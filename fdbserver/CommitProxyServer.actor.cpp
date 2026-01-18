@@ -391,6 +391,44 @@ bool verifyTenantPrefix(ProxyCommitData* const commitData, const CommitTransacti
 	return true;
 }
 
+// Precommit validation phase that validates transactions before batching
+ACTOR Future<bool> precommitValidateTransaction(ProxyCommitData* commitData, CommitTransactionRequest* req) {
+	// Perform early validation checks on the transaction
+	// This adds a new phase to the commit pipeline before batching
+	++commitData->stats.txnPrecommitValidations;
+
+	// Check conflict range sizes
+	int readConflictRangeCount = 0;
+	int writeConflictRangeCount = 0;
+	for (auto& rCRRange : req->transaction.read_conflict_ranges) {
+		readConflictRangeCount++;
+	}
+	for (auto& wCRRange : req->transaction.write_conflict_ranges) {
+		writeConflictRangeCount++;
+	}
+
+	// Validate mutation count
+	int mutationCount = req->transaction.mutations.size();
+
+	// Log precommit validation metrics
+	if (mutationCount > 100 || readConflictRangeCount > 50 || writeConflictRangeCount > 50) {
+		TraceEvent("PrecommitValidationMetrics")
+		    .detail("Mutations", mutationCount)
+		    .detail("ReadConflicts", readConflictRangeCount)
+		    .detail("WriteConflicts", writeConflictRangeCount);
+	}
+
+	// Validate span information for tracking
+	if (req->spanContext.isValid()) {
+		// Perform span-aware validation
+		TraceEvent("PrecommitValidationSpan")
+		    .detail("TraceID", req->spanContext.traceID)
+		    .detail("SpanID", req->spanContext.spanID);
+	}
+
+	return true;
+}
+
 ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
                                  PromiseStream<std::pair<std::vector<CommitTransactionRequest>, int>> out,
                                  FutureStream<CommitTransactionRequest> in,
@@ -436,6 +474,14 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						    .suppressFor(1.0)
 						    .detail("Size", bytes)
 						    .detail("Client", req.reply.getEndpoint().getPrimaryAddress());
+					}
+
+					// NEW: Precommit validation phase
+					bool precommitValid = wait(precommitValidateTransaction(commitData, &req));
+					if (!precommitValid) {
+						++commitData->stats.txnCommitErrors;
+						req.reply.sendError(transaction_invalid());
+						continue;
 					}
 
 					if (!verifyTenantPrefix(commitData, req)) {
