@@ -270,15 +270,26 @@ def transactional(*tr_args, **tr_kwargs):
                     raise asyncio.Return((yield asyncio.From(func(*args, **kwargs))))
 
                 largs = list(args)
-                tr = largs[index] = args[index].create_transaction()
+                db_or_tenant = args[index]
+                tr = largs[index] = db_or_tenant.create_transaction()
 
+                # Get max retry limit from database if available
+                max_retry_limit = None
+                if hasattr(db_or_tenant, 'max_retry_limit'):
+                    max_retry_limit = db_or_tenant.max_retry_limit
+
+                retries = 0
                 while True:
                     try:
                         ret = yield asyncio.From(func(*largs, **kwargs))
                         yield asyncio.From(tr.commit())
                         raise asyncio.Return(ret)
                     except FDBError as e:
+                        # Check if we've exceeded the retry limit before calling on_error
+                        if max_retry_limit is not None and retries >= max_retry_limit:
+                            raise TransactionRetryLimitExceeded(retries, max_retry_limit)
                         yield asyncio.From(tr.on_error(e.code))
+                        retries += 1
 
         else:
 
@@ -296,10 +307,16 @@ def transactional(*tr_args, **tr_kwargs):
                     return func(*args, **kwargs)
 
                 largs = list(args)
-                tr = largs[index] = args[index].create_transaction()
+                db_or_tenant = args[index]
+                tr = largs[index] = db_or_tenant.create_transaction()
+
+                # Get max retry limit from database if available
+                max_retry_limit = None
+                if hasattr(db_or_tenant, 'max_retry_limit'):
+                    max_retry_limit = db_or_tenant.max_retry_limit
 
                 committed = False
-                # retries = 0
+                retries = 0
                 # start = datetime.datetime.now()
                 # last = start
 
@@ -314,7 +331,11 @@ def transactional(*tr_args, **tr_kwargs):
                         tr.commit().wait()
                         committed = True
                     except FDBError as e:
+                        # Check if we've exceeded the retry limit before calling on_error
+                        if max_retry_limit is not None and retries >= max_retry_limit:
+                            raise TransactionRetryLimitExceeded(retries, max_retry_limit)
                         tr.on_error(e.code).wait()
+                        retries += 1
 
                     # now = datetime.datetime.now()
                     # td = now - last
@@ -325,7 +346,6 @@ def transactional(*tr_args, **tr_kwargs):
                     #            % (elapsed, func.__name__, retries, committed and "committed" or "not yet committed"))
                     #     last = now
 
-                    # retries += 1
                 return ret
 
         return wrapper
@@ -364,6 +384,28 @@ class FDBError(Exception):
 
     def __repr__(self):
         return "FDBError(%d)" % self.code
+
+
+class TransactionRetryLimitExceeded(Exception):
+    """This exception is raised when a transaction exceeds the maximum
+    number of retry attempts configured for the database. The retry_count
+    attribute contains the number of retries that were attempted before
+    this exception was raised.
+
+    """
+
+    def __init__(self, retry_count, max_retries):
+        self.retry_count = retry_count
+        self.max_retries = max_retries
+        super(TransactionRetryLimitExceeded, self).__init__(
+            "Transaction exceeded maximum retry limit of %d (attempted %d retries)" % (max_retries, retry_count)
+        )
+
+    def __str__(self):
+        return "Transaction exceeded maximum retry limit of %d (attempted %d retries)" % (self.max_retries, self.retry_count)
+
+    def __repr__(self):
+        return "TransactionRetryLimitExceeded(%d, %d)" % (self.retry_count, self.max_retries)
 
 
 class _FDBBase(object):
@@ -1310,6 +1352,7 @@ class Database(_TransactionCreator):
     def __init__(self, dpointer):
         self.dpointer = dpointer
         self.options = _DatabaseOptions(self)
+        self.max_retry_limit = None  # None means unlimited retries
 
     def __del__(self):
         # print("Destroying database 0x%x" % self.dpointer)
@@ -1334,10 +1377,21 @@ class Database(_TransactionCreator):
     def get_client_status(self):
         return Key(self.capi.fdb_database_get_client_status(self.dpointer))
 
+    def set_max_retry_limit(self, limit):
+        """Set the maximum number of retry attempts for transactions on this database.
+
+        Args:
+            limit: Maximum number of retries (None for unlimited, must be >= 0 if set)
+        """
+        if limit is not None and limit < 0:
+            raise ValueError("Retry limit must be non-negative or None")
+        self.max_retry_limit = limit
+
 
 class Tenant(_TransactionCreator):
     def __init__(self, tpointer):
         self.tpointer = tpointer
+        self.max_retry_limit = None  # None means unlimited retries
 
     def __del__(self):
         self.capi.fdb_tenant_destroy(self.tpointer)
@@ -1349,6 +1403,16 @@ class Tenant(_TransactionCreator):
 
     def get_id(self):
         return FutureInt64(self.capi.fdb_tenant_get_id(self.tpointer))
+
+    def set_max_retry_limit(self, limit):
+        """Set the maximum number of retry attempts for transactions on this tenant.
+
+        Args:
+            limit: Maximum number of retries (None for unlimited, must be >= 0 if set)
+        """
+        if limit is not None and limit < 0:
+            raise ValueError("Retry limit must be non-negative or None")
+        self.max_retry_limit = limit
 
 
 fill_operations()

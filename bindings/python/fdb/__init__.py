@@ -100,6 +100,7 @@ def api_version(ver):
 
     list = (
         "FDBError",
+        "TransactionRetryLimitExceeded",
         "predicates",
         "Future",
         "Database",
