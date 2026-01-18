@@ -166,6 +166,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsTooOld;
 	Counter transactionsConflicted;
 	Counter transactionsPrefiltered;
+	Counter transactionsLocalityGrouped;
 	Counter transactionsDeferredChecked;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
@@ -204,6 +205,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    transactionsAccepted("TransactionsAccepted", cc), transactionsTooOld("TransactionsTooOld", cc),
 	    transactionsConflicted("TransactionsConflicted", cc),
 	    transactionsPrefiltered("TransactionsPrefiltered", cc),
+	    transactionsLocalityGrouped("TransactionsLocalityGrouped", cc),
 	    transactionsDeferredChecked("TransactionsDeferredChecked", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
@@ -375,8 +377,35 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		conflictBatch.lightweightConflictPrefilter(req.version, newOldestVersion, preliminaryAccepted, &tooOldList);
 		self->transactionsPrefiltered += preliminaryAccepted.size();
 
-		// Phase 2: Deferred comprehensive conflict check for preliminary accepted transactions
-		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
+		// Phase 2: Locality-based transaction grouping for preliminary accepted transactions
+		// Group transactions by their key locality to optimize conflict checking
+		std::vector<int> localityGrouped;
+		localityGrouped.reserve(preliminaryAccepted.size());
+		std::unordered_map<uint32_t, std::vector<int>> localityGroups;
+
+		for (int txnIdx : preliminaryAccepted) {
+			// Compute locality hash from transaction's first write conflict range
+			uint32_t localityHash = 0;
+			if (!req.transactions[txnIdx].write_conflict_ranges.empty()) {
+				const auto& firstRange = req.transactions[txnIdx].write_conflict_ranges[0];
+				// Simple hash based on first 4 bytes of key
+				for (int i = 0; i < std::min(4, (int)firstRange.begin.size()); i++) {
+					localityHash = (localityHash << 8) | (uint8_t)firstRange.begin[i];
+				}
+			}
+			localityGroups[localityHash].push_back(txnIdx);
+		}
+
+		// Reorder transactions by locality groups for better cache locality during conflict check
+		for (auto& group : localityGroups) {
+			for (int txnIdx : group.second) {
+				localityGrouped.push_back(txnIdx);
+			}
+		}
+		self->transactionsLocalityGrouped += localityGrouped.size();
+
+		// Phase 3: Deferred comprehensive conflict check for locality-grouped transactions
+		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, localityGrouped, commitList);
 		self->transactionsDeferredChecked += commitList.size();
 
 		reply.debugID = req.debugID;
