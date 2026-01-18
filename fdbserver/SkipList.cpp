@@ -1083,6 +1083,82 @@ void ConflictBatch::combineWriteConflictRanges() {
 	}
 }
 
+void ConflictBatch::lightweightConflictPrefilter(Version now,
+                                                  Version newOldestVersion,
+                                                  std::vector<int>& preliminaryAccepted,
+                                                  std::vector<int>* tooOldTransactions) {
+	// Phase 1: Quick pre-filtering based on transaction age
+	for (int i = 0; i < transactionCount; i++) {
+		if (transactionInfo[i]->tooOld) {
+			if (tooOldTransactions) {
+				tooOldTransactions->push_back(i);
+			}
+		} else {
+			preliminaryAccepted.push_back(i);
+		}
+	}
+}
+
+void ConflictBatch::priorityConflictSegmentation(Version now,
+                                                  Version newOldestVersion,
+                                                  const std::vector<int>& preliminaryAccepted,
+                                                  std::vector<int>& criticalPriorityList,
+                                                  std::vector<int>& highPriorityList,
+                                                  std::vector<int>& normalPriorityList) {
+	// Phase 2: Segment transactions by priority level
+	// This implementation is a stub - the real implementation would need access to transaction priorities
+	// For now, we just put all transactions in the normal priority list
+	normalPriorityList = preliminaryAccepted;
+}
+
+void ConflictBatch::deferredConflictCheck(Version now,
+                                           Version newOldestVersion,
+                                           const std::vector<int>& preliminaryAccepted,
+                                           std::vector<int>& finalCommitList) {
+	// Phase 3: Perform comprehensive conflict detection
+	double t = timer();
+	sortPoints(points);
+	g_sort += timer() - t;
+
+	transactionConflictStatus = new bool[transactionCount];
+	memset(transactionConflictStatus, 0, transactionCount * sizeof(bool));
+
+	t = timer();
+	checkReadConflictRanges();
+	g_checkRead += timer() - t;
+
+	t = timer();
+	checkIntraBatchConflicts();
+	g_checkBatch += timer() - t;
+
+	t = timer();
+	combineWriteConflictRanges();
+	g_combine += timer() - t;
+
+	t = timer();
+	mergeWriteConflictRanges(now);
+	g_merge += timer() - t;
+
+	for (int i : preliminaryAccepted) {
+		if (!transactionConflictStatus[i]) {
+			finalCommitList.push_back(i);
+		}
+	}
+
+	delete[] transactionConflictStatus;
+
+	t = timer();
+	if (newOldestVersion > cs->oldestVersion) {
+		cs->oldestVersion = newOldestVersion;
+		SkipList::Finger finger;
+		int temp;
+		cs->versionHistory.find(&cs->removalKey, &finger, &temp, 1);
+		cs->versionHistory.removeBefore(cs->oldestVersion, finger, combinedWriteConflictRanges.size() * 3 + 10);
+		cs->removalKey = finger.getValue();
+	}
+	g_removeBefore += timer() - t;
+}
+
 namespace {
 StringRef setK(Arena& arena, int i) {
 	char t[sizeof(i)];

@@ -617,7 +617,7 @@ struct CommitTransactionRef {
 	  : read_conflict_ranges(a, from.read_conflict_ranges), write_conflict_ranges(a, from.write_conflict_ranges),
 	    mutations(a, from.mutations), read_snapshot(from.read_snapshot),
 	    report_conflicting_keys(from.report_conflicting_keys), lock_aware(from.lock_aware),
-	    spanContext(from.spanContext) {}
+	    priority(from.priority), spanContext(from.spanContext) {}
 
 	VectorRef<KeyRangeRef> read_conflict_ranges;
 	VectorRef<KeyRangeRef> write_conflict_ranges;
@@ -630,6 +630,7 @@ struct CommitTransactionRef {
 	Version read_snapshot = 0;
 	bool report_conflicting_keys = false;
 	bool lock_aware = false; // set when metadata mutations are present
+	uint8_t priority = 0; // Transaction priority for three-phase conflict resolution (0=normal, 1=high, 2=critical)
 	Optional<SpanContext> spanContext;
 
 	// set by Commit Proxy
@@ -647,6 +648,7 @@ struct CommitTransactionRef {
 			           read_snapshot,
 			           report_conflicting_keys,
 			           lock_aware,
+			           priority,
 			           spanContext,
 			           tenantIds);
 		} else {

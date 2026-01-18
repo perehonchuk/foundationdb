@@ -375,8 +375,17 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		conflictBatch.lightweightConflictPrefilter(req.version, newOldestVersion, preliminaryAccepted, &tooOldList);
 		self->transactionsPrefiltered += preliminaryAccepted.size();
 
-		// Phase 2: Deferred comprehensive conflict check for preliminary accepted transactions
-		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
+		// Phase 2: Priority-based conflict segmentation
+		std::vector<int> criticalPriorityList, highPriorityList, normalPriorityList;
+		conflictBatch.priorityConflictSegmentation(req.version, newOldestVersion, preliminaryAccepted,
+		                                           criticalPriorityList, highPriorityList, normalPriorityList);
+
+		// Phase 3: Deferred comprehensive conflict check - process in priority order
+		std::vector<int> allPrioritized;
+		allPrioritized.insert(allPrioritized.end(), criticalPriorityList.begin(), criticalPriorityList.end());
+		allPrioritized.insert(allPrioritized.end(), highPriorityList.begin(), highPriorityList.end());
+		allPrioritized.insert(allPrioritized.end(), normalPriorityList.begin(), normalPriorityList.end());
+		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, allPrioritized, commitList);
 		self->transactionsDeferredChecked += commitList.size();
 
 		reply.debugID = req.debugID;
