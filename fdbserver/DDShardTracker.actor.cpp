@@ -191,6 +191,9 @@ std::pair<ShardSizeBounds, bool> calculateShardSizeBounds(
 			                                 (1.0 - SERVER_KNOBS->SHARD_MAX_BYTES_READ_PER_KSEC_JITTER);
 			bounds.permittedError.bytesReadPerKSecond = bounds.min.bytesReadPerKSecond / 4;
 
+			// Lower the max bytes threshold for read-hot shards to trigger splits earlier
+			bounds.max.bytes = std::min(bounds.max.bytes, int64_t(bytes * 1.05));
+
 			readHotShard = true;
 		} else {
 			ASSERT(false);
@@ -363,6 +366,19 @@ ACTOR Future<Void> readHotDetector(DataDistributionTracker* self) {
 				    .detail("ReadDensityThreshold", SERVER_KNOBS->SHARD_MAX_READ_DENSITY_RATIO)
 				    .detail("KeyRangeBegin", keyRange.keys.begin)
 				    .detail("KeyRangeEnd", keyRange.keys.end);
+
+				// Trigger shard split for read hot ranges
+				if (keyRange.density > SERVER_KNOBS->SHARD_MAX_READ_DENSITY_RATIO ||
+				    keyRange.readBandwidthSec > SERVER_KNOBS->SHARD_READ_HOT_BANDWIDTH_MIN_PER_KSECONDS) {
+					TraceEvent("ReadHotShardSplitTriggered")
+					    .detail("KeyRangeBegin", keyRange.keys.begin)
+					    .detail("KeyRangeEnd", keyRange.keys.end)
+					    .detail("ReadDensity", keyRange.density)
+					    .detail("ReadBandwidth", keyRange.readBandwidthSec);
+
+					RelocateShard rs(keyRange.keys, DataMovementReason::REBALANCE_READ_OVERUTIL_TEAM, RelocateReason::OTHER);
+					self->output.send(rs);
+				}
 			}
 		}
 	} catch (Error& e) {

@@ -139,6 +139,7 @@ RelocateData::RelocateData(RelocateShard const& rs)
     startTime(now()), randomId(rs.traceId.isValid() ? rs.traceId : deterministicRandom()->randomUniqueID()),
     dataMoveId(rs.dataMoveId), workFactor(0),
     wantsNewServers(isDataMovementForMountainChopper(rs.moveReason) || isDataMovementForValleyFiller(rs.moveReason) ||
+                    isDataMovementForReadBalancing(rs.moveReason) ||
                     rs.moveReason == DataMovementReason::SPLIT_SHARD ||
                     rs.moveReason == DataMovementReason::TEAM_REDUNDANT ||
                     rs.moveReason == DataMovementReason::REBALANCE_STORAGE_QUEUE),
