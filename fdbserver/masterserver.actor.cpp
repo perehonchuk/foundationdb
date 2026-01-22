@@ -405,6 +405,22 @@ ACTOR Future<Void> serveLiveCommittedVersionCxx(Reference<MasterData> self) {
 				++self->getLiveCommittedVersionRequests;
 				GetRawCommittedVersionReply reply;
 				reply.version = self->liveCommittedVersion.get();
+
+			// Apply priority-based version adjustment
+			// System transactions get slightly ahead versions to ensure they can proceed even during heavy load
+			int totalTransactions = req.systemTransactionCount + req.defaultPriorityTransactionCount +
+			                        req.batchPriorityTransactionCount;
+			if (totalTransactions > 0 && req.systemTransactionCount > 0) {
+				double systemRatio = (double)req.systemTransactionCount / totalTransactions;
+				// Advance version proportionally for batches with high system transaction ratio
+				// This ensures system transactions get fresher versions for critical operations
+				if (systemRatio > 0.5) {
+					reply.version += 100; // Add 100 versions (~0.1ms worth) for system-heavy batches
+				} else if (systemRatio > 0.2) {
+					reply.version += 50; // Add 50 versions for mixed batches with significant system work
+				}
+			}
+
 				reply.locked = self->databaseLocked;
 				reply.metadataVersion = self->proxyMetadataVersion;
 				reply.minKnownCommittedVersion = self->minKnownCommittedVersion;

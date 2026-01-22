@@ -675,7 +675,12 @@ ACTOR Future<GetReadVersionReply> getLiveCommittedVersion(std::vector<SpanContex
 	state double grvStart = now();
 	state Future<GetRawCommittedVersionReply> replyFromMasterFuture;
 	replyFromMasterFuture = grvProxyData->master.getLiveCommittedVersion.getReply(
-	    GetRawCommittedVersionRequest(span.context, debugID, grvProxyData->ssVersionVectorCache.getMaxVersion()),
+	    GetRawCommittedVersionRequest(span.context,
+	                                  debugID,
+	                                  grvProxyData->ssVersionVectorCache.getMaxVersion(),
+	                                  systemTransactionCount,
+	                                  defaultPriTransactionCount,
+	                                  batchPriTransactionCount),
 	    TaskPriority::GetLiveCommittedVersionReply);
 
 	if (!SERVER_KNOBS->ALWAYS_CAUSAL_READ_RISKY && !(flags & GetReadVersionRequest::FLAG_CAUSAL_READ_RISKY)) {

@@ -496,16 +496,28 @@ struct SWIFT_CXX_IMPORT_OWNED GetRawCommittedVersionRequest {
 	Optional<UID> debugID;
 	ReplyPromise<GetRawCommittedVersionReply> reply;
 	Version maxVersion; // max version in the grv proxy's version vector cache
+	int systemTransactionCount; // number of system priority transactions in this batch
+	int defaultPriorityTransactionCount; // number of default priority transactions
+	int batchPriorityTransactionCount; // number of batch priority transactions
 
 	explicit GetRawCommittedVersionRequest(SpanContext spanContext,
 	                                       Optional<UID> const& debugID = Optional<UID>(),
-	                                       Version maxVersion = invalidVersion)
-	  : spanContext(spanContext), debugID(debugID), maxVersion(maxVersion) {}
-	explicit GetRawCommittedVersionRequest() : spanContext(), debugID(), maxVersion(invalidVersion) {}
+	                                       Version maxVersion = invalidVersion,
+	                                       int systemTransactionCount = 0,
+	                                       int defaultPriorityTransactionCount = 0,
+	                                       int batchPriorityTransactionCount = 0)
+	  : spanContext(spanContext), debugID(debugID), maxVersion(maxVersion),
+	    systemTransactionCount(systemTransactionCount),
+	    defaultPriorityTransactionCount(defaultPriorityTransactionCount),
+	    batchPriorityTransactionCount(batchPriorityTransactionCount) {}
+	explicit GetRawCommittedVersionRequest()
+	  : spanContext(), debugID(), maxVersion(invalidVersion), systemTransactionCount(0),
+	    defaultPriorityTransactionCount(0), batchPriorityTransactionCount(0) {}
 
 	template <class Ar>
 	void serialize(Ar& ar) {
-		serializer(ar, debugID, reply, spanContext, maxVersion);
+		serializer(ar, debugID, reply, spanContext, maxVersion, systemTransactionCount,
+		           defaultPriorityTransactionCount, batchPriorityTransactionCount);
 	}
 };
 
