@@ -1094,6 +1094,8 @@ public:
 	int DD_SHARD_COMPARE_LIMIT; // when read-aware DD is enabled, at most how many shards are compared together
 	bool READ_SAMPLING_ENABLED;
 	bool DD_PREFER_LOW_READ_UTIL_TEAM;
+	bool DD_ENABLE_READ_HOTSPOT_SPLIT; // Enable automatic shard splitting based on read hotspots
+	int SHARD_SPLIT_READ_BYTES_PER_KSEC; // Read bandwidth threshold for splitting shards
 	// Rolling window duration over which the average bytes moved by DD is calculated for the 'MovingData' trace event.
 	double DD_TRACE_MOVE_BYTES_AVERAGE_INTERVAL;
 	int64_t MOVING_WINDOW_SAMPLE_SIZE;

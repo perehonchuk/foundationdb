@@ -59,6 +59,7 @@ public:
 		MERGE_SHARD,
 		SIZE_SPLIT,
 		WRITE_SPLIT,
+		READ_SPLIT,
 		TENANT_SPLIT,
 		__COUNT
 	};
@@ -80,6 +81,8 @@ public:
 			return "SizeSplit";
 		case WRITE_SPLIT:
 			return "WriteSplit";
+		case READ_SPLIT:
+			return "ReadSplit";
 		case TENANT_SPLIT:
 			return "TenantSplit";
 		case __COUNT:

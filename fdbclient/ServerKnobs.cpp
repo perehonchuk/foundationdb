@@ -1032,6 +1032,8 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( DD_SHARD_COMPARE_LIMIT,                               1000 );
 	init( READ_SAMPLING_ENABLED,                                false ); if ( randomize && BUGGIFY ) READ_SAMPLING_ENABLED = true;// enable/disable read sampling
 	init( DD_PREFER_LOW_READ_UTIL_TEAM,                          true );
+	init( DD_ENABLE_READ_HOTSPOT_SPLIT,                         true );
+	init( SHARD_SPLIT_READ_BYTES_PER_KSEC,                      10000000 ); // 10 MB/sec
 	init( DD_TRACE_MOVE_BYTES_AVERAGE_INTERVAL,                   120);
 	init( MOVING_WINDOW_SAMPLE_SIZE,                         10000000); // 10MB
 

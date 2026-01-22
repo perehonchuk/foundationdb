@@ -879,7 +879,12 @@ ACTOR Future<Void> shardSplitter(DataDistributionTracker* self,
 	splitMetrics.bytesWrittenPerKSecond =
 	    keys.begin >= keyServersKeys.begin ? splitMetrics.infinity : SERVER_KNOBS->SHARD_SPLIT_BYTES_PER_KSEC;
 	splitMetrics.iosPerKSecond = splitMetrics.infinity;
-	splitMetrics.bytesReadPerKSecond = splitMetrics.infinity; // Don't split by readBandwidthSec
+	// Enable read-based splitting when configured and splitting due to read hotspot
+	if (reason == RelocateReason::READ_SPLIT && SERVER_KNOBS->DD_ENABLE_READ_HOTSPOT_SPLIT) {
+		splitMetrics.bytesReadPerKSecond = SERVER_KNOBS->SHARD_SPLIT_READ_BYTES_PER_KSEC;
+	} else {
+		splitMetrics.bytesReadPerKSecond = splitMetrics.infinity; // Don't split by readBandwidthSec
+	}
 
 	state Standalone<VectorRef<KeyRef>> splitKeys =
 	    wait(self->db->splitStorageMetrics(keys, splitMetrics, metrics, SERVER_KNOBS->MIN_SHARD_BYTES));
@@ -1253,9 +1258,12 @@ ACTOR Future<Void> shardEvaluator(DataDistributionTracker* self,
 	StorageMetrics const& stats = shardSize->get().get().metrics;
 	auto bandwidthStatus = getBandwidthStatus(stats);
 
+	auto readBandwidthStatus = getReadBandwidthStatus(stats);
 	bool sizeSplit = stats.bytes > shardBounds.max.bytes,
-	     writeSplit = bandwidthStatus == BandwidthStatusHigh && keys.begin < keyServersKeys.begin;
-	bool shouldSplit = sizeSplit || writeSplit;
+	     writeSplit = bandwidthStatus == BandwidthStatusHigh && keys.begin < keyServersKeys.begin,
+	     readSplit = readBandwidthStatus == ReadBandwidthStatusHigh && keys.begin < keyServersKeys.begin &&
+	                 SERVER_KNOBS->DD_ENABLE_READ_HOTSPOT_SPLIT;
+	bool shouldSplit = sizeSplit || writeSplit || readSplit;
 
 	auto prevIter = self->shards->rangeContaining(keys.begin);
 	if (keys.begin > allKeys.begin)
@@ -1298,7 +1306,9 @@ ACTOR Future<Void> shardEvaluator(DataDistributionTracker* self,
 		onChange = onChange || shardMerger(self, keys, shardSize);
 	}
 	if (shouldSplit) {
-		RelocateReason reason = sizeSplit ? RelocateReason::SIZE_SPLIT : RelocateReason::WRITE_SPLIT;
+		RelocateReason reason = sizeSplit ? RelocateReason::SIZE_SPLIT
+		                        : readSplit ? RelocateReason::READ_SPLIT
+		                                    : RelocateReason::WRITE_SPLIT;
 		onChange = onChange || shardSplitter(self, keys, shardSize, shardBounds, reason);
 	}
 
