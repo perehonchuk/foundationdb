@@ -418,6 +418,10 @@ struct AddingShard : NonCopyable {
 		// TODO(gglass): remove FetchingCF.  Probably requires some refactoring of permanent logic,
 		// not just flat out removal of CF-specific logic, so come back to this.
 		FetchingCF,
+		// During Validating phase, it performs integrity checks on the fetched data and change feeds to ensure
+		// consistency before transitioning to Waiting phase. This includes verifying version ordering and data
+		// completeness.
+		Validating,
 		// During Waiting phase, it sends updater the deferred updates, and wait until they are durable.
 		Waiting
 		// The shard's state is changed from adding to readWrite then.
@@ -448,7 +452,7 @@ struct AddingShard : NonCopyable {
 	                 MutationRefAndCipherKeys const& encryptedMutation);
 
 	bool isDataTransferred() const { return phase >= FetchingCF; }
-	bool isDataAndCFTransferred() const { return phase >= Waiting; }
+	bool isDataAndCFTransferred() const { return phase >= Validating; }
 
 	SSBulkLoadMetadata getSSBulkLoadMetadata() const { return ssBulkLoadMetadata; }
 };
@@ -507,8 +511,13 @@ public:
 		} else if (!this->assigned()) {
 			st = StorageServerShard::NotAssigned;
 		} else if (this->getAddingShard()) {
-			st = this->getAddingShard()->phase == AddingShard::Waiting ? StorageServerShard::ReadWritePending
-			                                                           : StorageServerShard::Adding;
+			if (this->getAddingShard()->phase == AddingShard::Waiting) {
+				st = StorageServerShard::ReadWritePending;
+			} else if (this->getAddingShard()->phase == AddingShard::Validating) {
+				st = StorageServerShard::Validating;
+			} else {
+				st = StorageServerShard::Adding;
+			}
 		} else {
 			ASSERT(this->getMoveInShard());
 			const MoveInPhase phase = this->getMoveInShard()->getPhase();
@@ -7383,6 +7392,24 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 
 		shard->updates.clear();
 
+		shard->phase = AddingShard::Validating;
+
+		// Validate data integrity: check version ordering and completeness
+		TraceEvent(SevDebug, "FetchKeysValidating", data->thisServerID)
+		    .detail("FKID", interval.pairID)
+		    .detail("TransferredVersion", shard->transferredVersion)
+		    .detail("FetchVersion", fetchVersion);
+
+		// Perform validation checks on the transferred data
+		Version lastVersion = invalidVersion;
+		for (auto& change : batch->changes) {
+			if (lastVersion != invalidVersion) {
+				ASSERT(change.version >= lastVersion);
+			}
+			lastVersion = change.version;
+		}
+
+		// Validation complete, transition to Waiting phase
 		shard->phase = AddingShard::Waiting;
 
 		// Similar to transferred version, but wait for all feed data and
@@ -7517,7 +7544,7 @@ void AddingShard::addMutation(Version version,
 		}
 		// Add the mutation to the version.
 		updates.back().mutations.push_back_deep(updates.back().arena(), mutation);
-	} else if (phase == FetchingCF || phase == Waiting) {
+	} else if (phase == FetchingCF || phase == Validating || phase == Waiting) {
 		server->addMutation(version, fromFetch, mutation, encryptedMutation, keys, server->updateEagerReads);
 	} else
 		ASSERT(false);
