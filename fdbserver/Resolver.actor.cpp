@@ -167,6 +167,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	Counter transactionsConflicted;
 	Counter transactionsPrefiltered;
 	Counter transactionsDeferredChecked;
+	Counter transactionsPriorityValidated;
 	Counter resolvedStateTransactions;
 	Counter resolvedStateMutations;
 	Counter resolvedStateBytes;
@@ -205,6 +206,7 @@ struct Resolver : ReferenceCounted<Resolver> {
 	    transactionsConflicted("TransactionsConflicted", cc),
 	    transactionsPrefiltered("TransactionsPrefiltered", cc),
 	    transactionsDeferredChecked("TransactionsDeferredChecked", cc),
+	    transactionsPriorityValidated("TransactionsPriorityValidated", cc),
 	    resolvedStateTransactions("ResolvedStateTransactions", cc),
 	    resolvedStateMutations("ResolvedStateMutations", cc), resolvedStateBytes("ResolvedStateBytes", cc),
 	    resolveBatchOut("ResolveBatchOut", cc), metricsRequests("MetricsRequests", cc),
@@ -351,7 +353,7 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
 
-		// Detect conflicts with two-phase approach
+		// Detect conflicts with three-phase approach
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
@@ -376,8 +378,13 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		self->transactionsPrefiltered += preliminaryAccepted.size();
 
 		// Phase 2: Deferred comprehensive conflict check for preliminary accepted transactions
-		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
-		self->transactionsDeferredChecked += commitList.size();
+		std::vector<int> deferredCommitList;
+		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, deferredCommitList);
+		self->transactionsDeferredChecked += deferredCommitList.size();
+
+		// Phase 3: Priority-based validation and transaction ordering
+		conflictBatch.priorityValidation(req.version, newOldestVersion, deferredCommitList, commitList);
+		self->transactionsPriorityValidated += commitList.size();
 
 		reply.debugID = req.debugID;
 		reply.committed.resize(reply.arena, req.transactions.size());

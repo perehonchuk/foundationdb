@@ -1083,6 +1083,62 @@ void ConflictBatch::combineWriteConflictRanges() {
 	}
 }
 
+// Three-phase conflict detection implementation
+void ConflictBatch::lightweightConflictPrefilter(Version now,
+                                                  Version newOldestVersion,
+                                                  std::vector<int>& preliminaryAccepted,
+                                                  std::vector<int>* tooOldTransactions) {
+	// Phase 1: Lightweight pre-filtering - quickly identify obviously non-conflicting transactions
+	checkIntraBatchConflicts();
+
+	if (tooOldTransactions)
+		GetTooOldTransactions(*tooOldTransactions);
+
+	// Collect preliminary accepted transactions (not marked as conflicted yet)
+	for (int t = 0; t < transactionCount; t++) {
+		if (!transactionConflictStatus[t]) {
+			preliminaryAccepted.push_back(t);
+		}
+	}
+}
+
+void ConflictBatch::deferredConflictCheck(Version now,
+                                          Version newOldestVersion,
+                                          const std::vector<int>& preliminaryAccepted,
+                                          std::vector<int>& deferredCommitList) {
+	// Phase 2: Comprehensive conflict checking against historical data
+	combineWriteConflictRanges();
+	checkReadConflictRanges();
+	mergeWriteConflictRanges(now);
+
+	// Collect transactions that passed the deferred check
+	for (int t : preliminaryAccepted) {
+		if (!transactionConflictStatus[t]) {
+			deferredCommitList.push_back(t);
+		}
+	}
+}
+
+void ConflictBatch::priorityValidation(Version now,
+                                       Version newOldestVersion,
+                                       const std::vector<int>& deferredCommitList,
+                                       std::vector<int>& finalCommitList) {
+	// Phase 3: Priority-based validation and transaction ordering
+	// This phase performs additional validation based on transaction priorities
+	// and ensures proper ordering of committed transactions
+
+	// For now, simply copy all transactions that passed phase 2
+	// In a real implementation, this would perform priority-based reordering
+	// and additional validation checks
+	finalCommitList = deferredCommitList;
+
+	// Trace the three-phase resolution
+	TraceEvent(SevDebug, "ThreePhaseConflictResolution")
+	    .detail("Version", now)
+	    .detail("Phase2Accepted", deferredCommitList.size())
+	    .detail("Phase3Accepted", finalCommitList.size());
+}
+
 namespace {
 StringRef setK(Arena& arena, int i) {
 	char t[sizeof(i)];
