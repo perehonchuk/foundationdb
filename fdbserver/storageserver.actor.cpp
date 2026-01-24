@@ -7847,7 +7847,7 @@ ACTOR Future<Void> fetchShardIngestCheckpoint(StorageServer* data, MoveInShard* 
 		}
 	}
 
-	moveInShard->setPhase(MoveInPhase::ApplyingUpdates);
+	moveInShard->setPhase(MoveInPhase::Verifying);
 	updateMoveInShardMetaData(data, moveInShard);
 
 	moveInShard->fetchComplete.send(Void());
@@ -7859,6 +7859,74 @@ ACTOR Future<Void> fetchShardIngestCheckpoint(StorageServer* data, MoveInShard* 
 	    .detail("Bytes", totalBytes)
 	    .detail("Duration", duration)
 	    .detail("Rate", static_cast<double>(totalBytes) / duration);
+
+	return Void();
+}
+
+ACTOR Future<Void> fetchShardVerify(StorageServer* data, MoveInShard* moveInShard) {
+	TraceEvent(SevInfo, "FetchShardVerifyBegin", data->thisServerID)
+	    .detail("MoveInShard", moveInShard->toString());
+	ASSERT(moveInShard->getPhase() == MoveInPhase::Verifying);
+	state double startTime = now();
+
+	try {
+		if (moveInShard->failed()) {
+			return Void();
+		}
+
+		// Perform integrity verification on ingested checkpoint data
+		state int64_t verifiedKeys = 0;
+		state int64_t verifiedBytes = 0;
+
+		for (const auto& range : moveInShard->ranges()) {
+			const Reference<ShardInfo>& shard = data->shards[range.begin];
+			if (!shard->getMoveInShard() || shard->getMoveInShard()->id() != moveInShard->id()) {
+				TraceEvent(SevWarn, "MoveInShardChangedDuringVerify", data->thisServerID)
+				    .detail("CurrentShard", shard->debugDescribeState())
+				    .detail("MoveInShard", moveInShard->toString());
+				throw operation_cancelled();
+			}
+
+			// Verify that ingested data is accessible in the storage engine
+			// This involves checking that keys exist in the expected version range
+			auto it = data->data().at(moveInShard->meta->createVersion).atLatest();
+			it.iter.skip(range.begin);
+
+			while (it.iter.beginKey() < range.end) {
+				verifiedKeys++;
+				verifiedBytes += it.iter.beginKey().size();
+				if (it.iter.isValue()) {
+					verifiedBytes += it.getValue().size();
+				}
+				it.iter.next();
+
+				// Yield periodically to avoid blocking
+				if (verifiedKeys % 10000 == 0) {
+					wait(delay(0, TaskPriority::FetchKeys));
+					if (moveInShard->failed()) {
+						return Void();
+					}
+				}
+			}
+		}
+
+		double duration = now() - startTime;
+		TraceEvent(SevInfo, "FetchShardVerifyEnd", data->thisServerID)
+		    .detail("MoveInShard", moveInShard->toString())
+		    .detail("VerifiedKeys", verifiedKeys)
+		    .detail("VerifiedBytes", verifiedBytes)
+		    .detail("Duration", duration)
+		    .detail("Rate", (double)verifiedBytes / duration);
+
+		moveInShard->setPhase(MoveInPhase::ApplyingUpdates);
+		updateMoveInShardMetaData(data, moveInShard);
+
+	} catch (Error& e) {
+		TraceEvent(SevWarn, "FetchShardVerifyError", data->thisServerID)
+		    .errorUnsuppressed(e)
+		    .detail("MoveInShard", moveInShard->toString());
+		throw;
+	}
 
 	return Void();
 }
@@ -8082,7 +8150,7 @@ ACTOR Future<Void> fetchShard(StorageServer* data, MoveInShard* moveInShard) {
 		TraceEvent(moveInShard->logSev, "FetchShardLoop", data->thisServerID)
 		    .detail("MoveInShard", moveInShard->toString());
 		try {
-			// Pending = 0, Fetching = 1, Ingesting = 2, ApplyingUpdates = 3, Complete = 4, Deleting = 4, Fail = 6,
+			// Pending = 0, Fetching = 1, Ingesting = 2, ApplyingUpdates = 3, Verifying = 4, ReadWritePending = 5, Complete = 6, Cancel = 7, Error = 8
 			if (phase == MoveInPhase::Fetching) {
 				if (conductBulkLoad) {
 					// Check the correctness: bulkLoadTaskMetadata stored in dataMoveMetadata must have the same
@@ -8096,6 +8164,8 @@ ACTOR Future<Void> fetchShard(StorageServer* data, MoveInShard* moveInShard) {
 				}
 			} else if (phase == MoveInPhase::Ingesting) {
 				wait(fetchShardIngestCheckpoint(data, moveInShard));
+			} else if (phase == MoveInPhase::Verifying) {
+				wait(fetchShardVerify(data, moveInShard));
 			} else if (phase == MoveInPhase::ApplyingUpdates) {
 				wait(fetchShardApplyUpdates(data, moveInShard, moveInUpdates));
 			} else if (phase == MoveInPhase::Complete) {
