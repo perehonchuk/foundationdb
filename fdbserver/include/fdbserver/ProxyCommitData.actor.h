@@ -69,6 +69,9 @@ struct ProxyStats {
 	Counter tenantIdRequestOut;
 	Counter tenantIdRequestErrors;
 	Counter txnExpensiveClearCostEstCount;
+	Counter txnBatchSplitOnPriority;
+	Counter txnImmediatePriorityBatches;
+	Counter txnHighPriorityBatches;
 	Version lastCommitVersionAssigned;
 
 	LatencySample commitLatencySample;
@@ -135,7 +138,10 @@ struct ProxyStats {
 	    keyServerLocationIn("KeyServerLocationIn", cc), keyServerLocationOut("KeyServerLocationOut", cc),
 	    keyServerLocationErrors("KeyServerLocationErrors", cc), tenantIdRequestIn("TenantIdRequestIn", cc),
 	    tenantIdRequestOut("TenantIdRequestOut", cc), tenantIdRequestErrors("TenantIdRequestErrors", cc),
-	    txnExpensiveClearCostEstCount("ExpensiveClearCostEstCount", cc), lastCommitVersionAssigned(0),
+	    txnExpensiveClearCostEstCount("ExpensiveClearCostEstCount", cc),
+	    txnBatchSplitOnPriority("TxnBatchSplitOnPriority", cc),
+	    txnImmediatePriorityBatches("TxnImmediatePriorityBatches", cc),
+	    txnHighPriorityBatches("TxnHighPriorityBatches", cc), lastCommitVersionAssigned(0),
 	    commitLatencySample("CommitLatencyMetrics",
 	                        id,
 	                        SERVER_KNOBS->LATENCY_METRICS_LOGGING_INTERVAL,

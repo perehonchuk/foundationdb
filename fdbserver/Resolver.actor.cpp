@@ -355,7 +355,29 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
+
+		// Count transactions by priority for logging
+		int immediatePriorityCount = 0;
+		int highPriorityCount = 0;
+		int defaultPriorityCount = 0;
+		int lowPriorityCount = 0;
+
 		for (int t = 0; t < req.transactions.size(); t++) {
+			// Track priority distribution in batch
+			switch (req.transactions[t].priority) {
+				case TransactionPriority::IMMEDIATE:
+					immediatePriorityCount++;
+					break;
+				case TransactionPriority::HIGH:
+					highPriorityCount++;
+					break;
+				case TransactionPriority::DEFAULT:
+					defaultPriorityCount++;
+					break;
+				case TransactionPriority::LOW:
+					lowPriorityCount++;
+					break;
+			}
 			conflictBatch.addTransaction(req.transactions[t], newOldestVersion);
 			self->resolvedReadConflictRanges += req.transactions[t].read_conflict_ranges.size();
 			self->resolvedWriteConflictRanges += req.transactions[t].write_conflict_ranges.size();
@@ -448,6 +470,17 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		self->resolvedStateTransactions += req.txnStateTransactions.size();
 		self->resolvedStateMutations += stateMutations;
 		self->resolvedStateBytes += stateBytes;
+
+		// Log priority distribution if any non-default priorities exist
+		if (immediatePriorityCount > 0 || highPriorityCount > 0 || lowPriorityCount > 0) {
+			TraceEvent("ResolverBatchPriorityDistribution", self->dbgid)
+			    .detail("Version", req.version)
+			    .detail("ImmediatePriority", immediatePriorityCount)
+			    .detail("HighPriority", highPriorityCount)
+			    .detail("DefaultPriority", defaultPriorityCount)
+			    .detail("LowPriority", lowPriorityCount)
+			    .detail("TotalTransactions", req.transactions.size());
+		}
 
 		self->recentStateTransactionsInfo.addVersionBytes(req.version, stateBytes);
 
