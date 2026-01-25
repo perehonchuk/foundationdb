@@ -1242,6 +1242,17 @@ public:
 	AsyncVar<bool> noRecentUpdates;
 	double lastUpdate;
 
+	// Read coalescing: batches duplicate getValue requests within a time window
+	struct PendingRead {
+		Version version;
+		std::vector<GetValueRequest> requests;
+		double firstRequestTime;
+		Promise<Void> trigger;
+
+		PendingRead() : version(invalidVersion), firstRequestTime(0.0) {}
+	};
+	std::unordered_map<Key, PendingRead> pendingReads;
+
 	std::string folder;
 	std::string checkpointFolder;
 	std::string fetchedCheckpointFolder;
@@ -1314,6 +1325,9 @@ public:
 
 		Counter allQueries, systemKeyQueries, getKeyQueries, getValueQueries, getRangeQueries, getRangeSystemKeyQueries,
 		    getRangeStreamQueries, lowPriorityQueries, rowsQueried, watchQueries, emptyQueries;
+
+		// Read coalescing counters
+		Counter coalescedReads, coalescedBatches, coalescedReadSavings;
 
 		// counters related to getMappedRange queries
 		Counter getMappedRangeBytesQueried, finishedGetMappedRangeSecondaryQueries, getMappedRangeQueries,
@@ -1408,6 +1422,8 @@ public:
 		    getMappedRangeQueries("GetMappedRangeQueries", cc), getRangeStreamQueries("GetRangeStreamQueries", cc),
 		    lowPriorityQueries("LowPriorityQueries", cc), rowsQueried("RowsQueried", cc),
 		    watchQueries("WatchQueries", cc), emptyQueries("EmptyQueries", cc),
+		    coalescedReads("CoalescedReads", cc), coalescedBatches("CoalescedBatches", cc),
+		    coalescedReadSavings("CoalescedReadSavings", cc),
 		    logicalBytesInput("LogicalBytesInput", cc), logicalBytesMoveInOverhead("LogicalBytesMoveInOverhead", cc),
 		    kvCommitLogicalBytes("KVCommitLogicalBytes", cc), kvClearRanges("KVClearRanges", cc),
 		    kvClearSingleKey("KVClearSingleKey", cc), kvSystemClearRanges("KVSystemClearRanges", cc),
@@ -11796,6 +11812,51 @@ ACTOR Future<Void> checkBehind(StorageServer* self) {
 	}
 }
 
+// Actor to process coalesced read batch
+ACTOR Future<Void> processCoalescedRead(StorageServer* self, Key key) {
+	state StorageServer::PendingRead* pending = &self->pendingReads[key];
+
+	// Wait for coalescing window or max batch size
+	wait(delay(SERVER_KNOBS->READ_COALESCING_WINDOW) || pending->trigger.getFuture());
+
+	state std::vector<GetValueRequest> requests = std::move(pending->requests);
+	self->pendingReads.erase(key);
+
+	if (requests.empty()) {
+		return Void();
+	}
+
+	// Track coalescing metrics
+	if (requests.size() > 1) {
+		self->counters.coalescedBatches += 1;
+		self->counters.coalescedReads += requests.size();
+		self->counters.coalescedReadSavings += (requests.size() - 1);
+	}
+
+	// Execute one read and broadcast result to all requests
+	state GetValueRequest primaryReq = requests[0];
+	try {
+		wait(self->readGuard(primaryReq, getValueQ));
+
+		// Broadcast the result to coalesced requests
+		for (int i = 1; i < requests.size(); i++) {
+			if (!requests[i].reply.isSet()) {
+				requests[i].reply.send(primaryReq.reply.getFuture().get());
+			}
+		}
+	} catch (Error& e) {
+		// Broadcast error to all coalesced requests
+		for (int i = 1; i < requests.size(); i++) {
+			if (!requests[i].reply.isSet()) {
+				requests[i].reply.sendError(e);
+			}
+		}
+		throw;
+	}
+
+	return Void();
+}
+
 ACTOR Future<Void> serveGetValueRequests(StorageServer* self, FutureStream<GetValueRequest> getValue) {
 	getCurrentLineage()->modify(&TransactionLineage::operation) = TransactionLineage::Operation::GetValue;
 	loop {
@@ -11807,10 +11868,29 @@ ACTOR Future<Void> serveGetValueRequests(StorageServer* self, FutureStream<GetVa
 			                      req.options.get().debugID.get().first(),
 			                      "storageServer.received"); //.detail("TaskID", g_network->getCurrentTask());
 
-		if (SHORT_CIRCUT_ACTUAL_STORAGE && normalKeys.contains(req.key))
+		if (SHORT_CIRCUT_ACTUAL_STORAGE && normalKeys.contains(req.key)) {
 			req.reply.send(GetValueReply());
-		else
+		} else if (SERVER_KNOBS->ENABLE_READ_COALESCING) {
+			// Check if there's already a pending read for this key
+			auto it = self->pendingReads.find(req.key);
+			if (it != self->pendingReads.end() && it->second.version == req.version) {
+				// Coalesce with existing pending read
+				it->second.requests.push_back(req);
+				if (it->second.requests.size() >= SERVER_KNOBS->READ_COALESCING_MAX_BATCH_SIZE) {
+					it->second.trigger.send(Void());
+				}
+			} else {
+				// Start new coalescing batch
+				self->pendingReads.erase(req.key);
+				auto& pending = self->pendingReads[req.key];
+				pending.version = req.version;
+				pending.requests.push_back(req);
+				pending.firstRequestTime = now();
+				self->actors.add(processCoalescedRead(self, req.key));
+			}
+		} else {
 			self->actors.add(self->readGuard(req, getValueQ));
+		}
 	}
 }
 

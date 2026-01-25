@@ -1039,6 +1039,12 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 	init( STORAGE_LOGGING_DELAY,                                 5.0 );
 	init( STORAGE_SERVER_POLL_METRICS_DELAY,                     1.0 );
 	init( FUTURE_VERSION_DELAY,                                  1.0 );
+
+	// Read coalescing
+	init( ENABLE_READ_COALESCING,                              false ); if( randomize && BUGGIFY ) ENABLE_READ_COALESCING = true;
+	init( READ_COALESCING_WINDOW,                              0.001 ); // 1ms window
+	init( READ_COALESCING_MAX_BATCH_SIZE,                        100 );
+
 	init( STORAGE_LIMIT_BYTES,                                500000 );
 	init( BUGGIFY_LIMIT_BYTES,                                  1000 );
 	init( FETCH_USING_STREAMING,                               false ); if( randomize && isSimulated && BUGGIFY ) FETCH_USING_STREAMING = true; //Determines if fetch keys uses streaming reads
