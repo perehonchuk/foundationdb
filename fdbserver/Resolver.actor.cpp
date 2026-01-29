@@ -351,7 +351,7 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		std::vector<int> commitList;
 		std::vector<int> tooOldList;
 
-		// Detect conflicts with two-phase approach
+		// Detect conflicts with three-phase approach
 		double expire = now() + SERVER_KNOBS->SAMPLE_EXPIRATION_TIME;
 		ConflictBatch conflictBatch(self->conflictSet, &reply.conflictingKeyRangeMap, &reply.arena);
 		const Version newOldestVersion = req.version - SERVER_KNOBS->MAX_WRITE_TRANSACTION_LIFE_VERSIONS;
@@ -375,8 +375,12 @@ ACTOR Future<Void> resolveBatch(Reference<Resolver> self,
 		conflictBatch.lightweightConflictPrefilter(req.version, newOldestVersion, preliminaryAccepted, &tooOldList);
 		self->transactionsPrefiltered += preliminaryAccepted.size();
 
-		// Phase 2: Deferred comprehensive conflict check for preliminary accepted transactions
-		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, preliminaryAccepted, commitList);
+		// Phase 2: Priority-based arbitration for overlapping transactions
+		std::vector<int> priorityFiltered;
+		conflictBatch.priorityBasedArbitration(req.version, preliminaryAccepted, priorityFiltered);
+
+		// Phase 3: Deferred comprehensive conflict check for priority-filtered transactions
+		conflictBatch.deferredConflictCheck(req.version, newOldestVersion, priorityFiltered, commitList);
 		self->transactionsDeferredChecked += commitList.size();
 
 		reply.debugID = req.debugID;

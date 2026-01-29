@@ -1083,6 +1083,97 @@ void ConflictBatch::combineWriteConflictRanges() {
 	}
 }
 
+// Three-phase conflict detection implementation
+void ConflictBatch::lightweightConflictPrefilter(Version now,
+                                                  Version newOldestVersion,
+                                                  std::vector<int>& preliminaryAccepted,
+                                                  std::vector<int>* tooOldTransactions) {
+	// Phase 1: Lightweight pre-filtering using intra-batch conflict detection
+	checkIntraBatchConflicts();
+
+	// Collect too-old transactions
+	if (tooOldTransactions) {
+		GetTooOldTransactions(*tooOldTransactions);
+	}
+
+	// Collect preliminary accepted transactions (not conflicted in intra-batch check)
+	for (int t = 0; t < transactionCount; t++) {
+		if (!transactionConflictStatus[t]) {
+			preliminaryAccepted.push_back(t);
+		}
+	}
+}
+
+void ConflictBatch::priorityBasedArbitration(Version now,
+                                              const std::vector<int>& preliminaryAccepted,
+                                              std::vector<int>& priorityFiltered) {
+	// Phase 2: Priority-based arbitration
+	// This phase examines transactions that passed preliminary filtering and applies
+	// priority-based conflict arbitration to resolve overlapping key ranges.
+	// Higher priority transactions (lower read_snapshot version = older transactions) win conflicts.
+
+	std::vector<bool> arbitrationRejected(transactionCount, false);
+
+	// Build a map of key ranges to transaction indices for priority comparison
+	std::map<std::pair<StringRef, StringRef>, std::vector<int>> rangeToTransactions;
+
+	for (int txnIdx : preliminaryAccepted) {
+		const TransactionInfo* info = transactionInfo[txnIdx];
+		// Track write conflict ranges for priority arbitration
+		for (const auto& range : info->transaction.write_conflict_ranges) {
+			rangeToTransactions[std::make_pair(range.begin, range.end)].push_back(txnIdx);
+		}
+	}
+
+	// For each set of transactions accessing overlapping ranges, keep only the highest priority one
+	for (const auto& [range, txns] : rangeToTransactions) {
+		if (txns.size() > 1) {
+			// Find the transaction with highest priority (oldest read_snapshot)
+			int highestPriorityTxn = txns[0];
+			Version oldestReadSnapshot = transactionInfo[txns[0]]->transaction.read_snapshot;
+
+			for (size_t i = 1; i < txns.size(); i++) {
+				Version readSnapshot = transactionInfo[txns[i]]->transaction.read_snapshot;
+				if (readSnapshot < oldestReadSnapshot) {
+					// Mark the previous highest priority as rejected
+					arbitrationRejected[highestPriorityTxn] = true;
+					highestPriorityTxn = txns[i];
+					oldestReadSnapshot = readSnapshot;
+				} else {
+					// Mark this transaction as rejected
+					arbitrationRejected[txns[i]] = true;
+				}
+			}
+		}
+	}
+
+	// Collect transactions that passed priority arbitration
+	for (int txnIdx : preliminaryAccepted) {
+		if (!arbitrationRejected[txnIdx]) {
+			priorityFiltered.push_back(txnIdx);
+		} else {
+			transactionConflictStatus[txnIdx] = true;
+		}
+	}
+}
+
+void ConflictBatch::deferredConflictCheck(Version now,
+                                           Version newOldestVersion,
+                                           const std::vector<int>& priorityFiltered,
+                                           std::vector<int>& finalCommitList) {
+	// Phase 3: Comprehensive conflict check against version history
+	combineWriteConflictRanges();
+	checkReadConflictRanges();
+	mergeWriteConflictRanges(now);
+
+	// Collect final non-conflicting transactions
+	for (int txnIdx : priorityFiltered) {
+		if (!transactionConflictStatus[txnIdx]) {
+			finalCommitList.push_back(txnIdx);
+		}
+	}
+}
+
 namespace {
 StringRef setK(Arena& arena, int i) {
 	char t[sizeof(i)];
