@@ -833,14 +833,17 @@ public:
 	Optional<TagSet> tags;
 	Optional<UID> debugID;
 	int64_t tenantId;
+	bool highPriority;
 
 	ServerWatchMetadata(Key key,
 	                    Optional<Value> value,
 	                    Version version,
 	                    Optional<TagSet> tags,
 	                    Optional<UID> debugID,
-	                    int64_t tenantId)
-	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId) {}
+	                    int64_t tenantId,
+	                    bool highPriority = false)
+	  : key(key), value(value), version(version), tags(tags), debugID(debugID), tenantId(tenantId),
+	    highPriority(highPriority) {}
 };
 
 struct BusiestWriteTagContext {
@@ -914,6 +917,7 @@ private:
 	using WatchMapValue = Reference<ServerWatchMetadata>;
 	using WatchMap_t = std::unordered_map<WatchMapKey, WatchMapValue, WatchMapKeyHasher>;
 	WatchMap_t watchMap; // keep track of server watches
+	WatchMap_t highPriorityWatchMap; // keep track of high-priority server watches
 
 public:
 	struct PendingNewShard {
@@ -1236,6 +1240,7 @@ public:
 	Future<Void> durableInProgress;
 
 	AsyncMap<Key, bool> watches;
+	AsyncMap<Key, bool> highPriorityWatches;
 	AsyncMap<int64_t, bool> tenantWatches;
 	int64_t watchBytes;
 	int64_t numWatches;
@@ -1903,6 +1908,11 @@ void StorageServer::byteSampleApplyMutation(MutationRef const& m, Version ver) {
 // watchMap Operations
 Reference<ServerWatchMetadata> StorageServer::getWatchMetadata(KeyRef key, int64_t tenantId) const {
 	const WatchMapKey mapKey(tenantId, key);
+	// Check high-priority map first
+	const auto highPriorityIt = highPriorityWatchMap.find(mapKey);
+	if (highPriorityIt != highPriorityWatchMap.end())
+		return highPriorityIt->second;
+	// Fall back to regular map
 	const auto it = watchMap.find(mapKey);
 	if (it == watchMap.end())
 		return Reference<ServerWatchMetadata>();
@@ -1914,17 +1924,23 @@ KeyRef StorageServer::setWatchMetadata(Reference<ServerWatchMetadata> metadata) 
 	int64_t tenantId = metadata->tenantId;
 	const WatchMapKey mapKey(tenantId, keyRef);
 
-	watchMap[mapKey] = metadata;
+	if (metadata->highPriority) {
+		highPriorityWatchMap[mapKey] = metadata;
+	} else {
+		watchMap[mapKey] = metadata;
+	}
 	return keyRef;
 }
 
 void StorageServer::deleteWatchMetadata(KeyRef key, int64_t tenantId) {
 	const WatchMapKey mapKey(tenantId, key);
 	watchMap.erase(mapKey);
+	highPriorityWatchMap.erase(mapKey);
 }
 
 void StorageServer::clearWatchMetadata() {
 	watchMap.clear();
+	highPriorityWatchMap.clear();
 }
 
 #ifndef __INTEL_COMPILER
@@ -2453,7 +2469,12 @@ ACTOR Future<Version> watchWaitForValueChange(StorageServer* data, SpanContext p
 		                      "watchValueSendReply.AfterVersion"); //.detail("TaskID", g_network->getCurrentTask());
 
 	state Version minVersion = data->data().latestVersion;
-	state Future<Void> watchFuture = data->watches.onChange(metadata->key);
+	state Future<Void> watchFuture;
+	if (metadata->highPriority) {
+		watchFuture = data->highPriorityWatches.onChange(metadata->key);
+	} else {
+		watchFuture = data->watches.onChange(metadata->key);
+	}
 	if (tenantId != TenantInfo::INVALID_TENANT) {
 		watchFuture = watchFuture || data->tenantWatches.onChange(tenantId);
 	}
@@ -6359,6 +6380,8 @@ void applyMutation(StorageServer* self,
 			++self->counters.pTreeClearSplits;
 		}
 		data.insert(m.param1, ValueOrClearToRef::value(m.param2));
+		// Trigger high-priority watches first, then regular watches
+		self->highPriorityWatches.trigger(m.param1);
 		self->watches.trigger(m.param1);
 		++self->counters.pTreeSets;
 	} else if (m.type == MutationRef::ClearRange) {
@@ -6368,6 +6391,8 @@ void applyMutation(StorageServer* self,
 			ASSERT(!data.isClearContaining(data.atLatest(), m.param1));
 		}
 		data.insert(m.param1, ValueOrClearToRef::clearTo(m.param2));
+		// Trigger high-priority watches first, then regular watches
+		self->highPriorityWatches.triggerRange(m.param1, m.param2);
 		self->watches.triggerRange(m.param1, m.param2);
 		++self->counters.pTreeClears;
 	}
@@ -8673,6 +8698,8 @@ void changeServerKeys(StorageServer* data,
 				removeRanges.push_back(range);
 			}
 			data->addShard(ShardInfo::newNotAssigned(range));
+			// Trigger high-priority watches first, then regular watches
+			data->highPriorityWatches.triggerRange(range.begin, range.end);
 			data->watches.triggerRange(range.begin, range.end);
 		} else if (!dataAvailable) {
 			// SOMEDAY: Avoid restarting adding/transferred shards
@@ -8958,6 +8985,8 @@ void changeServerKeysWithPhysicalShards(StorageServer* data,
 			}
 			updatedShards.push_back(StorageServerShard::notAssigned(range, cVer));
 			data->pendingRemoveRanges[cVer].push_back(range);
+			// Trigger high-priority watches first, then regular watches
+			data->highPriorityWatches.triggerRange(range.begin, range.end);
 			data->watches.triggerRange(range.begin, range.end);
 			TraceEvent(sevDm, "SSUnassignShard", data->thisServerID)
 			    .detail("Range", range)
@@ -11893,7 +11922,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 		// case 1: no watch set for the current key
 		if (!metadata.isValid()) {
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.highPriority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11928,7 +11957,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 			metadata->watch_impl.cancel();
 
 			metadata = makeReference<ServerWatchMetadata>(
-			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+			    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.highPriority);
 			KeyRef key = self->setWatchMetadata(metadata);
 			metadata->watch_impl = forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
 			                               metadata->versionPromise);
@@ -11962,7 +11991,7 @@ ACTOR Future<Void> serveWatchValueRequestsImpl(StorageServer* self, FutureStream
 
 					if (reply.value == req.value) { // valSS == valreq
 						metadata = makeReference<ServerWatchMetadata>(
-						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId);
+						    req.key, req.value, req.version, req.tags, req.debugID, req.tenantInfo.tenantId, req.highPriority);
 						KeyRef key = self->setWatchMetadata(metadata);
 						metadata->watch_impl =
 						    forward(watchWaitForValueChange(self, span.context, key, req.tenantInfo.tenantId),
