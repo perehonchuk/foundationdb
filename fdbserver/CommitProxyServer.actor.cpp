@@ -404,6 +404,8 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 		state Future<Void> timeout;
 		state std::vector<CommitTransactionRequest> batch;
 		state int batchBytes = 0;
+		state bool hasSplitTxn = false;
+		state double firstSplitTxnTime = 0.0;
 		// TODO: Enable this assertion (currently failing with gcc)
 		// static_assert(std::is_nothrow_move_constructible_v<CommitTransactionRequest>);
 
@@ -468,7 +470,27 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						}
 					}
 
-					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || req.firstInBatch()) &&
+					// Adaptive split transaction batching: Allow batching split transactions if they arrive
+					// within a small time window (2ms) to reduce overhead during high load
+					bool shouldFlushBatch = false;
+					if (req.firstInBatch()) {
+						if (!hasSplitTxn) {
+							// First split transaction in this batch
+							hasSplitTxn = true;
+							firstSplitTxnTime = now();
+						} else if (now() - firstSplitTxnTime > 0.002) {
+							// More than 2ms since first split txn, flush batch to avoid excessive batching
+							shouldFlushBatch = true;
+						} else {
+							// Split transaction being batched with others - track this
+							++commitData->stats.splitTxnBatched;
+							TraceEvent("SplitTxnBatched")
+							    .detail("BatchSize", batch.size())
+							    .detail("TimeSinceFirstSplit", now() - firstSplitTxnTime);
+						}
+					}
+
+					if ((batchBytes + bytes > CLIENT_KNOBS->TRANSACTION_SIZE_LIMIT || shouldFlushBatch) &&
 					    batch.size()) {
 						commitData->triggerCommit.set(false);
 						out.send({ std::move(batch), batchBytes });
@@ -476,6 +498,8 @@ ACTOR Future<Void> commitBatcher(ProxyCommitData* commitData,
 						timeout = delayJittered(commitData->commitBatchInterval, TaskPriority::ProxyCommitBatcher);
 						batch.clear();
 						batchBytes = 0;
+						hasSplitTxn = false;
+						firstSplitTxnTime = 0.0;
 					}
 
 					batch.push_back(req);
