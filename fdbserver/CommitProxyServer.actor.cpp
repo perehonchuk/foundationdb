@@ -737,6 +737,10 @@ struct CommitBatchContext {
 
 	IdempotencyIdKVBuilder idempotencyKVBuilder;
 
+	// Tenant-based mutation reordering: maps tenant ID to list of transaction indices
+	std::map<int64_t, std::vector<int>> tenantTransactionGroups;
+	bool tenantReorderingEnabled = true;
+
 	CommitBatchContext(ProxyCommitData*, const std::vector<CommitTransactionRequest>*, const int);
 
 	void setupTraceBatch();
@@ -2089,7 +2093,34 @@ ACTOR Future<Void> assignMutationsToStorageServers(CommitBatchContext* self) {
 	state double curEncryptionTime = 0;
 	state double totalEncryptionTime = 0;
 
-	for (; self->transactionNum < trs.size(); self->transactionNum++) {
+	// Build tenant-based transaction grouping for optimized processing
+	if (self->tenantReorderingEnabled) {
+		for (int i = 0; i < trs.size(); i++) {
+			if (self->committed[i] == ConflictBatch::TransactionCommitted &&
+			    (!self->locked || trs[i].isLockAware())) {
+				int64_t tenantId = trs[i].tenantInfo.tenantId;
+				self->tenantTransactionGroups[tenantId].push_back(i);
+			}
+		}
+	}
+
+	// Process transactions in tenant-grouped order for better locality
+	state std::vector<int> transactionOrder;
+	if (self->tenantReorderingEnabled && !self->tenantTransactionGroups.empty()) {
+		pProxyCommitData->stats.tenantGroupedBatches += 1;
+		pProxyCommitData->stats.tenantGroupsProcessed += self->tenantTransactionGroups.size();
+		for (auto& [tenantId, txnIndices] : self->tenantTransactionGroups) {
+			transactionOrder.insert(transactionOrder.end(), txnIndices.begin(), txnIndices.end());
+		}
+	} else {
+		// Fallback to sequential order if tenant reordering is disabled
+		for (int i = 0; i < trs.size(); i++) {
+			transactionOrder.push_back(i);
+		}
+	}
+
+	for (state int orderIdx = 0; orderIdx < transactionOrder.size(); orderIdx++) {
+		self->transactionNum = transactionOrder[orderIdx];
 		if (!(self->committed[self->transactionNum] == ConflictBatch::TransactionCommitted &&
 		      (!self->locked || trs[self->transactionNum].isLockAware()))) {
 			continue;
@@ -2110,6 +2141,11 @@ ACTOR Future<Void> assignMutationsToStorageServers(CommitBatchContext* self) {
 		if (self->pProxyCommitData->encryptMode.mode == EncryptionAtRestMode::CLUSTER_AWARE &&
 		    encryptDomain != SYSTEM_KEYSPACE_ENCRYPT_DOMAIN_ID) {
 			encryptDomain = FDB_DEFAULT_ENCRYPT_DOMAIN_ID;
+		}
+
+		// Track tenant context for tenant-aware mutation batching
+		if (self->tenantReorderingEnabled) {
+			self->toCommit.setCurrentTenant(trs[self->transactionNum].tenantInfo.tenantId);
 		}
 
 		self->toCommit.addTransactionInfo(trs[self->transactionNum].spanContext);

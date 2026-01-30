@@ -842,6 +842,16 @@ struct LogPushData : NonCopyable {
 	void storeRandomRouterTag() { savedRandomRouterTag = logSystem->getRandomRouterTag(); }
 	int getLogRouterTags() { return logSystem->getLogRouterTags(); }
 
+	// Tenant-aware batching: set the current tenant context for grouped mutations
+	void setCurrentTenant(int64_t tenantId) {
+		currentTenantId = tenantId;
+		tenantMutationCounts[tenantId]++;
+	}
+
+	void clearCurrentTenant() { currentTenantId = Optional<int64_t>(); }
+
+	Optional<int64_t> getCurrentTenant() const { return currentTenantId; }
+
 private:
 	Reference<ILogSystem> logSystem;
 	std::vector<Tag> next_message_tags;
@@ -858,6 +868,10 @@ private:
 	uint32_t subsequence;
 	SpanContext spanContext;
 	bool logsChanged = false; // if keyServers has any changes, i.e., shard boundary modifications.
+
+	// Tenant-aware mutation batching: track current tenant being processed
+	Optional<int64_t> currentTenantId;
+	std::map<int64_t, int> tenantMutationCounts;
 
 	// Writes transaction info to the message stream at the given location if
 	// it has not already been written (for the current transaction). Returns
