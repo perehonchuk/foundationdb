@@ -636,6 +636,7 @@ namespace CommitBatch {
 constexpr const std::string_view UNSET = std::string_view();
 constexpr const std::string_view INITIALIZE = "initialize"sv;
 constexpr const std::string_view PRE_RESOLUTION = "preResolution"sv;
+constexpr const std::string_view INTEGRITY_CHECK = "integrityCheck"sv;
 constexpr const std::string_view RESOLUTION = "resolution"sv;
 constexpr const std::string_view POST_RESOLUTION = "postResolution"sv;
 constexpr const std::string_view TRANSACTION_LOGGING = "transactionLogging"sv;
@@ -1102,6 +1103,55 @@ EncryptCipherDomainId getEncryptDetailsFromMutationRef(ProxyCommitData* commitDa
 }
 
 } // namespace
+
+ACTOR Future<Void> integrityCheck(CommitBatchContext* self) {
+	state ProxyCommitData* pProxyCommitData = self->pProxyCommitData;
+	state std::vector<CommitTransactionRequest>& trs = self->trs;
+	state Span span("MP:integrityCheck"_loc, self->span.context);
+
+	if (!SERVER_KNOBS->ENABLE_TRANSACTION_INTEGRITY_CHECK) {
+		return Void();
+	}
+
+	// Perform integrity checks on transaction conflict ranges and mutations
+	state int t;
+	for (t = 0; t < trs.size(); t++) {
+		auto& tr = trs[t];
+
+		// Validate read conflict ranges don't overlap with write conflict ranges within same transaction
+		for (const auto& readRange : tr.transaction.read_conflict_ranges) {
+			for (const auto& writeRange : tr.transaction.write_conflict_ranges) {
+				if (readRange.intersects(writeRange)) {
+					CODE_PROBE(true, "Transaction with overlapping read/write conflict ranges detected");
+					TraceEvent(SevWarn, "TransactionIntegrityCheckFailed")
+					    .detail("Reason", "OverlappingConflictRanges")
+					    .detail("ReadRange", readRange)
+					    .detail("WriteRange", writeRange);
+				}
+			}
+		}
+
+		// Check for excessive conflict range count
+		int totalConflictRanges = tr.transaction.read_conflict_ranges.size() +
+		                          tr.transaction.write_conflict_ranges.size();
+		if (totalConflictRanges > SERVER_KNOBS->MAX_CONFLICT_RANGES_PER_TRANSACTION) {
+			CODE_PROBE(true, "Transaction exceeds maximum conflict ranges");
+			TraceEvent(SevWarn, "TransactionIntegrityCheckFailed")
+			    .detail("Reason", "ExcessiveConflictRanges")
+			    .detail("Count", totalConflictRanges)
+			    .detail("Limit", SERVER_KNOBS->MAX_CONFLICT_RANGES_PER_TRANSACTION);
+		}
+
+		// Introduce a small delay to simulate integrity checking overhead
+		if (SERVER_KNOBS->TRANSACTION_INTEGRITY_CHECK_DELAY_MS > 0) {
+			wait(delay(SERVER_KNOBS->TRANSACTION_INTEGRITY_CHECK_DELAY_MS / 1000.0));
+		}
+	}
+
+	pProxyCommitData->stats.txnIntegrityCheckCount += trs.size();
+
+	return Void();
+}
 
 ACTOR Future<Void> getResolution(CommitBatchContext* self) {
 	state double resolutionStart = g_network->timer_monotonic();
@@ -2874,6 +2924,10 @@ ACTOR Future<Void> commitBatchImpl(CommitBatchContext* pContext) {
 		pContext->pProxyCommitData->commitBatchesMemBytesCount -= pContext->currentBatchMemBytesCount;
 		return Void();
 	}
+
+	/////// Phase 1.5: Integrity check (CPU bound; validates transaction integrity before resolution)
+	pContext->stage = INTEGRITY_CHECK;
+	wait(CommitBatch::integrityCheck(pContext));
 
 	/////// Phase 2: Resolution (waiting on the network; pipelined)
 	pContext->stage = RESOLUTION;

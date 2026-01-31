@@ -59,6 +59,7 @@ struct ProxyStats {
 	Counter txnCommitIn, txnCommitVersionAssigned, txnCommitResolving, txnCommitResolved, txnCommitOut,
 	    txnCommitOutSuccess, txnCommitErrors;
 	Counter txnConflicts;
+	Counter txnIntegrityCheckCount;
 	Counter txnRejectedForQueuedTooLong;
 	Counter commitBatchIn, commitBatchOut;
 	Counter mutationBytes;
@@ -129,7 +130,8 @@ struct ProxyStats {
 	    txnCommitVersionAssigned("TxnCommitVersionAssigned", cc), txnCommitResolving("TxnCommitResolving", cc),
 	    txnCommitResolved("TxnCommitResolved", cc), txnCommitOut("TxnCommitOut", cc),
 	    txnCommitOutSuccess("TxnCommitOutSuccess", cc), txnCommitErrors("TxnCommitErrors", cc),
-	    txnConflicts("TxnConflicts", cc), txnRejectedForQueuedTooLong("TxnRejectedForQueuedTooLong", cc),
+	    txnConflicts("TxnConflicts", cc), txnIntegrityCheckCount("TxnIntegrityCheckCount", cc),
+	    txnRejectedForQueuedTooLong("TxnRejectedForQueuedTooLong", cc),
 	    commitBatchIn("CommitBatchIn", cc), commitBatchOut("CommitBatchOut", cc), mutationBytes("MutationBytes", cc),
 	    mutations("Mutations", cc), conflictRanges("ConflictRanges", cc),
 	    keyServerLocationIn("KeyServerLocationIn", cc), keyServerLocationOut("KeyServerLocationOut", cc),

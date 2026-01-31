@@ -749,6 +749,9 @@ void ServerKnobs::initialize(Randomize randomize, ClientKnobs* clientKnobs, IsSi
 
 	bool buggfyUseResolverPrivateMutations = randomize && BUGGIFY && !ENABLE_VERSION_VECTOR_TLOG_UNICAST;
 	init( PROXY_USE_RESOLVER_PRIVATE_MUTATIONS,                 false ); if( buggfyUseResolverPrivateMutations ) PROXY_USE_RESOLVER_PRIVATE_MUTATIONS = deterministicRandom()->coinflip();
+	init( ENABLE_TRANSACTION_INTEGRITY_CHECK,                    true );
+	init( MAX_CONFLICT_RANGES_PER_TRANSACTION,                  10000 );
+	init( TRANSACTION_INTEGRITY_CHECK_DELAY_MS,                   0.0 );
 
 	init( BURSTINESS_METRICS_ENABLED  ,                         false );
 	init( BURSTINESS_METRICS_LOG_INTERVAL,                        0.1 );
