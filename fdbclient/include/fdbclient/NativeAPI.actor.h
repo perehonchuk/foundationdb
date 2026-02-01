@@ -303,6 +303,9 @@ struct TransactionState : ReferenceCounted<TransactionState> {
 	bool skipApplyTenantPrefix = false;
 
 	int numErrors = 0;
+	int numConflictRetries = 0;
+	int numResourceRetries = 0;
+	int numThrottleRetries = 0;
 	double startTime = 0;
 	Promise<Standalone<StringRef>> versionstampPromise;
 

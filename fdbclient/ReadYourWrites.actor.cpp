@@ -1516,6 +1516,11 @@ public:
 
 			wait(ryw->resetPromise.getFuture() || ryw->tr.onError(e));
 
+			// Track per-error-type retries from underlying transaction state
+			ryw->conflictRetries = ryw->tr.trState->numConflictRetries;
+			ryw->resourceRetries = ryw->tr.trState->numResourceRetries;
+			ryw->throttleRetries = ryw->tr.trState->numThrottleRetries;
+
 			ryw->debugLogRetries(e);
 
 			ryw->resetRyow();
@@ -1549,7 +1554,8 @@ public:
 
 ReadYourWritesTransaction::ReadYourWritesTransaction(Database const& cx, Optional<Reference<Tenant>> const& tenant)
   : ISingleThreadTransaction(cx->deferredError), tr(cx, tenant), cache(&arena), writes(&arena), retries(0),
-    approximateSize(0), creationTime(now()), commitStarted(false), versionStampFuture(tr.getVersionstamp()),
+    conflictRetries(0), resourceRetries(0), throttleRetries(0), approximateSize(0), creationTime(now()),
+    commitStarted(false), versionStampFuture(tr.getVersionstamp()),
     specialKeySpaceWriteMap(std::make_pair(false, Optional<Value>()), specialKeys.end), options(tr) {
 	std::copy(
 	    cx.getTransactionDefaults().begin(), cx.getTransactionDefaults().end(), std::back_inserter(persistentOptions));
@@ -2750,7 +2756,12 @@ void ReadYourWritesTransaction::debugLogRetries(Optional<Error> error) {
 					trace.errorUnsuppressed(error.get());
 				if (!transactionDebugInfo->transactionName.empty())
 					trace.detail("TransactionName", transactionDebugInfo->transactionName);
-				trace.detail("Elapsed", elapsed).detail("Retries", retries).detail("Committed", committed);
+				trace.detail("Elapsed", elapsed)
+				    .detail("Retries", retries)
+				    .detail("ConflictRetries", conflictRetries)
+				    .detail("ResourceRetries", resourceRetries)
+				    .detail("ThrottleRetries", throttleRetries)
+				    .detail("Committed", committed);
 			}
 			transactionDebugInfo->lastRetryLogTime = now();
 		}

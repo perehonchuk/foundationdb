@@ -228,6 +228,9 @@ private:
 	Promise<Void> resetPromise;
 	AndFuture reading;
 	int retries;
+	int conflictRetries;
+	int resourceRetries;
+	int throttleRetries;
 	int64_t approximateSize;
 	Future<Void> timeoutActor;
 	double creationTime;

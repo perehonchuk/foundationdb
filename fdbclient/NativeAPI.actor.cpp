@@ -6035,23 +6035,30 @@ Future<Void> Transaction::onError(Error const& e) {
 	    e.code() == error_code_proxy_tag_throttled || e.code() == error_code_transaction_throttled_hot_shard ||
 	    (e.code() == error_code_transaction_rejected_range_locked &&
 	     CLIENT_KNOBS->TRANSACTION_LOCK_REJECTION_RETRIABLE)) {
-		if (e.code() == error_code_not_committed)
+		if (e.code() == error_code_not_committed) {
 			++trState->cx->transactionsNotCommitted;
-		else if (e.code() == error_code_commit_unknown_result)
+			++trState->numConflictRetries;
+		} else if (e.code() == error_code_commit_unknown_result) {
 			++trState->cx->transactionsMaybeCommitted;
-		else if (e.code() == error_code_commit_proxy_memory_limit_exceeded ||
-		         e.code() == error_code_grv_proxy_memory_limit_exceeded)
+			++trState->numConflictRetries;
+		} else if (e.code() == error_code_commit_proxy_memory_limit_exceeded ||
+		           e.code() == error_code_grv_proxy_memory_limit_exceeded) {
 			++trState->cx->transactionsResourceConstrained;
-		else if (e.code() == error_code_process_behind)
+			++trState->numResourceRetries;
+		} else if (e.code() == error_code_process_behind) {
 			++trState->cx->transactionsProcessBehind;
-		else if (e.code() == error_code_batch_transaction_throttled || e.code() == error_code_tag_throttled ||
-		         e.code() == error_code_transaction_throttled_hot_shard) {
+			++trState->numResourceRetries;
+		} else if (e.code() == error_code_batch_transaction_throttled || e.code() == error_code_tag_throttled ||
+		           e.code() == error_code_transaction_throttled_hot_shard) {
 			++trState->cx->transactionsThrottled;
+			++trState->numThrottleRetries;
 		} else if (e.code() == error_code_proxy_tag_throttled) {
 			++trState->cx->transactionsThrottled;
 			trState->proxyTagThrottledDuration += CLIENT_KNOBS->PROXY_MAX_TAG_THROTTLE_DURATION;
+			++trState->numThrottleRetries;
 		} else if (e.code() == error_code_transaction_rejected_range_locked) {
 			++trState->cx->transactionsLockRejected;
+			++trState->numConflictRetries;
 		}
 
 		double backoff = getBackoff(e.code());
